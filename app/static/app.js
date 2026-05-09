@@ -1095,8 +1095,8 @@ setupUploadZone("chart-upload-zone", "chart-file-input", async (file) => {
   const ticker = (document.getElementById("chart-ticker")?.value || "").trim().toUpperCase();
   const context = document.getElementById("chart-context")?.value || "";
   const result = document.getElementById("chart-upload-result");
-  if (!ticker || !/^[A-Z]{1,5}$/.test(ticker)) {
-    if (result) result.innerHTML = '<div class="error-banner"><span>Enter a valid ticker first</span></div>';
+  if (!ticker) {
+    if (result) result.innerHTML = '<div class="error-banner"><span>Select a ticker from the dropdown first</span></div>';
     return;
   }
   if (result) result.innerHTML = '<div class="loading">Uploading…</div>';

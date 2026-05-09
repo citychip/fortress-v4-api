@@ -604,7 +604,9 @@
           PNG or JPEG, max 10 MB.</p>
         <div class="form-row">
           <label>Ticker
-            <input type="text" id="chart-ticker" placeholder="MSFT" maxlength="5">
+            <select id="chart-ticker">
+              <option value="">— loading —</option>
+            </select>
           </label>
           <label>Context
             <select id="chart-context">
@@ -679,8 +681,8 @@
 </div><!-- .dash -->
 
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="/static/app.js?v=20260509j"></script>
-<script src="/static/phase4.js?v=20260509j"></script>
+<script src="/static/app.js?v=20260509k"></script>
+<script src="/static/phase4.js?v=20260509k"></script>
 <script src="/static/chart.js?v=20260509d"></script>
 <script src="/static/settings.js?v=20260509e"></script>
 <script src="/static/universe.js?v=20260509d"></script>
@@ -935,7 +937,7 @@ async function fetchEarningsDates() {
 async function populateChartTickers() {
   // Wait for the Bearer token to be ready before making authenticated API calls
   if (window._tokenReady) await window._tokenReady;
-  const selIds = ["chart-ticker-select", "pt-ticker", "pb-ticker"];
+  const selIds = ["chart-ticker-select", "pt-ticker", "pb-ticker", "chart-ticker"];
   const sels = selIds.map(id => document.getElementById(id)).filter(Boolean);
   if (!sels.length) return;
   try {
@@ -1041,9 +1043,17 @@ async function renderChartGallery(tickers) {
       });
       candles.setData(data.candles);
       mini.timeScale().fitContent();
-      // DP floor lines
+      // DP floor lines (red dashed)
       (data.levels?.dp_floors || []).forEach((price, i) => {
         candles.createPriceLine({ price, color: "#ff4d4d", lineWidth: 1, lineStyle: 2, title: `DP${i+1}` });
+      });
+      // GEX call walls (green dashed)
+      (data.levels?.gex_calls || []).forEach((price, i) => {
+        candles.createPriceLine({ price, color: "#00e676", lineWidth: 1, lineStyle: 2, title: `GC${i+1}` });
+      });
+      // GEX put walls (orange dashed)
+      (data.levels?.gex_puts || []).forEach((price, i) => {
+        candles.createPriceLine({ price, color: "#ff9800", lineWidth: 1, lineStyle: 2, title: `GP${i+1}` });
       });
       // Resize observer
       new ResizeObserver(() => { if (_galleryCharts[ticker]) _galleryCharts[ticker].applyOptions({ width: chartDiv.clientWidth }); }).observe(chartDiv);
