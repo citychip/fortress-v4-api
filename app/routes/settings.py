@@ -185,6 +185,12 @@ SCHEMA: dict[str, list[dict]] = {
         {"key": "theta_decay_warn_pct", "label": "Theta decay WARN (% NLV/day)", "type": "number", "unit": "%", "min": 0, "max": 5, "step": 0.01, "description": "Alert when daily theta burn exceeds this % of NLV"},
     ],
     "security": [
+        # --- Data source toggles ---
+        {"key": "use_ibkr_web_api",   "label": "Enable IBKR Web API",  "type": "boolean",
+         "description": "Connect to IB Gateway for live positions, Greeks, and account values. When disabled, Greeks are estimated via Black-Scholes (yfinance) and positions are read from the last saved snapshot. NetLiq and account values will be stale."},
+        {"key": "use_quantdata",       "label": "Enable QuantData",      "type": "boolean",
+         "description": "Power IV rank scanning, dark pool alerts, whale flow, macro regime, and DP/GEX chart overlays via QuantData.us. When disabled, workflow scripts are blocked, the candidate scanner is empty, macro regime shows as unknown, and the price chart shows plain candlesticks only."},
+        # --- Credentials ---
         {"key": "ibkr_account_id",      "label": "IBKR Account ID",        "type": "password", "description": "Your IBKR account number (e.g. U1234567). Stored locally, never sent externally."},
         {"key": "quantdata_api_key",   "label": "QuantData API key",      "type": "password", "description": "Set here or via QUANTDATA_API_KEY env var. Env var takes precedence."},
         {"key": "api_token_hint",      "label": "Dashboard API token",    "type": "text",     "description": "Read-only. Real token is set via FORTRESS_API_TOKEN env var on the server."},

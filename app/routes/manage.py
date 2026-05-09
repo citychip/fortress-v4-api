@@ -16,6 +16,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field, model_validator as _model_validator
 
 from app.services import state, chain as chain_svc
+from app.services import config_store
 from app.services.roll import evaluate_roll
 from app.services.stop_loss import evaluate_stop_loss, parse_dp_floors_from_daily_report
 
@@ -85,15 +86,19 @@ def stop_loss(
     sma_200 = chain_svc.get_sma(ticker, 200)
 
     dp_floors: list[float] = []
-    daily_path = _get_latest_daily_report()
-    if daily_path:
-        try:
-            with daily_path.open("r", encoding="utf-8") as f:
-                content = f.read()
-            floors_map = parse_dp_floors_from_daily_report(content)
-            dp_floors = floors_map.get(ticker, [])
-        except OSError:
-            pass
+    # Only load DP floors when QuantData is enabled (Settings > Security)
+    if config_store.cfg("security.use_quantdata", True):
+        daily_path = _get_latest_daily_report()
+        if daily_path:
+            try:
+                with daily_path.open("r", encoding="utf-8") as f:
+                    content = f.read()
+                floors_map = parse_dp_floors_from_daily_report(content)
+                dp_floors = floors_map.get(ticker, [])
+            except OSError:
+                pass
+    else:
+        daily_path = None  # QuantData disabled — DP floor signal suppressed
 
     # If current_mv not provided, use the aggregated net_market_value
     if current_mv is None and pos.get("net_market_value") is not None:
@@ -120,7 +125,11 @@ def stop_loss(
     result["sources"] = {
         "spot": "yfinance",
         "sma_200": "yfinance (200d daily close)",
-        "dp_floors": str(daily_path) if daily_path else None,
+        "dp_floors": (
+            "disabled (QuantData off in Settings > Security)"
+            if not config_store.cfg("security.use_quantdata", True)
+            else (str(daily_path) if daily_path else None)
+        ),
     }
     return result
 

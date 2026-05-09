@@ -269,6 +269,31 @@ async function initSettings() {
   }
 }
 
+// ─── Data-source warning banners ─────────────────────────────────────────────
+function updateDataSourceBanners() {
+  // Read live checkbox state (may be dirty/unsaved) or fall back to saved config
+  const ibkrEl = document.getElementById("field-security-use_ibkr_web_api");
+  const qdEl   = document.getElementById("field-security-use_quantdata");
+
+  const ibkrEnabled = ibkrEl ? ibkrEl.checked
+    : ((_dirty.security && _dirty.security.use_ibkr_web_api !== undefined)
+        ? _dirty.security.use_ibkr_web_api
+        : ((_config.security && _config.security.use_ibkr_web_api !== undefined)
+            ? _config.security.use_ibkr_web_api : true));
+
+  const qdEnabled = qdEl ? qdEl.checked
+    : ((_dirty.security && _dirty.security.use_quantdata !== undefined)
+        ? _dirty.security.use_quantdata
+        : ((_config.security && _config.security.use_quantdata !== undefined)
+            ? _config.security.use_quantdata : true));
+
+  const ibkrBanner = document.getElementById("banner-use_ibkr_web_api");
+  const qdBanner   = document.getElementById("banner-use_quantdata");
+
+  if (ibkrBanner) ibkrBanner.style.display = ibkrEnabled ? "none" : "flex";
+  if (qdBanner)   qdBanner.style.display   = qdEnabled   ? "none" : "flex";
+}
+
 function renderSettingsTab(container) {
   const sectionLabels = {
     security:  "🔐 Security & Credentials",
@@ -301,6 +326,8 @@ function renderSettingsTab(container) {
   html += renderBackupRestoreCard();
 
   container.innerHTML = html;
+  // Update banners after DOM is written
+  updateDataSourceBanners();
 }
 
 // ─── Collapsible section wrapper ─────────────────────────────────────────────
@@ -626,14 +653,19 @@ function renderField(section, field, value) {
       input = `<div class="settings-readonly">${escHtml(String(value ?? ""))}</div>`;
       break;
 
-    case "boolean":
+    case "boolean": {
       const checked = value ? "checked" : "";
+      // For data-source toggles, wire in the banner updater
+      const extraOnchange = (field.key === "use_ibkr_web_api" || field.key === "use_quantdata")
+        ? " updateDataSourceBanners();"
+        : "";
       input = `<label class="toggle-switch">
         <input type="checkbox" id="${id}" ${checked}
-          onchange="markDirty('${section}', '${field.key}', this.checked)" />
+          onchange="markDirty('${section}', '${field.key}', this.checked);${extraOnchange}" />
         <span class="toggle-slider"></span>
       </label>`;
       break;
+    }
 
     case "select":
       const opts = (field.options || []).map(o =>
@@ -667,11 +699,28 @@ function renderField(section, field, value) {
         onchange="markDirty('${section}', '${field.key}', this.value)" />`;
   }
 
+  // Inject amber warning banner after data-source toggle fields
+  let warningBanner = "";
+  if (field.key === "use_ibkr_web_api") {
+    warningBanner = `
+      <div id="banner-use_ibkr_web_api" class="datasource-warning-banner" style="display:none;">
+        <span class="datasource-warning-icon">⚠️</span>
+        <span>IBKR Web API disabled — Greeks are estimated via Black-Scholes, positions are read from last snapshot, NetLiq is stale.</span>
+      </div>`;
+  } else if (field.key === "use_quantdata") {
+    warningBanner = `
+      <div id="banner-use_quantdata" class="datasource-warning-banner" style="display:none;">
+        <span class="datasource-warning-icon">⚠️</span>
+        <span>QuantData disabled — workflow scripts blocked, candidate scanner empty, macro regime unknown, chart shows plain candlesticks only.</span>
+      </div>`;
+  }
+
   return `
     <div class="settings-field" id="field-wrapper-${section}-${field.key}">
       <label class="field-label" for="${id}">${label}</label>
       ${input}
       ${desc}
+      ${warningBanner}
     </div>
   `;
 }
@@ -787,6 +836,7 @@ window.confirmReset  = confirmReset;
 window.refreshNarrative = refreshNarrative;
 window.downloadBackup   = downloadBackup;
 window.uploadRestore    = uploadRestore;
+window.updateDataSourceBanners = updateDataSourceBanners;
 
 // Auto-init if either tab is already active on page load
 document.addEventListener("DOMContentLoaded", function () {

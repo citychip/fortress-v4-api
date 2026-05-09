@@ -1,6 +1,6 @@
 # Trading Dashboard — Build Specification
 
-**Version 1.8.1 — May 5, 2026**
+**Version 1.8.2 — May 9, 2026**
 
 End-to-end specification for the Fortress Dashboard. Covers architecture, data contracts, all UI features, the strategy logic engines, the upload pipeline, the IBKR Web API + CP Gateway integration, the chart widget, the schema-driven settings system, and the per-leg → aggregated position view.
 
@@ -8,6 +8,9 @@ v1.8 reflects three operational changes adopted from v1.7:
 1. Web API + CP Gateway is the primary broker integration (legacy TWS Gateway demoted to diagnostics).
 2. Schema-driven Settings tab + `config_store` replaces the flat `dashboard_settings.json`.
 3. Strategy v3.6 thresholds adopted: delta_critical = 0.35; account thresholds USD-native.
+
+v1.8.2 adds:
+4. **Security section** in `fortress_config.json` — `use_ibkr_web_api` and `use_quantdata` enable/disable toggles with runtime guards and amber warning banners in the Settings UI.
 
 ---
 
@@ -45,6 +48,7 @@ QuantData pipeline produces 4–5 markdown reports per day plus state JSON. Cros
 | 3 | Live | OCR pipeline (legacy), Web API direct sync (primary), TradingView Lightweight Charts widget, earnings auto-fetcher |
 | 4 | Live | Strategy logic engines — stop-loss, roll, post-earnings playbook, Jade Lizard validator, SPY hedge coverage, pre-trade gate, Portfolio Greeks |
 | **4.5 (new in v1.8)** | Live | Schema-driven Settings tab + `config_store`. Backend dispatcher selects greeks_backend per `cfg("technical.greeks_backend")`. |
+| **4.6 (new in v1.8.2)** | Live | Security section in `fortress_config.json`: `use_ibkr_web_api` and `use_quantdata` toggles with runtime guards across all dependent routes. |
 
 ---
 
@@ -54,7 +58,7 @@ QuantData pipeline produces 4–5 markdown reports per day plus state JSON. Cros
 
 - **Backend:** Python 3.14 with FastAPI (uvicorn[standard]).
 - **Frontend:** Single-page HTML + vanilla JS. No build step. TradingView Lightweight Charts loaded from CDN.
-- **State storage:** JSON files in `FORTRESS_DATA_DIR` (default `/opt/fortress-dashboard/quant/`). Atomic writes with timestamped backups.
+- **State storage:** JSON files in `FORTRESS_DATA_DIR` (default `/home/ubuntu/Fortress_Dashboard/quant/`). Atomic writes with timestamped backups.
 - **Runtime config:** `fortress_config.json` (in `FORTRESS_DATA_DIR`) — loaded once at startup into `config_store._config`, hot-edited via Settings UI, persisted atomically.
 - **Broker integration:**
   - Primary: `voyz/ibeam` Docker container running CP Gateway at `https://localhost:5000`. `httpx` client with cookie-based session token from `/tickle`.
@@ -79,13 +83,13 @@ QuantData pipeline produces 4–5 markdown reports per day plus state JSON. Cros
          |                                                                                  |
          | serves HTML + JSON                                                              | Web API → IBKR backend
          v                                                                                  v
-[ Browser / MCP / curl ]                                                              [ IBKR account YOUR_IBKR_ACCOUNT_ID ]
+[ Browser / MCP / curl ]                                                              [ IBKR account U7453366 ]
 ```
 
 ### 2.3 Directory layout
 
 ```
-/opt/fortress-dashboard/
+/home/ubuntu/Fortress_Dashboard/
 ├── app/
 │   ├── main.py
 │   ├── routes/
@@ -302,9 +306,11 @@ Unchanged from v1.7.
 
 Runtime configuration. Loaded once at startup by `config_store.load()`. Edited via `/api/settings/{section}` + `config_store.save()` (atomic write).
 
-Sections: `strategy`, `alerts`, `technical`, `ui`. Defaults defined in `app/services/config_store.py` `DEFAULTS`. Live values accessed anywhere in the codebase via `cfg("section.key")`.
+Sections: **`security`**, `strategy`, `alerts`, `technical`, `ui`. Defaults defined in `app/services/config_store.py` `DEFAULTS`. Live values accessed anywhere in the codebase via `cfg("section.key")`.
 
 Key fields:
+- **`security.use_ibkr_web_api`** = `true` — when `false`, forces `bs_yfinance` backend for all syncs (NEW v1.8.2)
+- **`security.use_quantdata`** = `true` — when `false`, blocks QuantData-dependent workflow scripts, clears chart overlays, suppresses DP floor signal (NEW v1.8.2)
 - `strategy.delta_critical_threshold` = 0.35 (Strategy v3.6 §5)
 - `strategy.available_funds_min_usd` = 17000 (USD-native, v1.8 §7.9)
 - `strategy.excess_liq_min_usd` = 25000
@@ -455,11 +461,22 @@ The aggregator promotes `alert_state` to `critical_gamma` when the primary short
 
 ### 5.6 Settings tab (NEW v1.8)
 
-Schema-driven editor. Four sections (Strategy, Alerts, Technical, UI). For each field: label, unit, type (number / text / password / boolean / select / multiselect), description.
+Schema-driven editor. **Five sections (Security, Strategy, Alerts, Technical, UI)** — Security is open by default. For each field: label, unit, type (number / text / password / boolean / select / multiselect), description.
 
 Inline save per section. Multiselect renders as checkbox group; select as dropdown; password as masked input with toggle.
 
 "Reset all to defaults" button at top, with confirmation dialog.
+
+#### Security section (NEW v1.8.2)
+
+Two enable/disable toggles at the top of the Security section:
+
+| Toggle | Default | Effect when disabled |
+|---|---|---|
+| **Enable IBKR Web API** (`use_ibkr_web_api`) | `true` | `/api/ibkr/sync` forces `bs_yfinance` backend regardless of `technical.greeks_backend`; response includes `ibkr_web_api_enabled: false`. Greeks are estimated via Black-Scholes; positions are read from last snapshot; NetLiq is stale. |
+| **Enable QuantData** (`use_quantdata`) | `true` | All QuantData-dependent workflow scripts blocked at `/api/run/{script_key}` (HTTP 503); chart DP/GEX overlays return empty arrays; stop-loss DP floor signal suppressed (Signal 4 never fires). `position_monitor` is exempt — it uses only yfinance/IBKR. |
+
+When a toggle is turned off, an **amber warning banner** appears immediately below the toggle (no save required to see the banner — it reacts to the live checkbox state). The banner lists the exact data degradations in plain English.
 
 ### 5.7 Phase 1 acceptance criteria
 
@@ -682,6 +699,7 @@ Same as v1.7. Target band from `cfg("strategy.spy_hedge_min_usd")` and `spy_hedg
 ### 8.6 Backend dispatcher + capability check (NEW v1.8)
 
 `POST /api/ibkr/sync` resolves the active backend per:
+0. **`cfg("security.use_ibkr_web_api") == false`** → immediately forces `bs_yfinance`; steps 1–2 are skipped (NEW v1.8.2)
 1. `?backend=` query param (one-shot override)
 2. `cfg("technical.greeks_backend")`:
    - `"auto"` → `state.resolve_greeks_backend(settings, capability)`:
@@ -697,7 +715,7 @@ Dispatcher calls the chosen sync function:
 - tws_ibkr → `ibkr_sync.sync_from_gateway(existing_positions)` (legacy)
 - bs_yfinance → `ibkr_sync_synthetic.sync_synthetic(existing_positions, settings)`
 
-Tag the result with `greeks_backend_used` and persist.
+Tag the result with `greeks_backend_used` and persist. Response includes `ibkr_web_api_enabled` boolean (NEW v1.8.2).
 
 `/api/ibkr/capability` returns:
 ```json
@@ -707,7 +725,7 @@ Tag the result with `greeks_backend_used` and persist.
   "web_api": {
     "configured": true,
     "session_status": { "connected": true, "authenticated": true, "established": true, "competing": false },
-    "account": "YOUR_IBKR_ACCOUNT_ID",
+    "account": "U7453366",
     "opra_subscribed": true,
     "opra_test": { "test_conid": ..., "test_delta": "0.318", "test_iv": "29.2%" }
   },
@@ -722,6 +740,22 @@ OPRA test re-uses the user's own positions — tries to snapshot the first 3 opt
 ### 8.7 Phase 4 acceptance criteria
 
 Unchanged from v1.7 + capability check returns valid JSON in <5s, dispatcher honors `greeks_backend` setting, `/api/ibkr/sync?backend=...` overrides for one-shot.
+
+### 8.8 Data-source runtime guards (NEW v1.8.2)
+
+Runtime enforcement of the `security.use_ibkr_web_api` and `security.use_quantdata` toggles across all dependent routes:
+
+| Route | Guard | Behaviour when disabled |
+|---|---|---|
+| `POST /api/ibkr/sync` | `use_ibkr_web_api` | Forces `bs_yfinance` backend; `ibkr_web_api_enabled: false` in response |
+| `POST /api/run/{script_key}` | `use_quantdata` | HTTP 503 with message directing user to Settings → Security (exempt: `position_monitor`) |
+| `GET /api/chart/{ticker}` | `use_quantdata` | Returns candles with empty `dp_floors`, `gex_calls`, `gex_puts` |
+| `GET /api/chart/{ticker}/levels` | `use_quantdata` | Returns empty overlay arrays |
+| `GET /api/manage/stop_loss/{id}` | `use_quantdata` | DP floor signal suppressed (`dp_floors=[]`); `sources.dp_floors` = `"disabled (QuantData off in Settings > Security)"` |
+
+QuantData-dependent scripts (blocked when `use_quantdata=false`): `premarket`, `daily`, `iv_crush`, `whale_flow`, `dark_pool_alert`, `eod_review`, `max_pain`, `entry_scoring`, `gex_oi`.
+
+Exempt scripts (always runnable): `position_monitor` (uses only yfinance/IBKR data).
 
 ---
 

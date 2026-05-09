@@ -1,9 +1,11 @@
 # Trading Workflow
 
-**Version 2.8 — May 5, 2026**
+**Version 2.8.1 — May 9, 2026**
 **Strategy:** Portfolio Strategy v3.6
 
 End-to-end automated trading workflow integrating QuantData market data, the Fortress Dashboard, and the IBKR Web API (CP Gateway) with Portfolio Strategy v3.6. Eight Python scripts run on schedule; the dashboard surfaces the outputs; the Phase 4 engines code-enforce the strategy's complex decision rules; live-tunable settings via Settings tab.
+
+v2.8.1 adds: `use_ibkr_web_api` and `use_quantdata` enable/disable toggles in Settings → Security, with runtime guards across all dependent routes.
 
 Governing principle from Strategy §15.1:
 
@@ -26,7 +28,7 @@ If anything in this doc conflicts with Strategy v3.6, Strategy v3.6 wins.
 
 ## 2. Script Inventory
 
-All scripts in `/opt/fortress-dashboard/quant/`. Triggered by `fortress_orchestrator.service` on schedule, or manually via `POST /api/run/{script_key}`.
+All scripts in `/home/ubuntu/Fortress_Dashboard/quant/`. Triggered by `fortress_orchestrator.service` on schedule, or manually via `POST /api/run/{script_key}`.
 
 | # | Script | Status | Schedule |
 |---|---|---|---|
@@ -161,7 +163,7 @@ EUR equivalent is shown alongside via yfinance EUR/USD rate (1h cache) for users
 
 The dashboard's broker integration is now CP Gateway (voyz/ibeam) at `https://localhost:5000`. With Read-Only API enabled at the IBKR account level (May 5, 2026), the gateway no longer interrupts snapshot fetches with the "API client needs write access" dialog.
 
-**Daily operational reality:** CP Gateway sessions expire every ~24h. `voyz/ibeam` re-authenticates automatically but **requires an IBKR Mobile push approval each cycle** — the trader gets a phone notification, taps to approve, ibeam continues.
+**Daily operational reality:** CP Gateway sessions expire every ~24h. `voyz/ibeam` re-authenticates automatically but **requires an IBKR Mobile push approval each cycle** — Steven gets a phone notification, taps to approve, ibeam continues.
 
 If the push is missed:
 - Capability badge in the dashboard header turns amber ("Δ: BS yfinance") within 60s of the auto-fall back.
@@ -199,6 +201,21 @@ The header backend badge shows the active backend. Hover for last-checked timest
 - Switch `greeks_backend` between `auto`, `web_api`, `bs_yfinance` without restarting the dashboard.
 
 Live-tunable. No downtime. No restart.
+
+### 6.6 Data-source enable/disable toggles (NEW v2.8.1)
+
+Settings → Security exposes two master toggles:
+
+**Enable IBKR Web API** (`security.use_ibkr_web_api`):
+- When **off**: every `/api/ibkr/sync` call forces the `bs_yfinance` synthetic backend, regardless of `technical.greeks_backend`. Greeks are estimated via Black-Scholes; positions are read from the last snapshot; NetLiq is stale. An amber banner appears in the Settings UI immediately.
+- Use this when CP Gateway is down for maintenance or you want to avoid live broker calls.
+
+**Enable QuantData** (`security.use_quantdata`):
+- When **off**: all QuantData-dependent workflow scripts return HTTP 503 when triggered via the dashboard. Chart DP/GEX overlays return empty arrays (plain candlesticks only). The stop-loss aggregator’s DP floor signal (Signal 4) is suppressed. An amber banner appears in the Settings UI immediately.
+- `position_monitor` is **exempt** — it uses only yfinance/IBKR data and always runs.
+- Use this when the QuantData API key is expired, the subscription has lapsed, or you are in a maintenance window.
+
+Both toggles default to `true`. Turning them off does not require a restart.
 
 ---
 
@@ -266,7 +283,7 @@ Unchanged from v2.7. The 5 principles still in force:
 
 QuantData session tokens expire (typically 24–48h). When any script returns 401, refresh via DevTools Network tab on `v3.quantdata.us` (same as v2.7).
 
-CP Gateway session refresh is **automatic** via voyz/ibeam — the trader approves the IBKR Mobile push when prompted; ibeam handles the rest.
+CP Gateway session refresh is **automatic** via voyz/ibeam — Steven approves the IBKR Mobile push when prompted; ibeam handles the rest.
 
 ---
 

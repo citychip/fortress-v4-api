@@ -1,6 +1,6 @@
 # Fortress Dashboard — Implementation Status
 
-**As of 2026-05-09 — Mode 3 (Live Strategy Narrative) live, TWS decommissioned, Bearer token middleware active**
+**As of 2026-05-09 — Mode 3 (Live Strategy Narrative) live, TWS decommissioned, Bearer token middleware active, Security toggles deployed**
 
 This document is the single source of truth for what's actually deployed on the VPS. It supersedes whatever the spec docs say when reality diverges. Replaces the 2026-05-04 version (now archived in `_archive_amendments_2026-05-04/`).
 
@@ -8,20 +8,20 @@ This document is the single source of truth for what's actually deployed on the 
 
 ## Deployment
 
-VPS: `srv1321374` (YOUR_VPS_IP), Ubuntu 26.04 LTS, account `ubuntu`.
+VPS: `srv1321374` (76.13.138.194), Ubuntu 26.04 LTS, account `ubuntu`.
 
 **Two systemd services running:**
-- `fortress-dashboard.service` — uvicorn on `0.0.0.0:8080`, app at `/opt/fortress-dashboard/app/`
+- `fortress-dashboard.service` — uvicorn on `0.0.0.0:8080`, app at `/home/ubuntu/Fortress_Dashboard/app/`
 - `fortress_orchestrator.service` — APScheduler driving the QuantData workflow scripts
 
 **Docker containers:**
-- `cp-gateway` (`voyz/ibeam:latest`) on host port 5000 — **active broker integration**, authenticated to account YOUR_IBKR_ACCOUNT_ID, healthy. Replaces the legacy TWS Gateway.
+- `cp-gateway` (`voyz/ibeam:latest`) on host port 5000 — **active broker integration**, authenticated to account U7453366, healthy. Replaces the legacy TWS Gateway.
 - *(Legacy `ib-gateway-ib-gateway-1` is `docker compose down`d. Code path remains for diagnostics; container not running.)*
 
 **Working directory layout:**
 
 ```
-/opt/fortress-dashboard/
+/home/ubuntu/Fortress_Dashboard/
 ├── app/
 │   ├── main.py
 │   ├── routes/      # 15 modules: briefing, positions, candidates, calendar,
@@ -43,7 +43,7 @@ VPS: `srv1321374` (YOUR_VPS_IP), Ubuntu 26.04 LTS, account `ubuntu`.
 └── _phase4_backup_2026-05-03/
 ```
 
-`FORTRESS_DATA_DIR` env var → `/opt/fortress-dashboard/quant`.
+`FORTRESS_DATA_DIR` env var → `/home/ubuntu/Fortress_Dashboard/quant`.
 
 ---
 
@@ -68,7 +68,7 @@ VPS: `srv1321374` (YOUR_VPS_IP), Ubuntu 26.04 LTS, account `ubuntu`.
 | **4.5 (new) — Settings tab + config_store** | ✅ Live | Schema-driven editor; live-tunable thresholds; `fortress_config.json` is canonical. |
 | **4.5 (new) — Backend dispatcher** | ✅ Live | `cfg("technical.greeks_backend")` ∈ {auto, web_api, bs_yfinance, tws_ibkr}. |
 | **4.5 (new) — Mode 3: Live Strategy Narrative** | ✅ Live | `GET /api/settings/narrative` → 4 paragraphs + observations + what-if. Rendered in Settings tab above the form. |
-| **4.5 (new) — Mode 3: Live Strategy Narrative** | ✅ Live | `GET /api/settings/narrative` → 4 paragraphs + observations + what-if. Rendered in Settings tab above the form. |
+| **4.6 (new) — Security toggles + runtime guards** | ✅ Live | `security.use_ibkr_web_api` and `security.use_quantdata` in Settings → Security. Amber banners in UI. Runtime guards in `/api/ibkr/sync`, `/api/run/{script}`, `/api/chart/{ticker}`, `/api/manage/stop_loss/{id}`. |
 
 ---
 
@@ -91,6 +91,7 @@ VPS: `srv1321374` (YOUR_VPS_IP), Ubuntu 26.04 LTS, account `ubuntu`.
 ### Settings system (Phase 4.5)
 
 `fortress_config.json` (in `quant/`) is the canonical runtime config. Sections:
+- **security** — `use_ibkr_web_api` (default `true`), `use_quantdata` (default `true`), IBKR account ID, QuantData API key/base URL, CP Gateway URL/SSL/timeout, API token hint. **(NEW v1.8.2)**
 - **strategy** — sizing, concentration, deltas, DTE, SPY hedge, stop-loss, playbook bands, credit minimums, VIX thresholds. **`delta_critical_threshold = 0.35`** (was 0.40 in v3.5).
 - **technical** — VPS / IBKR / CP Gateway connection params, **`greeks_backend`** (auto / web_api / bs_yfinance / tws_ibkr), data dirs, FX cache TTL.
 - **alerts** — delta watch/act, MV drawdown, DTE, concentration alert thresholds.
@@ -142,7 +143,7 @@ Three pre-migration UI inconsistencies were resolved in a single deploy:
 
 **Cache busters bumped:** `?v=20260505ux2`.
 
-**Pre-deploy backup:** `/tmp/static_pre_ux_phase1_20260505-220033.tgz` on the VPS — `index.html`, `app.js`, `phase4.js` from before the changes. Roll back via `tar xzf … -C /opt/fortress-dashboard/app/static/`.
+**Pre-deploy backup:** `/tmp/static_pre_ux_phase1_20260505-220033.tgz` on the VPS — `index.html`, `app.js`, `phase4.js` from before the changes. Roll back via `tar xzf … -C /home/ubuntu/Fortress_Dashboard/app/static/`.
 
 **Out of scope (UX phase 2 candidates):** Briefing-as-triage rebuild (auto-evaluate book and surface ranked attention list), `Cmd-K` command palette, severity-coded card framing, "diff vs yesterday" on positions, hover tooltips on Strategy `§` references.
 
@@ -207,10 +208,10 @@ GET    /api/run/scripts                   → list whitelisted workflow scripts
 POST   /api/run/{script_key}              → trigger one whitelisted script
 
 # Phase 4.5 settings (new)
-GET    /api/settings                      → {config: {strategy, technical, alerts, ui}}
+GET    /api/settings                      → {config: {security, strategy, technical, alerts, ui}}
 GET    /api/settings/schema               → {schema: {section: [field, ...]}}
 PUT    /api/settings/{section}            → body {values: {key: value}}
-POST   /api/settings/reset                → factory defaults
+POST   /api/settings/reset               → factory defaults
 ```
 
 Total: 39 routes under `/api/*`.
@@ -277,8 +278,18 @@ Total: 39 routes under `/api/*`.
 Switch via Settings tab → Technical → Greeks backend.
 
 ### Settings live-tuning
-
 `fortress_config.json` is hot-reloaded — Settings tab edits take effect on the next API call, no restart.
+
+### Security toggles (NEW v1.8.2)
+
+Settings → Security exposes two master enable/disable toggles:
+
+| Toggle | Key | Default | Effect when disabled |
+|---|---|---|---|
+| Enable IBKR Web API | `security.use_ibkr_web_api` | `true` | `/api/ibkr/sync` forces `bs_yfinance` regardless of `greeks_backend`; response includes `ibkr_web_api_enabled: false`. Greeks are BS-estimated; positions are from last snapshot; NetLiq is stale. |
+| Enable QuantData | `security.use_quantdata` | `true` | All QuantData workflow scripts blocked (HTTP 503) at `/api/run/{script_key}`; chart DP/GEX overlays return empty arrays; stop-loss DP floor signal suppressed. `position_monitor` is exempt. |
+
+Amber warning banners appear in the Settings UI immediately when a toggle is turned off (before save). No restart required.
 
 ---
 
@@ -314,7 +325,7 @@ Each is recoverable with `cp <file>.pre-*-bak <file>` + service restart.
 
 ## Next-step recommendations (ranked)
 1. **Install MCP server in Claude Desktop.** Copy `fortress_mcp.py` to your laptop, add the config snippet from `fortress_mcp/`
-**Utility Scripts: /opt/fortress-dashboard/scripts/ — 34 scripts, see scripts/README.md.mdclaude_desktop_config_snippet.json` to Claude Desktop config, restart Claude Desktop. ~5 minutes.
+**Utility Scripts: /home/ubuntu/Fortress_Dashboard/scripts/ — 34 scripts, see scripts/README.md.mdclaude_desktop_config_snippet.json` to Claude Desktop config, restart Claude Desktop. ~5 minutes.
 2. **Lock down port 8080 with UFW.** `ufw allow ssh && ufw allow from <home_ip> to any port 8080 && ufw enable`. Highest-priority unaddressed security risk.
 3. **End-to-end MCP test.** Run all 19 Tier 1 tools in Claude Desktop. Verify error handling and degraded-mode warnings per `07_MCP_Workflow_and_Prompts_v1_1.md §10`.
 4. **Enable Tier 2 write tools.** Add `FORTRESS_MCP_ALLOW_WRITES=1` to Claude Desktop MCP env once Tier 1 is stable (~1-2 weeks of use).
@@ -334,3 +345,17 @@ Each is recoverable with `cp <file>.pre-*-bak <file>` + service restart.
   * Added strategy-specific config parameters (e.g., `iron_condor_short_delta`, `collar_protective_put_delta`).
   * Updated `state.py` to automatically infer all 24 strategy types from leg structures.
   * Rebuilt the Strategy tab frontend with interactive persona cards that apply preset configs dynamically.
+
+## Mode 5 — Public GitHub Release (2026-05-09)
+
+| Component | Status | Notes |
+|---|---|---|
+| Security section in Settings tab | ✅ Complete | API keys, tokens, account IDs moved to dedicated Security section |
+| Backup & Restore UI | ✅ Complete | Export/import all settings as JSON from Settings tab |
+| Strategy tab readability | ✅ Complete | Collapsible sections, persona cards, strategy group headers |
+| GitHub Actions CI/CD | ✅ Complete | Auto-deploy to VPS on push to main via SSH |
+| Codebase sanitisation | ✅ Complete | All personal values replaced with placeholders |
+| install.sh | ✅ Complete | One-command installation script |
+| README.md | ✅ Complete | Full installation and configuration guide |
+| GitHub repository | ✅ Published | https://github.com/citychip/options-portfolio-strategy-dashboard-2026 |
+

@@ -16,9 +16,23 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 
-from app.services import state
+from app.services import state, config_store
 
 router = APIRouter()
+
+# Scripts that require QuantData to be enabled (Settings > Security > Enable QuantData).
+# workflow_03 (position_monitor) is exempt — it only uses yfinance/IBKR.
+QUANTDATA_REQUIRED_SCRIPTS = {
+    "premarket",
+    "daily",
+    "iv_crush",
+    "whale_flow",
+    "dark_pool_alert",
+    "eod_review",
+    "max_pain",
+    "entry_scoring",
+    "gex_oi",
+}
 
 # Whitelist of scripts that can be invoked via the dashboard.
 # Anything not on this list returns 403.
@@ -62,6 +76,16 @@ def run_script(script_key: str):
         raise HTTPException(
             status_code=403,
             detail=f"Script '{script_key}' is not whitelisted. Available: {list(WORKFLOW_SCRIPTS.keys())}"
+        )
+
+    # Guard: QuantData-dependent scripts are blocked when the toggle is off
+    if script_key in QUANTDATA_REQUIRED_SCRIPTS and not config_store.cfg("security.use_quantdata", True):
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"Script '{script_key}' requires QuantData, which is currently disabled. "
+                "Enable it in Settings → Security → Enable QuantData."
+            ),
         )
 
     script_path = state.BASE_DIR / WORKFLOW_SCRIPTS[script_key]

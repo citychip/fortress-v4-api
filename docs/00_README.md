@@ -1,6 +1,6 @@
 # Fortress Dashboard — Documentation
 
-**Version:** 2.2 | **Updated:** May 5, 2026 | **Strategy:** Portfolio Strategy v3.6
+**Version:** 2.3 | **Updated:** May 9, 2026 | **Strategy:** Portfolio Strategy v3.6
 
 ---
 
@@ -39,7 +39,7 @@ See `07_MCP_Workflow_and_Prompts_v1_1.md` for example prompts and workflows.
 
 ---
 
-## Current Live State (May 5, 2026)
+## Current Live State (May 9, 2026)
 
 | Component | Status | Notes |
 |---|---|---|
@@ -47,7 +47,8 @@ See `07_MCP_Workflow_and_Prompts_v1_1.md` for example prompts and workflows.
 | Bearer token auth | **Live** | All `/api/*` endpoints protected |
 | Greeks backend | **Web API** | CP Gateway (voyz/ibeam) + OPRA. 25/26 positions with live Greeks. |
 | Portfolio Greeks | **Live** | Δ +653, Θ -19.2, V -27.8 |
-| Settings tab | **Live** | Conflicts resolved. All four sections render. |
+| Settings tab | **Live** | Five sections: Security (new), Strategy, Alerts, Technical, UI. |
+| Security toggles | **Live** | `use_ibkr_web_api` and `use_quantdata` in Settings → Security. Amber banners + runtime guards. |
 | MCP server | **Built** | `fortress_mcp.py` — 28 tools. Pending Claude Desktop install. |
 | IB Gateway (legacy) | **Stopped** | Superseded by Web API. Container decommissioned. |
 
@@ -59,9 +60,9 @@ See `07_MCP_Workflow_and_Prompts_v1_1.md` for example prompts and workflows.
 |---|---|
 | API token | `/home/ubuntu/.fortress_api_token` |
 | Systemd override | `/etc/systemd/system/fortress-dashboard.service.d/override.conf` |
-| App config | `/opt/fortress-dashboard/quant/fortress_config.json` |
-| Positions | `/opt/fortress-dashboard/quant/active_positions.json` |
-| Backups | `/opt/fortress-dashboard/quant/backups/` |
+| App config | `/home/ubuntu/Fortress_Dashboard/quant/fortress_config.json` |
+| Positions | `/home/ubuntu/Fortress_Dashboard/quant/active_positions.json` |
+| Backups | `/home/ubuntu/Fortress_Dashboard/quant/backups/` |
 | MCP server | `/home/ubuntu/fortress_mcp/fortress_mcp.py` |
 
 ---
@@ -91,6 +92,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/ibkr/sy
 
 | Version | Date | Changes |
 |---|---|---|
+| 2.3 | 2026-05-09 | Security section added to Settings tab. `use_ibkr_web_api` and `use_quantdata` toggles with amber banners and runtime guards across all dependent routes. Build Spec → v1.8.2, Workflow → v2.8.1, VPS Guide → v1.5.1. |
 | 2.2 | 2026-05-05 | MCP server built (28 tools). Bearer token live. Settings tab conflicts resolved. Deprecated docs deleted: MCP Proposal v1.1, IBKR Web API Migration Plan, all subfolder duplicates, archive folder. |
 | 2.1 | 2026-05-05 | Web API backend live. CP Gateway (voyz/ibeam) active. All four Greeks live on 25/26 positions. |
 | 2.0 | 2026-05-05 | Full doc restructure. 12-file package. Subfolder organisation. |

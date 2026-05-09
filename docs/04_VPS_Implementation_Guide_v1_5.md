@@ -1,8 +1,10 @@
 # Fortress Dashboard — VPS Implementation Guide
 
-**Version 1.5 — May 5, 2026**
+**Version 1.5.1 — May 9, 2026**
 
 End-to-end instructions for deploying the Fortress Dashboard on a fresh VPS. v1.5 promotes **CP Gateway (voyz/ibeam)** to the primary broker integration. The legacy TWS Gateway (`gnzsnz/ib-gateway`) is retained as diagnostics-only and demoted in this guide.
+
+v1.5.1 adds: Security section in `fortress_config.json` with `use_ibkr_web_api` and `use_quantdata` enable/disable toggles.
 
 ---
 
@@ -25,11 +27,11 @@ sudo usermod -aG docker ubuntu
 ### 1.2 Directory structure
 
 ```bash
-mkdir -p /opt/fortress-dashboard/app/{routes,services,services/ibkr_web,static}
-mkdir -p /opt/fortress-dashboard/quant/backups
-mkdir -p /opt/fortress-dashboard/cp-gateway/conf
-mkdir -p /opt/fortress-dashboard/ib-gateway   # legacy, optional
-mkdir -p /opt/fortress-dashboard/docs
+mkdir -p /home/ubuntu/Fortress_Dashboard/app/{routes,services,services/ibkr_web,static}
+mkdir -p /home/ubuntu/Fortress_Dashboard/quant/backups
+mkdir -p /home/ubuntu/Fortress_Dashboard/cp-gateway/conf
+mkdir -p /home/ubuntu/Fortress_Dashboard/ib-gateway   # legacy, optional
+mkdir -p /home/ubuntu/Fortress_Dashboard/docs
 ```
 
 ---
@@ -39,7 +41,7 @@ mkdir -p /opt/fortress-dashboard/docs
 ### 2.1 Create the virtual environment
 
 ```bash
-cd /opt/fortress-dashboard
+cd /home/ubuntu/Fortress_Dashboard
 python3 -m venv venv
 source venv/bin/activate
 ```
@@ -77,7 +79,7 @@ NEW in v1.5: this section is the primary broker setup. The legacy TWS Gateway (�
 - All four Greeks (delta/gamma/theta/vega) come back live when OPRA is subscribed.
 - voyz/ibeam handles automated login + tickle loop.
 
-Trade-off: session expires every ~24h. ibeam re-authenticates automatically but **requires an IBKR Mobile push approval each cycle** (the trader taps to approve). Future migration to OAuth 2.0 direct would eliminate this.
+Trade-off: session expires every ~24h. ibeam re-authenticates automatically but **requires an IBKR Mobile push approval each cycle** (Steven taps to approve). Future migration to OAuth 2.0 direct would eliminate this.
 
 ### 3.2 IBKR account-level prerequisite
 
@@ -92,7 +94,7 @@ Without this, the dashboard popup interrupts snapshots even on the Web API path.
 
 ### 3.3 Docker Compose file
 
-Save as `/opt/fortress-dashboard/cp-gateway/docker-compose.yml`:
+Save as `/home/ubuntu/Fortress_Dashboard/cp-gateway/docker-compose.yml`:
 
 ```yaml
 services:
@@ -127,7 +129,7 @@ Pull the conf out, patch the IPs section, mount it back via the volume in 3.3.
 
 ```bash
 # Start the container once to extract the conf
-cd /opt/fortress-dashboard/cp-gateway
+cd /home/ubuntu/Fortress_Dashboard/cp-gateway
 docker compose up -d
 sleep 30  # wait for the gateway to write the conf
 docker cp cp-gateway:/srv/clientportal.gw/root/conf.yaml ./conf/conf.yaml
@@ -145,7 +147,7 @@ EOF
 # Apply (using Python for safety on the YAML structure)
 python3 - <<'PY'
 import re
-p = '/opt/fortress-dashboard/cp-gateway/conf/conf.yaml'
+p = '/home/ubuntu/Fortress_Dashboard/cp-gateway/conf/conf.yaml'
 with open(p) as f: c = f.read()
 new_ips = """ips:
   allow:
@@ -164,7 +166,7 @@ docker compose down && docker compose up -d
 
 ### 3.5 Configure credentials
 
-Create `/opt/fortress-dashboard/cp-gateway/.env`:
+Create `/home/ubuntu/Fortress_Dashboard/cp-gateway/.env`:
 
 ```text
 # IBeam (CP Gateway) configuration
@@ -198,11 +200,11 @@ Restrict file permissions: `chmod 600 .env`. Never commit to git.
 ### 3.6 First-time login
 
 ```bash
-cd /opt/fortress-dashboard/cp-gateway
+cd /home/ubuntu/Fortress_Dashboard/cp-gateway
 docker compose up -d
 ```
 
-Within ~30 seconds, an **IBKR Mobile push notification** arrives on the trader's phone. Tap "Approve" within ~3 minutes.
+Within ~30 seconds, an **IBKR Mobile push notification** arrives on Steven's phone. Tap "Approve" within ~3 minutes.
 
 Verify login completed:
 
@@ -214,7 +216,7 @@ Expect: `AUTHENTICATED Status(running=True, session=True, connected=True, authen
 
 ### 3.7 Daily re-auth ergonomics
 
-Sessions expire every ~24h. ibeam's maintenance loop re-authenticates automatically; the trader gets a fresh push notification when this happens. Approve to continue.
+Sessions expire every ~24h. ibeam's maintenance loop re-authenticates automatically; Steven gets a fresh push notification when this happens. Approve to continue.
 
 If the push is missed:
 - Capability badge in the dashboard header turns amber within 60s.
@@ -258,7 +260,7 @@ Demoted in v1.5. Retained for cases where you want to compare backends or debug 
 
 ### 4.1 Compose
 
-`/opt/fortress-dashboard/ib-gateway/docker-compose.yml`:
+`/home/ubuntu/Fortress_Dashboard/ib-gateway/docker-compose.yml`:
 
 ```yaml
 services:
@@ -316,11 +318,11 @@ After=network.target docker.service
 [Service]
 Type=simple
 User=ubuntu
-WorkingDirectory=/opt/fortress-dashboard
-Environment="PATH=/opt/fortress-dashboard/venv/bin:/usr/local/bin:/usr/bin:/bin"
-Environment="FORTRESS_DATA_DIR=/opt/fortress-dashboard/quant"
+WorkingDirectory=/home/ubuntu/Fortress_Dashboard
+Environment="PATH=/home/ubuntu/Fortress_Dashboard/venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="FORTRESS_DATA_DIR=/home/ubuntu/Fortress_Dashboard/quant"
 Environment="TESSERACT_CMD=/usr/bin/tesseract"
-ExecStart=/opt/fortress-dashboard/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8080
+ExecStart=/home/ubuntu/Fortress_Dashboard/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8080
 Restart=on-failure
 RestartSec=10
 
@@ -388,9 +390,10 @@ QuantData report parser expects the format:
 
 ### 8.1 fortress_config.json
 
-Lives in `FORTRESS_DATA_DIR` (`/opt/fortress-dashboard/quant/fortress_config.json`). Auto-created from `app/services/config_store.py` `DEFAULTS` on first startup.
+Lives in `FORTRESS_DATA_DIR` (`/home/ubuntu/Fortress_Dashboard/quant/fortress_config.json`). Auto-created from `app/services/config_store.py` `DEFAULTS` on first startup.
 
 Sections:
+- **security** — `use_ibkr_web_api`, `use_quantdata`, IBKR account ID, QuantData API key/base URL, CP Gateway URL/SSL/timeout, API token hint **(NEW v1.5.1)**
 - **strategy** — sizing, concentration, deltas, DTE, SPY hedge band, stop-loss, playbook bands, credits, VIX
 - **technical** — VPS / IBKR / CP Gateway connection params, `greeks_backend` selector
 - **alerts** — delta watch/act, MV drawdown, DTE, concentration alert thresholds
@@ -398,18 +401,29 @@ Sections:
 
 ### 8.2 Settings tab UI
 
-Schema-driven editor at the dashboard's Settings tab. Inline save per section. Multiselect / dropdown / number / text / password / boolean field types.
+Schema-driven editor at the dashboard's Settings tab. **Five sections: Security, Strategy, Alerts, Technical, UI.** Security is expanded by default. Inline save per section. Multiselect / dropdown / number / text / password / boolean field types.
+
+#### Security section toggles (NEW v1.5.1)
+
+The Security section exposes two master enable/disable toggles at the top:
+
+| Toggle | Default | Effect when disabled |
+|---|---|---|
+| **Enable IBKR Web API** | `true` | Forces `bs_yfinance` backend on every sync; `ibkr_web_api_enabled: false` in response |
+| **Enable QuantData** | `true` | Blocks all QuantData workflow scripts (HTTP 503); clears chart DP/GEX overlays; suppresses stop-loss DP floor signal |
+
+Amber warning banners appear immediately below each toggle when it is turned off (live reaction, no save required).
 
 ### 8.3 API
 
-- `GET /api/settings` → `{config: {...}}`
+- `GET /api/settings` → `{config: {security, strategy, technical, alerts, ui}}`
 - `GET /api/settings/schema` → `{schema: {section: [field, ...]}}`
 - `PUT /api/settings/{section}` body `{values: {key: value}}`
 - `POST /api/settings/reset` → factory defaults
 
 ### 8.4 Hot-reload
 
-Settings edits take effect on the next API call — no restart required. Atomic write via tmp + rename. Backups not yet wired (state.write_json's pattern would be the right model).
+Settings edits take effect on the next API call — no restart required. Atomic write via tmp + rename.
 
 ---
 

@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from fastapi import APIRouter, HTTPException
-from app.services import state
+from app.services import state, config_store
 
 logger = logging.getLogger("fortress.ibkr")
 router = APIRouter(tags=["ibkr"])
@@ -62,7 +62,12 @@ async def trigger_sync(backend: str | None = None):
         )
 
         settings = state.get_dashboard_settings()
-        if backend:
+        # Security toggle: when IBKR Web API is disabled, force synthetic backend
+        ibkr_enabled = config_store.cfg("security.use_ibkr_web_api", True)
+        if not ibkr_enabled:
+            chosen = "bs_yfinance"
+            logger.info("Sync dispatcher: IBKR Web API disabled in Settings — forcing bs_yfinance")
+        elif backend:
             chosen = backend
         else:
             cap = cap_mod.get_capability()
@@ -91,6 +96,7 @@ async def trigger_sync(backend: str | None = None):
             "synced_at": synced.get("ibkr_last_sync") or synced.get("_last_updated"),
             "positions_count": len(positions),
             "backend": chosen,
+            "ibkr_web_api_enabled": ibkr_enabled,
             "net_liq": synced.get("net_liq"),
             "excess_liquidity": synced.get("excess_liquidity"),
             "available_funds": synced.get("available_funds"),

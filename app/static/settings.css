@@ -383,3 +383,63 @@ details[open] .narrative-whatif-summary::before { content: "▼ "; }
   margin-bottom: 0.4rem;
 }
 .narrative-whatif-list li:last-child { margin-bottom: 0; }
+
+/* ─── Collapsible settings sections ────────────────────────────────────────── */
+.settings-collapsible {
+  margin-bottom: 1.25rem;
+  border: 1px solid var(--border, #2a2a2a);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-card, #141414);
+}
+.settings-collapsible-summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 0.75rem 1.25rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary, #f0f0f0);
+  background: var(--bg-card-header, #1a1a1a);
+  border-bottom: 1px solid var(--border, #2a2a2a);
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.settings-collapsible-summary::-webkit-details-marker { display: none; }
+.settings-collapsible-summary::before {
+  content: "▶";
+  font-size: 0.65rem;
+  color: var(--text-muted, #888);
+  transition: transform 0.15s;
+  display: inline-block;
+  margin-right: 0.35rem;
+}
+details[open].settings-collapsible .settings-collapsible-summary::before {
+  transform: rotate(90deg);
+}
+.settings-collapsible > .settings-section {
+  border: none;
+  border-radius: 0;
+  margin-bottom: 0;
+}
+
+/* ─── Data-source warning banners ───────────────────────────────────────────── */
+.datasource-warning-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-top: 0.45rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(245, 158, 11, 0.10);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: 5px;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--warning, #f59e0b);
+}
+.datasource-warning-icon {
+  flex-shrink: 0;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}

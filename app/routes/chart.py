@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 import yfinance as yf
+from app.services import config_store
 
 logger = logging.getLogger("fortress.chart")
 router = APIRouter(tags=["chart"])
@@ -106,7 +107,11 @@ def get_chart_data(
     """
     ticker = ticker.upper()
     candles = _fetch_ohlcv(ticker, period=period, interval=interval)
-    levels  = _parse_dp_levels(ticker)
+    # Only fetch DP/GEX overlays when QuantData is enabled (Settings > Security)
+    if config_store.cfg("security.use_quantdata", True):
+        levels = _parse_dp_levels(ticker)
+    else:
+        levels = {"dp_floors": [], "gex_calls": [], "gex_puts": []}
 
     if not candles:
         raise HTTPException(status_code=404, detail=f"No price data found for {ticker}")
@@ -131,5 +136,9 @@ def get_chart_levels(ticker: str):
     Fast endpoint for refreshing overlays without re-fetching candles.
     """
     ticker = ticker.upper()
-    levels = _parse_dp_levels(ticker)
+    # Only fetch DP/GEX overlays when QuantData is enabled (Settings > Security)
+    if config_store.cfg("security.use_quantdata", True):
+        levels = _parse_dp_levels(ticker)
+    else:
+        levels = {"dp_floors": [], "gex_calls": [], "gex_puts": []}
     return {"ticker": ticker, **levels}
