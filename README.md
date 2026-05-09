@@ -11,15 +11,29 @@ Fortress is not an auto-trader; it is a **strategy management layer** that reads
 - **Trader Personas:** Switch between 5 predefined profiles (Income Seeker, Speculator, Volatility Trader, Hedger, PMCC) to instantly reconfigure risk tolerances and strategy rules.
 - **Live Strategy Narrative:** A generative plain-English briefing of your portfolio's state, macro regime, and concentration risks.
 - **Automatic Strategy Inference:** Automatically classifies raw IBKR positions into 24 distinct options strategies (Iron Condors, PMCCs, Collars, etc.) based on leg structure.
-- **Workflow Automation:** Trigger Python workflow scripts directly from the UI for IV crush scanning, pre-market analysis, and position monitoring.
+- **Workflow Automation:** Trigger Python workflow scripts directly from the UI for IV crush scanning, pre-market analysis, dark pool alerts, and whale flow reports (powered by QuantData).
 - **IBKR Integration:** Pulls live positions and greeks via IB Gateway.
 - **Security First:** No internet exposure required (designed to run behind Tailscale/VPN). API keys and passwords stay on your VPS.
+
+## External Data Dependencies
+
+### QuantData.us (Required for Workflows)
+While the core portfolio management and strategy inference rely solely on Interactive Brokers, the **Run workflow scripts** feature (in the Manage tab) heavily depends on the [QuantData.us](https://quantdata.us) API. 
+
+QuantData provides the underlying data for:
+- Pre-market IV rank scanning
+- IV Crush reporting
+- Whale flow and dark pool alerts
+- Max pain and EOD reviews
+
+You will need a QuantData API key configured in the **Settings > Security** tab to use these workflow scripts. Without it, the scripts will fail to fetch data.
 
 ## Installation
 
 ### Prerequisites
 - A Linux VPS (Ubuntu 22.04/24.04 recommended)
-- Interactive Brokers account (for live data)
+- **Interactive Brokers account** (for live portfolio data and execution)
+- **QuantData.us API Key** (required for workflow scripts, IV crush scanning, and dark pool alerts)
 
 ### 1-Click Install
 
