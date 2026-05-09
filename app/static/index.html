@@ -538,6 +538,18 @@
       <div id="pb-result" class="phase4-result"></div>
     </div>
 
+    <!-- Chart gallery — all universe tickers -->
+    <div class="card" id="chart-gallery-card">
+      <h2 style="cursor:pointer;user-select:none" onclick="toggleChartGallery()">
+        Chart gallery — all tickers
+        <span id="chart-gallery-toggle" style="font-size:13px;font-weight:400;color:var(--color-text-tertiary);margin-left:8px">▼</span>
+      </h2>
+      <p class="muted small">3-month candlestick with DP/GEX overlays for every universe ticker. Click any chart to expand it above.</p>
+      <div id="chart-gallery-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-top:10px">
+        <p class="muted small" style="padding:8px 0">Loading charts…</p>
+      </div>
+    </div>
+
     <div class="card phase-info">
       <h2>Matrix reference (§10)</h2>
       <table class="matrix-table">
@@ -667,8 +679,8 @@
 </div><!-- .dash -->
 
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="/static/app.js?v=20260509i"></script>
-<script src="/static/phase4.js?v=20260509i"></script>
+<script src="/static/app.js?v=20260509j"></script>
+<script src="/static/phase4.js?v=20260509j"></script>
 <script src="/static/chart.js?v=20260509d"></script>
 <script src="/static/settings.js?v=20260509e"></script>
 <script src="/static/universe.js?v=20260509d"></script>
@@ -921,11 +933,14 @@ async function fetchEarningsDates() {
 
 // ─── Populate all Trade-tab ticker dropdowns from /api/universe ─────────────
 async function populateChartTickers() {
+  // Wait for the Bearer token to be ready before making authenticated API calls
+  if (window._tokenReady) await window._tokenReady;
   const selIds = ["chart-ticker-select", "pt-ticker", "pb-ticker"];
   const sels = selIds.map(id => document.getElementById(id)).filter(Boolean);
   if (!sels.length) return;
   try {
     const data = await apiFetch("/api/universe");
+    if (!data) throw new Error("null response");
     // Tier 1 first, then Tier 2, then macro — deduplicated
     const tiers = [...(data.tier1 || []), ...(data.tier2 || []), ...(data.macro || [])];
     const tickers = [...new Set(tiers)];
@@ -939,11 +954,102 @@ async function populateChartTickers() {
         sel.appendChild(opt);
       }
     }
+    // Auto-select first ticker in the chart dropdown and render it
+    const chartSel = document.getElementById("chart-ticker-select");
+    if (chartSel && tickers.length > 0) {
+      chartSel.value = tickers[0];
+      if (typeof renderChart === "function") {
+        const period = document.getElementById("chart-period-select")?.value || "3mo";
+        renderChart(tickers[0], period);
+      }
+    }
+    // Build chart gallery
+    renderChartGallery(tickers);
   } catch (e) {
     for (const sel of sels) {
       sel.innerHTML = '<option value="">— error loading —</option>';
     }
     console.error("populateChartTickers:", e);
+  }
+}
+
+// ─── Chart gallery — mini-charts for every universe ticker ────────────────────────────
+const _galleryCharts = {}; // ticker → LightweightCharts instance
+
+function toggleChartGallery() {
+  const grid = document.getElementById("chart-gallery-grid");
+  const icon = document.getElementById("chart-gallery-toggle");
+  if (!grid) return;
+  const hidden = grid.style.display === "none";
+  grid.style.display = hidden ? "grid" : "none";
+  if (icon) icon.textContent = hidden ? "▼" : "▶";
+}
+
+async function renderChartGallery(tickers) {
+  const grid = document.getElementById("chart-gallery-grid");
+  if (!grid) return;
+  grid.innerHTML = "";
+  // Render mini-charts sequentially to avoid hammering the API
+  for (const ticker of tickers) {
+    const cell = document.createElement("div");
+    cell.style.cssText = "background:#161a1e;border-radius:6px;overflow:hidden;cursor:pointer;border:0.5px solid var(--color-border-tertiary);position:relative";
+    cell.title = `Click to expand ${ticker}`;
+    // Label bar
+    const label = document.createElement("div");
+    label.style.cssText = "padding:6px 10px;font-size:12px;font-weight:600;font-family:var(--font-mono);color:#e0e0e0;background:#1e2328;border-bottom:0.5px solid var(--color-border-tertiary);display:flex;justify-content:space-between;align-items:center";
+    label.innerHTML = `<span>${ticker}</span><span style="font-size:10px;color:var(--color-text-tertiary);font-weight:400">3mo ↗ expand</span>`;
+    cell.appendChild(label);
+    // Chart container
+    const chartDiv = document.createElement("div");
+    chartDiv.style.cssText = "height:160px;width:100%";
+    cell.appendChild(chartDiv);
+    grid.appendChild(cell);
+    // Click to expand in main chart
+    cell.addEventListener("click", () => {
+      const sel = document.getElementById("chart-ticker-select");
+      if (sel) sel.value = ticker;
+      const period = document.getElementById("chart-period-select")?.value || "3mo";
+      if (typeof renderChart === "function") renderChart(ticker, period);
+      // Scroll to main chart
+      document.getElementById("chart-container")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    // Render mini-chart
+    try {
+      const resp = await authFetch(`/api/chart/${ticker}?period=3mo`);
+      if (!resp.ok) { chartDiv.innerHTML = '<p style="padding:8px;font-size:11px;color:#888">No data</p>'; continue; }
+      const data = await resp.json();
+      if (!data.candles || data.candles.length === 0) { chartDiv.innerHTML = '<p style="padding:8px;font-size:11px;color:#888">No candles</p>'; continue; }
+      if (typeof LightweightCharts === "undefined") continue;
+      // Destroy previous instance if re-rendering
+      if (_galleryCharts[ticker]) { try { _galleryCharts[ticker].remove(); } catch(_) {} }
+      const mini = LightweightCharts.createChart(chartDiv, {
+        width: chartDiv.clientWidth || 280,
+        height: 160,
+        layout: { background: { color: "#161a1e" }, textColor: "#888" },
+        grid: { vertLines: { color: "#1e2328" }, horzLines: { color: "#1e2328" } },
+        crosshair: { mode: 0 },
+        rightPriceScale: { borderColor: "#2a2e33", scaleMargins: { top: 0.05, bottom: 0.05 } },
+        timeScale: { borderColor: "#2a2e33", timeVisible: false, visible: false },
+        handleScroll: false,
+        handleScale: false,
+      });
+      _galleryCharts[ticker] = mini;
+      const candles = mini.addCandlestickSeries({
+        upColor: "#26a69a", downColor: "#ef5350",
+        borderUpColor: "#26a69a", borderDownColor: "#ef5350",
+        wickUpColor: "#26a69a", wickDownColor: "#ef5350",
+      });
+      candles.setData(data.candles);
+      mini.timeScale().fitContent();
+      // DP floor lines
+      (data.levels?.dp_floors || []).forEach((price, i) => {
+        candles.createPriceLine({ price, color: "#ff4d4d", lineWidth: 1, lineStyle: 2, title: `DP${i+1}` });
+      });
+      // Resize observer
+      new ResizeObserver(() => { if (_galleryCharts[ticker]) _galleryCharts[ticker].applyOptions({ width: chartDiv.clientWidth }); }).observe(chartDiv);
+    } catch(e) {
+      chartDiv.innerHTML = `<p style="padding:8px;font-size:11px;color:#888">Error: ${e.message}</p>`;
+    }
   }
 }
 
