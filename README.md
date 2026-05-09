@@ -6,34 +6,55 @@ Fortress is not an auto-trader; it is a **strategy management layer** that reads
 
 ![Dashboard Preview](docs/assets/dashboard_preview.png)
 
-## Features
+## Core Features
 
 - **Trader Personas:** Switch between 5 predefined profiles (Income Seeker, Speculator, Volatility Trader, Hedger, PMCC) to instantly reconfigure risk tolerances and strategy rules.
 - **Live Strategy Narrative:** A generative plain-English briefing of your portfolio's state, macro regime, and concentration risks.
 - **Automatic Strategy Inference:** Automatically classifies raw IBKR positions into 24 distinct options strategies (Iron Condors, PMCCs, Collars, etc.) based on leg structure.
-- **Workflow Automation:** Trigger Python workflow scripts directly from the UI for IV crush scanning, pre-market analysis, dark pool alerts, and whale flow reports (powered by QuantData).
-- **IBKR Integration:** Pulls live positions and greeks via IB Gateway.
+- **Pre-trade Gate Checks:** Validates intended trades against earnings blackouts, concentration limits, and VIX regime rules.
 - **Security First:** No internet exposure required (designed to run behind Tailscale/VPN). API keys and passwords stay on your VPS.
+- **Backup & Restore:** Easily export and import all dashboard settings and configurations as JSON.
+
+## Dashboard Tabs Overview
+
+The dashboard is organized into 8 functional tabs:
+
+| Tab | Function |
+|---|---|
+| **Dashboard** | High-level overview: NetLiq, available funds, pacing, macro regime, concentration limits, portfolio Greeks, and the IV Crush candidate scanner. |
+| **Positions** | Live view of all active positions synced from Interactive Brokers, with automatically inferred strategy labels. |
+| **Manage** | Stop-loss evaluator, roll candidate evaluator, and manual triggers for workflow scripts. |
+| **Trade** | Pre-trade gate check, §8 order checklist, TradingView price chart with DP/GEX overlays, and post-earnings playbook matrix. |
+| **Data** | Manage the active ticker universe, view the earnings calendar, sync from IBKR, and manage file uploads. |
+| **Journal** | Trade logging and history. |
+| **Strategy** | Select your Trader Persona, read the live Strategy Narrative, configure 24 different strategy parameters, and manage alerts/thresholds. |
+| **Settings** | Configure technical infrastructure, security keys, UI preferences, and Backup/Restore functionality. |
 
 ## External Data Dependencies
 
-### QuantData.us (Required for Workflows)
-While the core portfolio management and strategy inference rely solely on Interactive Brokers, the **Run workflow scripts** feature (in the Manage tab) heavily depends on the [QuantData.us](https://quantdata.us) API. 
+### Interactive Brokers (Required)
+The core portfolio management, positions syncing, and strategy inference rely entirely on Interactive Brokers via IB Gateway.
 
-QuantData provides the underlying data for:
+### QuantData.us (Optional but Highly Recommended)
+While the dashboard is fully functional without it, the **Run workflow scripts** feature (in the Manage tab) heavily depends on the [QuantData.us](https://quantdata.us) API. 
+
+QuantData provides the underlying market intelligence for:
 - Pre-market IV rank scanning
-- IV Crush reporting
+- IV Crush reporting (which populates the Dashboard candidate scanner)
 - Whale flow and dark pool alerts
 - Max pain and EOD reviews
+- Macro regime extraction and Dark Pool/GEX overlays on the price chart
 
-You will need a QuantData API key configured in the **Settings > Security** tab to use these workflow scripts. Without it, the scripts will fail to fetch data.
+**If you do not use QuantData:** The dashboard will still manage your portfolio, evaluate stops/rolls, and run the strategy narrative. However, the candidate scanner will be empty, the macro regime will show as "unknown", and the workflow scripts will fail.
+
+You will need a QuantData API key configured in the **Settings > Security** tab to unlock these features.
 
 ## Installation
 
 ### Prerequisites
 - A Linux VPS (Ubuntu 22.04/24.04 recommended)
 - **Interactive Brokers account** (for live portfolio data and execution)
-- **QuantData.us API Key** (required for workflow scripts, IV crush scanning, and dark pool alerts)
+- *(Optional)* **QuantData.us API Key** (required for workflow scripts and market intelligence)
 
 ### 1-Click Install
 
