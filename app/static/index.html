@@ -422,7 +422,9 @@
       <div id="pretrade-form">
         <div class="form-row">
           <label>Ticker
-            <input type="text" id="pt-ticker" placeholder="e.g. AMD" maxlength="5">
+            <select id="pt-ticker">
+              <option value="">— loading —</option>
+            </select>
           </label>
           <label>Strategy
             <select id="pt-strategy" onchange="showJadeLizardGate()">
@@ -509,7 +511,9 @@
       <p class="muted small">Strategy v3.5 §10 matrix + §7 concentration override + thesis-health gate.</p>
       <div class="form-row">
         <label>Ticker
-          <input type="text" id="pb-ticker" placeholder="e.g. AMD" maxlength="5">
+          <select id="pb-ticker">
+            <option value="">— loading —</option>
+          </select>
         </label>
         <label>Gap %
           <input type="number" id="pb-gap" step="0.1" placeholder="-5.2">
@@ -663,8 +667,8 @@
 </div><!-- .dash -->
 
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="/static/app.js?v=20260509e"></script>
-<script src="/static/phase4.js?v=20260509e"></script>
+<script src="/static/app.js?v=20260509i"></script>
+<script src="/static/phase4.js?v=20260509i"></script>
 <script src="/static/chart.js?v=20260509d"></script>
 <script src="/static/settings.js?v=20260509e"></script>
 <script src="/static/universe.js?v=20260509d"></script>
@@ -915,24 +919,30 @@ async function fetchEarningsDates() {
   }
 }
 
-// ─── Populate chart ticker dropdown from /api/universe ─────────────────────
+// ─── Populate all Trade-tab ticker dropdowns from /api/universe ─────────────
 async function populateChartTickers() {
-  const sel = document.getElementById("chart-ticker-select");
-  if (!sel) return;
+  const selIds = ["chart-ticker-select", "pt-ticker", "pb-ticker"];
+  const sels = selIds.map(id => document.getElementById(id)).filter(Boolean);
+  if (!sels.length) return;
   try {
     const data = await apiFetch("/api/universe");
-    // Combine tier1 + tier2 + macro
+    // Tier 1 first, then Tier 2, then macro — deduplicated
     const tiers = [...(data.tier1 || []), ...(data.tier2 || []), ...(data.macro || [])];
     const tickers = [...new Set(tiers)];
-    sel.innerHTML = '<option value="">— select —</option>';
-    for (const t of tickers) {
-      const opt = document.createElement("option");
-      opt.value = t;
-      opt.textContent = t;
-      sel.appendChild(opt);
+    for (const sel of sels) {
+      const placeholder = sel.id === "chart-ticker-select" ? "— select —" : "— select ticker —";
+      sel.innerHTML = `<option value="">${placeholder}</option>`;
+      for (const t of tickers) {
+        const opt = document.createElement("option");
+        opt.value = t;
+        opt.textContent = t;
+        sel.appendChild(opt);
+      }
     }
   } catch (e) {
-    sel.innerHTML = '<option value="">— error loading —</option>';
+    for (const sel of sels) {
+      sel.innerHTML = '<option value="">— error loading —</option>';
+    }
     console.error("populateChartTickers:", e);
   }
 }

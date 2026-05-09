@@ -221,8 +221,8 @@
     const concRaw = document.getElementById("pb-concentration").value;
     const concentration = concRaw === "" ? null : parseFloat(concRaw);
 
-    if (!/^[A-Z]{1,5}$/.test(ticker)) {
-      target.innerHTML = '<p class="warn">Enter a 1–5 letter ticker.</p>'; return;
+    if (!ticker) {
+      target.innerHTML = '<p class="warn">Select a ticker from the dropdown.</p>'; return;
     }
     if (Number.isNaN(gap) || Number.isNaN(ivCrush)) {
       target.innerHTML = '<p class="warn">Enter both gap % and IV crush %.</p>'; return;
@@ -284,8 +284,8 @@
     const target = document.getElementById("pretrade-result");
     const ticker = document.getElementById("pt-ticker").value.trim().toUpperCase();
     const strategy = document.getElementById("pt-strategy").value;
-    if (!/^[A-Z]{1,5}$/.test(ticker)) {
-      target.innerHTML = '<p class="warn">Enter a 1–5 letter ticker.</p>'; return;
+    if (!ticker) {
+      target.innerHTML = '<p class="warn">Select a ticker from the dropdown.</p>'; return;
     }
     target.innerHTML = '<div class="loading">Checking earnings + concentration…</div>';
     try {
