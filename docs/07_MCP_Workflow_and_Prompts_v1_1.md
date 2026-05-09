@@ -1,12 +1,17 @@
 # Fortress MCP — Workflow and Prompts Playbook
 
-**Version 1.1 — May 5, 2026**
+**Version 1.2 — May 9, 2026**
 
 A practical companion to `06_Fortress_MCP_Proposal_v1_1.md`. Maps every phase of Strategy v3.6's daily/weekly routine to concrete Claude prompts that exercise the MCP tools.
 
+v1.2 changes from v1.1: The MCP server (`fortress_mcp.py`) and example scripts have been moved to a dedicated repository — **[citychip/fortress-mcp](https://github.com/citychip/fortress-mcp)**. The `scripts/mcp_*.py` files previously in this repo have been removed; equivalent cleaned-up scripts are in `fortress-mcp/examples/`. See the fortress-mcp README for Claude Desktop installation and configuration.
+
 v1.1 changes from v1.0: USD-native currency convention; CP Gateway re-auth path replaces TWS popup workflow; `get_capability` tool added for "is Greeks coverage live?" checks; delta thresholds reflect v3.6 (>0.35 critical).
 
-Use it as:
+**Installation:** `git clone https://github.com/citychip/fortress-mcp.git && pip install -r fortress-mcp/requirements.txt`
+Then add the Claude Desktop config block from `fortress-mcp/claude_desktop_config_snippet.json` to your `claude_desktop_config.json` and restart Claude Desktop.
+
+Use this document as:
 
 - A copy-paste reference for the morning routine
 - A set of saved-prompt templates for Claude Desktop
