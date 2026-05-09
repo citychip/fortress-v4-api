@@ -1,0 +1,274 @@
+"""
+Roll candidate evaluator — per Build Spec v1.1 §8.2 and Strategy v3.4 §5.
+
+For a short-call position, finds candidate roll-up-and-out targets in the
+30–45 DTE band with delta in 0.20–0.25, ranks them, and emits an IBKR-style
+ticket text for the top recommendation.
+
+Inputs come from the option chain (chain.get_chain) and from the position
+record. The current short's market value is estimated from the chain too;
+no IBKR account access is needed for the MVP.
+"""
+
+from __future__ import annotations
+
+import math
+from datetime import datetime, timezone
+from typing import Optional
+
+from app.services import chain as chain_svc
+
+
+# Strategy §5 defaults
+DEFAULT_DTE_BAND = (30, 45)
+DEFAULT_DELTA_BAND = (0.20, 0.25)
+
+# How aggressive vs conservative tags are placed relative to the framework band
+CONSERVATIVE_DELTA_MAX = DEFAULT_DELTA_BAND[0]   # below 0.20 => conservative
+AGGRESSIVE_DELTA_MIN = DEFAULT_DELTA_BAND[1]     # above 0.25 => aggressive
+CONSERVATIVE_DTE_MIN = DEFAULT_DTE_BAND[1] + 1   # >45 DTE => longer = conservative
+AGGRESSIVE_DTE_MAX = DEFAULT_DTE_BAND[0] - 1     # <30 DTE => shorter = aggressive
+
+
+def _days_between(exp_iso: str, now: datetime) -> int:
+    try:
+        exp_dt = datetime.strptime(exp_iso[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        return max(int((exp_dt - now).total_seconds() // 86400), 0)
+    except ValueError:
+        return -1
+
+
+def _label_candidate(delta: float, dte: int) -> str:
+    """Tag candidate per §8.2: framework_match, conservative, or aggressive."""
+    in_delta_band = DEFAULT_DELTA_BAND[0] <= delta <= DEFAULT_DELTA_BAND[1]
+    in_dte_band = DEFAULT_DTE_BAND[0] <= dte <= DEFAULT_DTE_BAND[1]
+    if in_delta_band and in_dte_band:
+        return "framework_match"
+    if delta < DEFAULT_DELTA_BAND[0] or dte > DEFAULT_DTE_BAND[1]:
+        return "conservative"
+    return "aggressive"
+
+
+def _framework_score(delta: float, dte: int) -> float:
+    """
+    Lower is better. Sums distance from band centers in normalized units.
+    """
+    delta_center = sum(DEFAULT_DELTA_BAND) / 2
+    dte_center = sum(DEFAULT_DTE_BAND) / 2
+    delta_dist = abs(delta - delta_center) / 0.05
+    dte_dist = abs(dte - dte_center) / 7.5
+    return delta_dist + dte_dist
+
+
+def evaluate_roll(
+    position: dict,
+    chain: Optional[dict] = None,
+    target_dte: tuple[int, int] = DEFAULT_DTE_BAND,
+    target_delta: tuple[float, float] = DEFAULT_DELTA_BAND,
+    now: Optional[datetime] = None,
+) -> dict:
+    """
+    Evaluate roll candidates for a short-call position.
+
+    Returns a dict ready to JSON-serialize. Always returns a top-level
+    `candidates` list (possibly empty) and `ticket_text` for the top
+    recommended candidate.
+    """
+    now = now or datetime.now(timezone.utc)
+    ticker = (position.get("ticker") or "").upper()
+    short_strike = position.get("short_strike")
+    current_expiry = position.get("expiry")
+    qty = abs(int(position.get("qty") or 1))
+
+    if not ticker or short_strike is None:
+        return {
+            "position_ref": ticker or "?",
+            "error": "Position missing ticker or short_strike. Cannot evaluate roll.",
+            "candidates": [],
+            "ticket_text": None,
+        }
+
+    if chain is None:
+        chain = chain_svc.get_chain(ticker)
+
+    if "error" in chain or not chain.get("expirations"):
+        return {
+            "position_ref": ticker,
+            "spot": chain.get("spot"),
+            "error": chain.get("error") or "No expirations returned from chain provider.",
+            "candidates": [],
+            "ticket_text": None,
+        }
+
+    spot = chain.get("spot")
+    if spot is None or spot <= 0:
+        return {
+            "position_ref": ticker,
+            "error": "Spot price unavailable.",
+            "candidates": [],
+            "ticket_text": None,
+        }
+
+    # Estimate the current short call market value (for net-credit math)
+    current_short_mid = _estimate_strike_mid(chain, current_expiry, short_strike, side="calls")
+
+    # Slightly widen DTE band to avoid empty results (we still tag accurately)
+    dte_lo = max(7, target_dte[0] - 7)
+    dte_hi = target_dte[1] + 14
+
+    candidates: list[dict] = []
+    for exp_iso, legs in chain["expirations"].items():
+        dte = _days_between(exp_iso, now)
+        if dte < dte_lo or dte > dte_hi:
+            continue
+        t_years = chain_svc.years_to_expiry(exp_iso, now)
+        for leg in legs.get("calls", []):
+            if leg["strike"] <= short_strike:
+                # Roll up-and-out per §5: only consider higher strikes
+                continue
+            if leg["mid"] is None or leg["mid"] <= 0:
+                continue
+            iv = leg["iv"] or 0
+            if iv <= 0:
+                continue
+            delta = chain_svc.bs_call_delta(spot, leg["strike"], t_years, iv)
+            if delta is None:
+                continue
+
+            # Allow a slightly wider delta band so we can show conservative/aggressive
+            if not (0.10 <= delta <= 0.40):
+                continue
+
+            net_credit_per_contract = leg["mid"] - (current_short_mid or 0)
+            net_credit_total = net_credit_per_contract * 100 * qty
+
+            label = _label_candidate(delta, dte)
+            candidates.append({
+                "label": label,
+                "expiry": exp_iso,
+                "strike": leg["strike"],
+                "dte": dte,
+                "delta": round(delta, 3),
+                "iv": round(iv, 3),
+                "bid": leg["bid"],
+                "ask": leg["ask"],
+                "mid": round(leg["mid"], 2) if leg["mid"] is not None else None,
+                "open_interest": leg["open_interest"],
+                "volume": leg["volume"],
+                "net_credit_per_contract": round(net_credit_per_contract, 2),
+                "net_credit_total": round(net_credit_total, 2),
+                "framework_score": round(_framework_score(delta, dte), 3),
+                "recommended": False,
+            })
+
+    # Rank: prefer framework_match, then by net_credit desc, then by framework_score asc
+    def sort_key(c):
+        match_priority = 0 if c["label"] == "framework_match" else 1
+        return (match_priority, -c["net_credit_total"], c["framework_score"])
+
+    candidates.sort(key=sort_key)
+
+    # Pick top 3 with diversity: one framework_match if exists, plus a conservative
+    # and an aggressive if available
+    top: list[dict] = []
+    seen_labels: set[str] = set()
+    for c in candidates:
+        if c["label"] not in seen_labels or len(top) < 3:
+            if len(top) < 3:
+                top.append(c)
+                seen_labels.add(c["label"])
+        if len(top) >= 3:
+            break
+    # If we have fewer than 3, fill from remaining
+    if len(top) < 3:
+        for c in candidates:
+            if c not in top:
+                top.append(c)
+                if len(top) >= 3:
+                    break
+
+    if top:
+        # Recommend the first framework_match if any, else the highest-credit one
+        rec_idx = next((i for i, c in enumerate(top) if c["label"] == "framework_match"), 0)
+        top[rec_idx]["recommended"] = True
+
+    ticket_text = None
+    if top:
+        rec = next((c for c in top if c["recommended"]), top[0])
+        ticket_text = generate_roll_ticket(
+            ticker=ticker,
+            qty=qty,
+            current_expiry=current_expiry,
+            current_strike=short_strike,
+            new_expiry=rec["expiry"],
+            new_strike=rec["strike"],
+            current_short_mid=current_short_mid,
+            new_short_mid=rec["mid"],
+        )
+
+    return {
+        "position_ref": ticker,
+        "spot": spot,
+        "as_of": chain.get("as_of"),
+        "current_short": {
+            "expiry": current_expiry,
+            "strike": short_strike,
+            "qty": qty,
+            "estimated_mid": current_short_mid,
+        },
+        "params": {
+            "target_dte": list(target_dte),
+            "target_delta": list(target_delta),
+        },
+        "candidates": top,
+        "ticket_text": ticket_text,
+    }
+
+
+def _estimate_strike_mid(chain: dict, expiry: Optional[str], strike: float, side: str = "calls") -> Optional[float]:
+    """Find the mid price for (expiry, strike) on the given side. None if not in chain."""
+    if not expiry or strike is None:
+        return None
+    exp = chain.get("expirations", {}).get(expiry[:10])
+    if not exp:
+        return None
+    for leg in exp.get(side, []):
+        if abs(leg["strike"] - strike) < 0.01:
+            return leg["mid"]
+    return None
+
+
+def generate_roll_ticket(
+    ticker: str,
+    qty: int,
+    current_expiry: str,
+    current_strike: float,
+    new_expiry: str,
+    new_strike: float,
+    current_short_mid: Optional[float],
+    new_short_mid: Optional[float],
+) -> str:
+    """Produce IBKR-format combo order text. Per §8.2 example."""
+    def _fmt_expiry(iso: str) -> str:
+        try:
+            d = datetime.strptime(iso[:10], "%Y-%m-%d")
+            return d.strftime("%b %d '%y")
+        except ValueError:
+            return iso
+
+    if current_short_mid is not None and new_short_mid is not None:
+        net = new_short_mid - current_short_mid
+        net_label = f"credit ~${net:.2f}" if net >= 0 else f"debit ~${abs(net):.2f}"
+    else:
+        net_label = "credit/debit unknown — check live mids"
+
+    short_fmt = f"${current_strike:.0f}" if float(current_strike).is_integer() else f"${current_strike:.2f}"
+    new_fmt = f"${new_strike:.0f}" if float(new_strike).is_integer() else f"${new_strike:.2f}"
+
+    return (
+        f"ROLL {ticker} {_fmt_expiry(current_expiry)} {short_fmt} CALL → {_fmt_expiry(new_expiry)} {new_fmt} CALL\n"
+        f"  BUY TO CLOSE  +{qty} {ticker} {_fmt_expiry(current_expiry)} {short_fmt} CALL\n"
+        f"  SELL TO OPEN  -{qty} {ticker} {_fmt_expiry(new_expiry)} {new_fmt} CALL\n"
+        f"  Net: {net_label} (estimated)\n"
+        f"  Order type: Limit, Day combo. Walk mid patiently per §4."
+    )

@@ -1,0 +1,21 @@
+{
+  "_last_updated": "2026-05-02T14:43:56.051082+00:00",
+  "_comment": "TradingView chart uploads with structured levels. Phase 3 populated.",
+  "annotations": [
+    {
+      "id": "chart_MSFT_1777733036",
+      "ticker": "MSFT",
+      "context": "pre_trade_chart_confirmation",
+      "image_path": "/opt/fortress-dashboard/quant/uploads/chart_MSFT_20260502T144356_pro-7g7BQqJw.jpeg",
+      "timestamp": "2026-05-02T14:43:56.050989+00:00",
+      "levels": {
+        "resistance": [],
+        "support": [],
+        "sma200": null,
+        "sma50": null
+      },
+      "read": "",
+      "used_in_decisions": []
+    }
+  ]
+}

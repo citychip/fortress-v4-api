@@ -1,0 +1,83 @@
+name: Deploy to VPS
+
+# Triggers on every push to the main branch.
+# Requires the following GitHub repository secrets to be set:
+#   VPS_HOST        — IP address or hostname of your VPS
+#   VPS_USER        — SSH user (e.g. ubuntu)
+#   VPS_SSH_KEY     — Private SSH key (PEM/OpenSSH format, no passphrase)
+#   VPS_APP_PATH    — Absolute path to the app directory on VPS
+#                     (e.g. /home/ubuntu/Fortress_Dashboard)
+#   SERVICE_NAME    — systemd service name (e.g. fortress-dashboard)
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: SSH deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Checkout the repository ──────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── 2. Set up SSH agent ─────────────────────────────────────────────────
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
+
+      # ── 3. Add VPS to known_hosts ───────────────────────────────────────────
+      - name: Add VPS to known hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts
+
+      # ── 4. Sync files to VPS ────────────────────────────────────────────────
+      # Uses rsync to copy only changed files.
+      # Excludes runtime data (positions, uploads, backups, logs) and secrets.
+      - name: Sync files to VPS
+        run: |
+          rsync -avz --delete \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='quant/active_positions.json' \
+            --exclude='quant/ibkr_uploads.json' \
+            --exclude='quant/journal.json' \
+            --exclude='quant/alerts.json' \
+            --exclude='quant/fortress_config.json' \
+            --exclude='quant/uploads/' \
+            --exclude='quant/backups/' \
+            --exclude='quant/reports/' \
+            --exclude='ib-gateway/.env' \
+            --exclude='cp-gateway/.env' \
+            --exclude='*.pyc' \
+            --exclude='__pycache__/' \
+            --exclude='*.egg-info/' \
+            --exclude='.env' \
+            --exclude='venv/' \
+            --exclude='.venv/' \
+            ./ \
+            "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:${{ secrets.VPS_APP_PATH }}/"
+
+      # ── 5. Restart the service ──────────────────────────────────────────────
+      - name: Restart dashboard service
+        run: |
+          ssh "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
+            "sudo systemctl restart ${{ secrets.SERVICE_NAME }} && \
+             sleep 3 && \
+             systemctl is-active --quiet ${{ secrets.SERVICE_NAME }} && \
+             echo 'Service is running' || \
+             (journalctl -u ${{ secrets.SERVICE_NAME }} --no-pager -n 30; exit 1)"
+
+      # ── 6. Smoke test ───────────────────────────────────────────────────────
+      - name: Health check
+        run: |
+          sleep 5
+          ssh "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
+              "curl -sf http://localhost:8080/api/health | grep -q 'ok' && \ \
+             echo 'Health check passed' || \
+             (echo 'Health check failed'; exit 1)"

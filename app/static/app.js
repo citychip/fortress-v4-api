@@ -1,0 +1,1413 @@
+/* Fortress Dashboard — app.js
+   Vanilla JS. No build step.
+   Phase 1-4 complete: briefing, positions, candidates, universe, calendar,
+   journal (with entry form), alerts (CRUD), uploads, scripts, IBKR sync,
+   80% profit-take trigger, SPY hedge coverage, Jade Lizard gate. */
+
+
+// =====================================================================
+// Bearer token — fetched once from /api/token on page load
+// =====================================================================
+let _apiToken = "";
+
+async function _initToken() {
+  try {
+    const r = await fetch("/api/token");
+    if (r.ok) { const d = await r.json(); _apiToken = d.token || ""; }
+  } catch (e) { console.warn("Could not fetch API token:", e); }
+}
+
+function _authHeaders(extra) {
+  const h = Object.assign({}, extra);
+  if (_apiToken) h["Authorization"] = "Bearer " + _apiToken;
+  return h;
+}
+
+async function authFetch(path, options) {
+  const opts = Object.assign({}, options);
+  opts.headers = _authHeaders(opts.headers);
+  return fetch(path, opts);
+}
+
+const REFRESH_INTERVAL_MS = 60000;
+let autoRefreshEnabled = true;
+let refreshTimer = null;
+
+// =====================================================================
+// Utilities
+// =====================================================================
+const fmt = {
+  currency: (v) => {
+    if (v === null || v === undefined) return "—";
+    const sign = v < 0 ? "−" : "";
+    const abs = Math.abs(v);
+    if (abs >= 1000) return `${sign}$${(abs / 1000).toFixed(1)}K`;
+    return `${sign}$${abs.toLocaleString()}`;
+  },
+  currencyExact: (v) => {
+    if (v === null || v === undefined) return "—";
+    const sign = v >= 0 ? "+" : "−";
+    return `${sign}$${Math.abs(v).toLocaleString()}`;
+  },
+  num: (v, decimals = 2) => {
+    if (v === null || v === undefined) return "—";
+    return v.toLocaleString(undefined, { maximumFractionDigits: decimals });
+  },
+  shortDate: (iso) => {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
+         + " · " + d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+  },
+  daysAgo: (hours) => {
+    if (hours === null || hours === undefined) return "—";
+    if (hours < 1) return `${Math.round(hours * 60)}m ago`;
+    if (hours < 24) return `${Math.round(hours)}h ago`;
+    return `${Math.round(hours / 24)}d ago`;
+  },
+};
+
+function el(tag, attrs = {}, ...children) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") e.className = v;
+    else if (k === "html") e.innerHTML = v;
+    else if (k.startsWith("on") && typeof v === "function") e.addEventListener(k.slice(2), v);
+    else if (k.startsWith("on") && typeof v === "string") e.setAttribute(k, v);
+    else e.setAttribute(k, v);
+  }
+  for (const c of children) {
+    if (c == null) continue;
+    if (typeof c === "string" || typeof c === "number" || typeof c === "boolean") {
+      e.appendChild(document.createTextNode(String(c)));
+    } else {
+      e.appendChild(c);
+    }
+  }
+  return e;
+}
+
+async function apiFetch(path, options) {
+  try {
+    const opts = Object.assign({}, options);
+    opts.headers = _authHeaders(opts.headers);
+    const res = await fetch(path, opts);
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`HTTP ${res.status}: ${text}`);
+    }
+    return await res.json();
+  } catch (e) {
+    console.error(`API fetch failed for ${path}:`, e);
+    return null;
+  }
+}
+
+function showError(target, message) {
+  if (!target) return;
+  target.innerHTML = "";
+  target.appendChild(el("div", { class: "error-banner" },
+    el("span", {}, `Failed to load: ${message}`),
+    el("button", { class: "action-cta-small", onclick: () => refreshAll() }, "Retry")
+  ));
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;"
+  }[c]));
+}
+
+function formatExpiry(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const yearShort = String(d.getUTCFullYear()).slice(-2);
+  return `${months[d.getUTCMonth()]}'${yearShort}`;
+}
+
+// Tab switching
+function navigateToTab(target) {
+  document.querySelectorAll(".tab").forEach(t => t.classList.remove("tab-active"));
+  document.querySelector(`[data-tab="${target}"]`)?.classList.add("tab-active");
+  document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("tab-content-active"));
+  document.querySelector(`[data-content="${target}"]`)?.classList.add("tab-content-active");
+  // Initialise the Settings tab on first activation
+  if (target === "settings" && typeof window.initSettings === "function") {
+    window.initSettings();
+  }
+  // Initialise the Strategy tab on first activation
+  if (target === "strategy" && typeof window.initStrategy === "function") {
+    window.initStrategy();
+  }
+  // Initialise the Manage tab on first activation (loads position pickers after token is ready)
+  if (target === "manage" && typeof window.initManage === "function") {
+    window.initManage();
+  }
+}
+document.querySelectorAll(".tab").forEach(tab => {
+  tab.addEventListener("click", () => navigateToTab(tab.dataset.tab));
+});
+window.navigateToTab = navigateToTab;
+
+// =====================================================================
+// Header
+// =====================================================================
+function renderHeader(briefing) {
+  if (!briefing) return;
+  const dateEl = document.getElementById("header-date");
+  const pacingEl = document.getElementById("header-pacing");
+  const syncDot = document.getElementById("sync-dot");
+  const syncText = document.getElementById("sync-text");
+  const indicator = document.getElementById("sync-indicator");
+  const banner = document.getElementById("staleness-banner");
+
+  const now = new Date();
+  if (dateEl) dateEl.textContent = now.toLocaleDateString("en-US", {
+    weekday: "long", month: "long", day: "numeric"
+  }) + " · " + now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+
+  const p = briefing.pacing || {};
+  if (pacingEl) pacingEl.textContent = `Pacing: ${p.used ?? 0} of ${p.max_per_week ?? 2}`;
+
+  // NetLiq + portfolio Δ at-a-glance — visible on every tab via sticky header
+  const acct = briefing.account || {};
+  const greeks = briefing.greeks || {};
+  const nlEl = document.getElementById("header-netliq");
+  const dEl = document.getElementById("header-portfolio-delta");
+  if (nlEl) {
+    const nl = acct.net_liq != null ? acct.net_liq
+              : (acct.net_liquidation != null ? acct.net_liquidation : null);
+    nlEl.textContent = nl != null
+      ? `NetLiq: $${Math.round(nl).toLocaleString("en-US")}`
+      : "NetLiq: —";
+  }
+  if (dEl) {
+    const d = greeks.portfolio_delta != null ? greeks.portfolio_delta : greeks.delta;
+    dEl.classList.remove("warn", "danger");
+    if (d == null) {
+      dEl.textContent = "Δ: —";
+    } else {
+      dEl.textContent = `Δ: ${d >= 0 ? "+" : ""}${Math.round(d).toLocaleString("en-US")}`;
+      const absD = Math.abs(d);
+      if (absD > 1500) dEl.classList.add("danger");
+      else if (absD > 1000) dEl.classList.add("warn");
+    }
+  }
+
+
+  const staleness = briefing.staleness || {};
+  if (syncText) syncText.textContent = `Sync: ${fmt.daysAgo(staleness.hours)}`;
+  if (syncDot) syncDot.className = "dot " + ({
+    fresh: "dot-green", aging: "dot-amber", stale: "dot-red", unknown: "dot-gray"
+  }[staleness.state] || "dot-gray");
+
+  if (indicator) {
+    indicator.classList.remove("sync-fresh", "sync-aging", "sync-stale");
+    if (staleness.state) indicator.classList.add("sync-" + staleness.state);
+  }
+
+  if (banner) {
+    if (staleness.state === "stale") {
+      const bannerText = document.getElementById("staleness-text");
+      if (bannerText) bannerText.textContent =
+        `Position state is over 24 hours old (${fmt.daysAgo(staleness.hours)}). Sync from IBKR before trading.`;
+      banner.style.display = "flex";
+    } else {
+      banner.style.display = "none";
+    }
+  }
+}
+
+document.getElementById("staleness-dismiss")?.addEventListener("click", () => {
+  document.getElementById("staleness-banner").style.display = "none";
+});
+
+// =====================================================================
+// Briefing
+// =====================================================================
+function renderBriefing(data) {
+  const container = document.getElementById("briefing-content");
+  if (!data) return showError(container, "briefing");
+
+  container.innerHTML = "";
+  const briefingTab = document.querySelector('[data-content="briefing"]');
+  if (briefingTab) {
+    briefingTab.classList.remove("vix-elevated", "vix-stress");
+    if (data.macro_regime?.vix_state === "elevated") briefingTab.classList.add("vix-elevated");
+    else if (data.macro_regime?.vix_state === "stress") briefingTab.classList.add("vix-stress");
+  }
+
+  if (data.has_account_data) {
+    container.appendChild(renderAccountStats(data.account));
+  } else {
+    container.appendChild(el("div", { class: "card card-tight info-banner" },
+      el("p", { class: "small muted" },
+        "Account header data not available. ",
+        el("strong", {}, "Required: "),
+        "Sync from IBKR via the Data tab to populate net_liq, excess_liq, daily_pnl.")
+    ));
+  }
+
+  container.appendChild(renderActionsCard(data.actions || []));
+  container.appendChild(renderRegimeRow(data));
+
+  const scannerCard = el("div", { class: "card", id: "scanner-card" },
+    el("h2", {}, "Candidate scanner"),
+    el("p", { class: "muted small" }, "Sorted by IV/HV spread. Earnings within 10 days are blocked per §4."),
+    el("div", { id: "scanner-table" }, el("div", { class: "loading" }, "Loading candidates…"))
+  );
+  container.appendChild(scannerCard);
+
+  // Alerts section moved to Strategy tab (see settings.js initStrategy)
+}
+
+function renderAccountStats(account) {
+  const stats = el("div", { class: "row row-4" });
+  // EUR helpers — strategy thresholds are in EUR; IBKR returns USD.
+  const fxRate = account.fx_rate_eur_usd;  // USD per EUR
+  const eur = account.eur_equivalent || {};
+  const thresholds = account.thresholds || {};
+  const fmtEur = (v) => {
+    if (v == null) return "—";
+    const sign = v < 0 ? "−" : "";
+    const abs = Math.abs(v);
+    if (abs >= 1000) return `${sign}€${(abs / 1000).toFixed(1)}K`;
+    return `${sign}€${abs.toLocaleString("nl-NL", { maximumFractionDigits: 0 })}`;
+  };
+
+  // Net liquidity
+  stats.appendChild(el("div", { class: "stat" },
+    el("p", { class: "stat-label" }, "Net liquidity"),
+    el("p", { class: "stat-value" }, fmt.currency(account.net_liq)),
+    el("p", { class: "stat-sub muted" },
+      eur.net_liq != null ? `≈ ${fmtEur(eur.net_liq)}` : "—")
+  ));
+
+  // Excess liquidity — threshold check against €25K
+  const excessEurOk = thresholds.excess_liq_ok === true;
+  const excessSubText = (() => {
+    if (account.excess_liq == null) return "—";
+    if (eur.excess_liq != null) {
+      return excessEurOk
+        ? `≈ ${fmtEur(eur.excess_liq)} · target >$25K · ok`
+        : `≈ ${fmtEur(eur.excess_liq)} · below $25K target ⚠`;
+    }
+    return account.excess_liq >= 25000 ? "target >$25K · ok" : "below target ⚠";
+  })();
+  stats.appendChild(el("div", { class: "stat" },
+    el("p", { class: "stat-label" }, "Excess liquidity"),
+    el("p", { class: "stat-value" }, fmt.currency(account.excess_liq)),
+    el("p", { class: "stat-sub" + (account.excess_liq != null && !excessEurOk && eur.excess_liq != null ? " warn" : "") },
+      excessSubText)
+  ));
+
+  // Available funds — threshold check against €17K
+  const availEurOk = thresholds.available_funds_ok === true;
+  const availSubText = (() => {
+    if (account.available_funds == null) return "—";
+    if (eur.available_funds != null) {
+      return availEurOk
+        ? `≈ ${fmtEur(eur.available_funds)} · target >$17K · ok`
+        : `≈ ${fmtEur(eur.available_funds)} · below $17K target ⚠`;
+    }
+    return account.available_funds >= 17000 ? "target >$17K · ok" : "below target ⚠";
+  })();
+  stats.appendChild(el("div", { class: "stat" },
+    el("p", { class: "stat-label" }, "Available funds"),
+    el("p", { class: "stat-value" }, fmt.currency(account.available_funds)),
+    el("p", { class: "stat-sub" + (account.available_funds != null && !availEurOk && eur.available_funds != null ? " warn" : "") },
+      availSubText)
+  ));
+
+  // Base cash — fx-aware
+  stats.appendChild(el("div", { class: "stat" },
+    el("p", { class: "stat-label" }, "Base cash"),
+    el("p", { class: "stat-value " + (account.base_cash != null && account.base_cash < 0 ? "neg" : "") },
+      fmt.currency(account.base_cash)),
+    el("p", { class: account.base_cash != null && account.base_cash < 0 ? "stat-sub warn" : "stat-sub" },
+      account.base_cash == null
+        ? (fxRate ? `FX EUR/USD ${fxRate.toFixed(4)}` : "—")
+        : (account.base_cash < 0 ? "interest bleed active" : "ok"))
+  ));
+
+  return stats;
+}
+
+function renderActionsCard(actions) {
+  const card = el("div", { class: "card" }, el("h2", {}, "Today's actions"));
+  if (actions.length === 0) {
+    card.appendChild(el("p", { class: "empty-state" }, "No actions for today."));
+    return card;
+  }
+  for (const action of actions) {
+    const row = el("div", { class: "action-item" },
+      el("div", { class: "action-priority action-prio-" + action.priority }, action.priority),
+      el("div", { class: "action-body" },
+        el("p", { class: "action-title" }, action.title),
+        el("p", { class: "action-desc" }, action.description)
+      ),
+      el("button", { class: "action-cta" }, action.cta + " ↗")
+    );
+    card.appendChild(row);
+  }
+  return card;
+}
+
+function renderRegimeRow(data) {
+  const row = el("div", { class: "row row-3" });
+
+  const macro = data.macro_regime || {};
+  const regimeClass = macro.regime === "bullish" ? "regime-bull"
+                    : macro.regime === "bearish" ? "regime-bear" : "regime-neutral";
+  const regimeIcon = macro.regime === "bullish" ? "↑"
+                  : macro.regime === "bearish" ? "↓" : "→";
+  const regimeText = macro.regime ? macro.regime.charAt(0).toUpperCase() + macro.regime.slice(1) : "—";
+
+  row.appendChild(el("div", { class: "card card-tight" },
+    el("h2", {}, "Macro regime"),
+    el("div", { class: "regime-card" },
+      el("div", { class: "regime-circle " + regimeClass }, regimeIcon),
+      el("div", {},
+        el("p", { style: "margin: 0; font-weight: 500;" }, regimeText),
+        el("p", { class: "muted small", style: "margin: 2px 0 0;" },
+          `VIX ${macro.vix?.toFixed?.(1) ?? "—"} · ${macro.vix_state ?? ""}`)
+      )
+    )
+  ));
+
+  const pacing = data.pacing || {};
+  const pacingBar = el("div", { class: "pacing-bar" });
+  for (let i = 0; i < (pacing.max_per_week || 2); i++) {
+    const slot = el("div", { class: "pacing-slot " + (i < (pacing.used || 0) ? "pacing-filled" : "pacing-empty") });
+    if (i < (pacing.used || 0)) {
+      slot.textContent = pacing.entries_this_week?.[i]?.ticker ?? "filled";
+    } else {
+      slot.textContent = `slot ${i + 1}`;
+    }
+    pacingBar.appendChild(slot);
+  }
+  row.appendChild(el("div", { class: "card card-tight" },
+    el("h2", {}, "Pacing this week"),
+    pacingBar,
+    el("p", { class: "muted small", style: "margin: 4px 0 0;" },
+      `${pacing.remaining ?? "?"} slot${(pacing.remaining ?? 0) === 1 ? "" : "s"} remaining`)
+  ));
+
+  const conc = data.concentration || {};
+  const top = conc.top || [];
+  const concCard = el("div", { class: "card card-tight" }, el("h2", {}, "Concentration"));
+  if (top.length > 0) {
+    const bar = el("div", { class: "conc-bar" });
+    top.slice(0, 3).forEach((t, i) => {
+      const cls = i === 0 && t.pct > 50 ? "conc-msft" : i === 0 ? "conc-other" : "conc-third";
+      bar.appendChild(el("div", { class: "conc-segment " + cls,
+        style: `width: ${Math.max(t.pct, 5)}%` }, `${t.ticker} ${t.pct.toFixed(0)}%`));
+    });
+    concCard.appendChild(bar);
+    if (conc.msft_warning) {
+      concCard.appendChild(el("p", { class: "muted small", style: "margin: 4px 0 0;" },
+        el("span", { class: "warn" }, "⚠ exceeds 50% override threshold")));
+    }
+  } else {
+    concCard.appendChild(el("p", { class: "empty-state" }, "Concentration unavailable"));
+  }
+  row.appendChild(concCard);
+  return row;
+}
+
+// =====================================================================
+// Candidates
+// =====================================================================
+function renderCandidates(data) {
+  const target = document.getElementById("scanner-table");
+  if (!target) return;
+  if (!data) return showError(target, "candidates");
+
+  target.innerHTML = "";
+  if (!data.rows || data.rows.length === 0) {
+    target.appendChild(el("div", { class: "empty-state" },
+      "No candidates available. Run /api/run/iv_crush to refresh."));
+    return;
+  }
+
+  const table = el("table");
+  table.appendChild(el("thead", {},
+    el("tr", {},
+      el("th", {}, "Ticker"),
+      el("th", { class: "num" }, "Price"),
+      el("th", { class: "num" }, "IVR"),
+      el("th", { class: "num" }, "Spread"),
+      el("th", {}, "Earnings"),
+      el("th", {}, "Conc"),
+      el("th", {}, "Signal"),
+      el("th", {}, "")
+    )
+  ));
+  const tbody = el("tbody");
+  for (const row of data.rows) {
+    const days = row.days_to_earnings;
+    const earningsPill = row.earnings_state === "blackout"
+      ? el("span", { class: "pill pill-blocked" }, `${days}d ⚠`)
+      : days != null ? el("span", { class: "pill pill-mute" }, `${days}d`)
+      : el("span", { class: "pill pill-mute" }, "—");
+
+    const concPill = row.concentration_state === "high"
+      ? el("span", { class: "pill pill-blocked" }, `${row.concentration_pct.toFixed(0)}% ⚠`)
+      : row.concentration_state === "moderate"
+        ? el("span", { class: "pill pill-info" }, `${row.concentration_pct.toFixed(0)}%`)
+        : el("span", { class: "pill pill-mute" }, "—");
+
+    const tradeBtn = row.can_trade
+      ? el("button", { class: "action-cta", onclick: () => navigateToTab("trade") }, "Trade ↗")
+      : el("button", { class: "action-cta phase-stub", disabled: "" }, "—");
+
+    tbody.appendChild(el("tr", {},
+      el("td", { class: "ticker" }, row.ticker),
+      el("td", { class: "num" }, "$" + fmt.num(row.price, 2)),
+      el("td", { class: "num" }, row.ivr?.toFixed?.(1) ?? "—"),
+      el("td", { class: "num " + (row.spread_pp >= 0 ? "pos" : "neg") },
+        (row.spread_pp >= 0 ? "+" : "") + (row.spread_pp?.toFixed?.(1) ?? "—") + "pp"),
+      el("td", {}, earningsPill),
+      el("td", {}, concPill),
+      el("td", {}, signalPillFor(row.signal)),
+      el("td", {}, tradeBtn)
+    ));
+  }
+  table.appendChild(tbody);
+  target.appendChild(table);
+}
+
+function signalPillFor(signal) {
+  switch (signal) {
+    case "PRIME_CRUSH": return el("span", { class: "pill pill-prime" }, "prime crush");
+    case "GOOD_SPREAD": return el("span", { class: "pill pill-good" }, "good spread");
+    case "FAIR_SPREAD": return el("span", { class: "pill pill-fair" }, "fair spread");
+    case "POOR_SPREAD": return el("span", { class: "pill pill-mute" }, "poor spread");
+    case "IV_HIGH_HV_HIGH": return el("span", { class: "pill pill-caution" }, "iv high · hv high");
+    case "BLOCKED_EARNINGS": return el("span", { class: "pill pill-blocked" }, "blocked · earnings");
+    default: return el("span", { class: "pill pill-mute" }, signal || "—");
+  }
+}
+
+// =====================================================================
+// Positions (with 80% profit-take column and SPY hedge coverage)
+// =====================================================================
+function renderPositions(data) {
+  const target = document.getElementById("positions-content");
+  const meta = document.getElementById("positions-meta");
+  if (!data) return showError(target, "positions");
+  if (meta) {
+    const conc = data.concentration || {};
+    const topName = Object.entries(conc).sort((a, b) => b[1] - a[1])[0];
+    const concMsg = topName ? `${topName[0]} ${topName[1].toFixed(0)}%${topName[1] >= 50 ? " ⚠" : ""}` : "";
+    meta.textContent = `${data.positions?.length ?? 0} positions · concentration ${concMsg}`;
+  }
+  target.innerHTML = "";
+  if (!data.positions || data.positions.length === 0) {
+    target.appendChild(el("div", { class: "empty-state" },
+      "No positions in active_positions.json. Sync from IBKR via Uploads tab."));
+    return;
+  }
+
+  // SPY hedge coverage card
+  const hedgeCov = data.spy_hedge_coverage;
+  if (hedgeCov) {
+    const hv = hedgeCov.hedge_market_value || 0;
+    const ok = hedgeCov.coverage_ok;
+    const hedgeCard = el("div", {
+      class: "card card-tight",
+      style: `border-left: 3px solid ${ok ? "var(--green)" : "var(--warn)"};margin-bottom:10px;`
+    },
+      el("h3", { style: "margin:0 0 4px;" }, "SPY hedge coverage (Strategy §7)"),
+      el("div", { style: "display:flex;gap:16px;font-size:13px;" },
+        el("span", {}, `Hedge MV: $${hv.toLocaleString(undefined, {maximumFractionDigits:0})}`),
+        el("span", {}, "Target: $20K–$30K"),
+        el("span", { class: ok ? "pos" : "warn" }, ok ? "✓ within target" : "⚠ outside target range")
+      )
+    );
+    target.appendChild(hedgeCard);
+  }
+
+  const table = el("table");
+  table.appendChild(el("thead", {},
+    el("tr", {},
+      el("th", {}, "Position"),
+      el("th", {}, "Strategy"),
+      el("th", { class: "num" }, "Strike(s)"),
+      el("th", {}, "Expiry"),
+      el("th", { class: "num" }, "% NetLiq"),
+      el("th", { class: "num" }, "Δ"),
+      el("th", { class: "num" }, "% Captured"),
+      el("th", {}, "Alert"),
+      el("th", {}, "Notes"),
+      el("th", { style: "width:36px" }, "")
+    )
+  ));
+  const tbody = el("tbody");
+  for (const pos of data.positions) {
+    const stateMap = {
+      safe: { dot: "dot-green", text: "safe" },
+      ok: { dot: "dot-green", text: "ok" },
+      watch: { dot: "dot-amber", text: "watch" },
+      approaching: { dot: "dot-amber", text: "approaching" },
+      breaking: { dot: "dot-red", text: "BREAKING" },
+      broken: { dot: "dot-red", text: "BROKEN" },
+      critical_gamma: { dot: "dot-red", text: "⚠ Critical Gamma" },
+      hedge: { dot: "dot-gray", text: "hedge" },
+      unknown: { dot: "dot-gray", text: "sync needed" },
+    };
+    const stateInfo = stateMap[pos.alert_state] || { dot: "dot-gray", text: pos.alert_state || "—" };
+    const strikeStr = pos.long_strike && pos.short_strike
+      ? `${pos.short_strike}/${pos.long_strike}`
+      : pos.short_strike != null ? `$${pos.short_strike}`
+      : pos.long_strike != null ? `$${pos.long_strike}` : "—";
+    const deltaCellClass = "num " +
+      (pos.delta_state === "critical" ? "delta-critical" :
+       pos.delta_state === "watch" ? "delta-watch" : "");
+    const deltaText = pos.current_delta != null ? pos.current_delta.toFixed(2) : "—";
+
+    let capturedCell;
+    if (pos.pct_captured != null) {
+      const hit80 = pos.profit_take_80;
+      capturedCell = el("td", { class: "num" },
+        el("span", {
+          class: hit80 ? "pill pill-success" : (pos.pct_captured >= 50 ? "pill-fair" : ""),
+          style: hit80 ? "" : "font-size:12px;"
+        }, `${pos.pct_captured.toFixed(0)}%${hit80 ? " ↑80" : ""}`)
+      );
+    } else {
+      capturedCell = el("td", { class: "num muted small" }, "—");
+    }
+
+    // Per-row "..." action menu — Evaluate stop / Find roll / Open chart
+    const matcher = JSON.stringify({
+      ticker: pos.ticker,
+      short_strike: pos.short_strike ?? null,
+      long_strike: pos.long_strike ?? null,
+      expiry: pos.expiry ?? null,
+      strategy: pos.strategy ?? null,
+    });
+    const canRoll = pos.strategy !== "SPY_HEDGE" && pos.short_strike != null;
+    const kebab = el("button", {
+      class: "row-action-btn",
+      title: "Position actions",
+      "aria-label": "Open position actions menu",
+      onclick: window.togglePosActionMenu || function(){},
+    }, "⋯");
+    kebab.setAttribute("data-pos", matcher);
+    const stopItem = el("button", {
+      class: "row-action-item",
+      onclick: (e) => window.runPositionAction && window.runPositionAction(e, "stop_loss"),
+    }, "Evaluate stop-loss");
+    const rollItem = el("button", {
+      class: "row-action-item" + (canRoll ? "" : " disabled"),
+      onclick: (e) => { if (!canRoll) { e.stopPropagation(); return; } window.runPositionAction && window.runPositionAction(e, "roll"); },
+    }, "Find roll candidates");
+    if (!canRoll) rollItem.disabled = true;
+    const chartItem = el("button", {
+      class: "row-action-item",
+      onclick: (e) => window.runPositionAction && window.runPositionAction(e, "chart"),
+    }, "Open chart");
+    const menu = el("div", { class: "row-action-menu" }, stopItem, rollItem, chartItem);
+    const actionsCell = el("td", { style: "text-align:right" },
+      el("div", { class: "row-actions" }, kebab, menu)
+    );
+
+    tbody.appendChild(el("tr", {},
+      el("td", { class: "ticker" }, pos.ticker),
+      el("td", {}, el("span", { class: "pill pill-mute" }, pos.strategy)),
+      el("td", { class: "num" }, strikeStr),
+      el("td", {}, pos.expiry ? formatExpiry(pos.expiry) : "—"),
+      el("td", { class: "num" }, pos.net_liq_pct != null ? pos.net_liq_pct.toFixed(1) + "%" : "—"),
+      el("td", { class: deltaCellClass }, deltaText),
+      capturedCell,
+      el("td", {}, el("span", { class: "alert-state" },
+        el("span", { class: "dot " + stateInfo.dot }), stateInfo.text)),
+      el("td", { class: "muted small" }, pos.notes || "—"),
+      actionsCell
+    ));
+  }
+  table.appendChild(tbody);
+  target.appendChild(table);
+}
+
+// =====================================================================
+// Universe + Calendar (with editor)
+// =====================================================================
+function renderUniverse(data) {
+  // Delegate to universe.js editable renderer
+  if (typeof window.renderUniverseEditable === "function") {
+    window.renderUniverseEditable(data);
+  } else {
+    // Fallback: read-only render if universe.js not loaded yet
+    const target = document.getElementById("universe-content");
+    if (!data || !target) return;
+    target.innerHTML = "";
+    const renderTier = (name, tickers) => {
+      const section = el("div", { style: "margin-bottom: 12px;" });
+      section.appendChild(el("h3", {}, name));
+      const wrap = el("div");
+      for (const t of tickers || []) {
+        wrap.appendChild(el("span", { class: "ticker-tag" }, t));
+      }
+      section.appendChild(wrap);
+      return section;
+    };
+    target.appendChild(renderTier("Tier 1 (high IV)", data.tier1));
+    target.appendChild(renderTier("Tier 2 (moderate IV)", data.tier2));
+    if (data.macro?.length) target.appendChild(renderTier("Macro", data.macro));
+  }
+}
+
+function renderCalendar(data) {
+  renderCalendarWithEditor(data);
+}
+
+function renderCalendarWithEditor(data) {
+  const target = document.getElementById("calendar-content");
+  if (!target) return;
+  if (!data) return showError(target, "calendar");
+  target.innerHTML = "";
+
+  // Add/edit form
+  const form = el("div", { style: "margin-bottom:12px;" },
+    el("h3", {}, "Update earnings date"),
+    el("div", { class: "form-row" },
+      el("label", {}, "Ticker",
+        el("input", { type: "text", id: "cal-ticker", placeholder: "MSFT", maxlength: "10" })
+      ),
+      el("label", {}, "Date (YYYY-MM-DD)",
+        el("input", { type: "date", id: "cal-date" })
+      ),
+      el("label", { style: "align-items:center;gap:6px;flex-direction:row;" },
+        el("input", { type: "checkbox", id: "cal-confirmed" }),
+        " Confirmed"
+      ),
+      el("label", {}, "Notes",
+        el("input", { type: "text", id: "cal-notes", placeholder: "Optional" })
+      ),
+      el("button", { class: "action-cta action-cta-primary", onclick: "upsertCalendarEntry()" }, "Save")
+    )
+  );
+  target.appendChild(form);
+
+  const tickers = Object.entries((data && data.tickers) || {})
+    .filter(([t, e]) => e.next_earnings)
+    .sort((a, b) => (a[1].days_to_earnings ?? 999) - (b[1].days_to_earnings ?? 999));
+
+  if (tickers.length === 0) {
+    target.appendChild(el("div", { class: "empty-state" }, "No earnings in calendar."));
+    return;
+  }
+
+  const table = el("table");
+  table.appendChild(el("thead", {}, el("tr", {},
+    el("th", {}, "Ticker"), el("th", {}, "Date"), el("th", {}, "Status"), el("th", {}, "Confirmed"), el("th", {}, "")
+  )));
+  const tbody = el("tbody");
+  for (const [t, entry] of tickers) {
+    const statusPill = entry.status === "blackout"
+      ? el("span", { class: "pill pill-blocked" }, `${entry.days_to_earnings}d ⚠`)
+      : entry.status === "approaching"
+        ? el("span", { class: "pill pill-info" }, `${entry.days_to_earnings}d`)
+        : entry.status === "past"
+          ? el("span", { class: "pill pill-mute" }, "past")
+          : el("span", { class: "pill pill-mute" }, `${entry.days_to_earnings}d`);
+    tbody.appendChild(el("tr", {},
+      el("td", { class: "ticker" }, t),
+      el("td", {}, entry.next_earnings),
+      el("td", {}, statusPill),
+      el("td", {}, entry.confirmed
+        ? el("span", { class: "pill pill-success" }, "✓ confirmed")
+        : el("button", {
+            class: "action-cta",
+            style: "padding:2px 8px;font-size:11px;",
+            onclick: `confirmEarningsDate('${t}')`
+          }, "Confirm")),
+      el("td", {}, el("button", {
+        class: "action-cta",
+        style: "padding:2px 8px;font-size:11px;",
+        onclick: `deleteCalendarEntry('${t}')`
+      }, "×"))
+    ));
+  }
+  table.appendChild(tbody);
+  target.appendChild(table);
+}
+
+async function upsertCalendarEntry() {
+  const ticker = (document.getElementById("cal-ticker").value || "").trim().toUpperCase();
+  const date = document.getElementById("cal-date").value;
+  const confirmed = document.getElementById("cal-confirmed").checked;
+  const notes = (document.getElementById("cal-notes").value || "").trim();
+  if (!ticker || !date) { alert("Ticker and date are required."); return; }
+  try {
+    await apiFetch(`/api/calendar/${ticker}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ next_earnings: date, confirmed, notes })
+    });
+    const data = await apiFetch("/api/calendar");
+    renderCalendarWithEditor(data);
+  } catch (e) {
+    alert("Failed to save: " + e.message);
+  }
+}
+
+async function confirmEarningsDate(ticker) {
+  try {
+    await apiFetch(`/api/calendar/${ticker}/confirm`, { method: "POST" });
+    const data = await apiFetch("/api/calendar");
+    renderCalendarWithEditor(data);
+  } catch (e) {
+    alert("Failed to confirm: " + e.message);
+  }
+}
+
+async function deleteCalendarEntry(ticker) {
+  if (!confirm(`Remove ${ticker} from the earnings calendar?`)) return;
+  try {
+    await apiFetch(`/api/calendar/${ticker}`, { method: "DELETE" });
+    const data = await apiFetch("/api/calendar");
+    renderCalendarWithEditor(data);
+  } catch (e) {
+    alert("Failed to delete: " + e.message);
+  }
+}
+
+// =====================================================================
+// Journal (with entry form)
+// =====================================================================
+function renderJournal(data) {
+  renderJournalWithForm(data);
+}
+
+function renderJournalWithForm(data) {
+  const target = document.getElementById("journal-content");
+  if (!target) return;
+  target.innerHTML = "";
+
+  const form = el("div", { class: "card", style: "margin-bottom:12px;" },
+    el("h2", {}, "Log trade"),
+    el("div", { class: "form-row" },
+      el("label", {}, "Ticker",
+        el("input", { type: "text", id: "jnl-ticker", placeholder: "MSFT", maxlength: "10" })
+      ),
+      el("label", {}, "Action",
+        Object.assign(el("select", { id: "jnl-action" }), {
+          innerHTML: '<option value="OPEN">OPEN</option><option value="CLOSE">CLOSE</option><option value="ROLL">ROLL</option><option value="TRIM">TRIM</option><option value="ADD">ADD</option><option value="NOTE">NOTE</option>'
+        })
+      ),
+      el("label", {}, "Strategy",
+        Object.assign(el("select", { id: "jnl-strategy" }), {
+          innerHTML: '<option value="PMCC">PMCC</option><option value="DIAGONAL">Diagonal</option><option value="PCS">PCS</option><option value="JADE_LIZARD">Jade Lizard</option><option value="SPY_HEDGE">SPY Hedge</option>'
+        })
+      )
+    ),
+    el("div", { class: "form-row" },
+      el("label", { style: "flex:3;" }, "Description",
+        el("input", { type: "text", id: "jnl-description", placeholder: "e.g. Opened MSFT PMCC Jan28 310C / Dec26 480C for $8.40 credit" })
+      ),
+      el("label", {}, "Realized P&L ($)",
+        el("input", { type: "number", id: "jnl-pnl", placeholder: "0.00", step: "0.01" })
+      ),
+      el("label", {}, "Credit/Debit ($)",
+        el("input", { type: "number", id: "jnl-debit-credit", placeholder: "+8.40", step: "0.01" })
+      )
+    ),
+    el("div", { class: "form-row", id: "jnl-outside-universe-row", style: "display:none;" },
+      el("label", { style: "flex:1;" }, "Outside-universe justification (Strategy §3.4.4 required)",
+        el("input", { type: "text", id: "jnl-justification", placeholder: "Reason for trading outside the defined universe" })
+      )
+    ),
+    el("div", { class: "form-row" },
+      el("label", { style: "flex:1;" }, "Notes (optional)",
+        el("input", { type: "text", id: "jnl-notes", placeholder: "Additional context" })
+      ),
+      el("label", { style: "align-items:center;gap:6px;flex-direction:row;" },
+        el("input", { type: "checkbox", id: "jnl-outside-universe", onchange: "toggleOutsideUniverse()" }),
+        " Outside universe"
+      ),
+      el("button", {
+        class: "action-cta action-cta-primary",
+        onclick: "submitJournalEntry()"
+      }, "Log entry")
+    )
+  );
+  target.appendChild(form);
+
+  const m = (data && data.metrics) || {};
+  const metrics = el("div", { class: "card" },
+    el("h2", {}, "Outcome metrics — last 30 days"),
+    el("p", { class: "muted small" }, "Closed trades only · framework compliance built in"),
+    el("div", { class: "outcomes-grid" },
+      el("div", { class: "outcome-card" },
+        el("p", { class: "outcome-label" }, "Total realized"),
+        el("p", { class: "outcome-value " + ((m.total_realized_30d ?? 0) >= 0 ? "pos" : "neg") },
+          fmt.currencyExact(m.total_realized_30d)),
+        el("p", { class: "outcome-sub" }, `${m.closed_positions_30d ?? 0} closed positions`)
+      ),
+      el("div", { class: "outcome-card" },
+        el("p", { class: "outcome-label" }, "PCS profit hit rate"),
+        el("p", { class: "outcome-value" }, m.pcs_hit_rate_pct != null ? `${m.pcs_hit_rate_pct}%` : "—"),
+        el("p", { class: "outcome-sub" }, "target ≥70%")
+      ),
+      el("div", { class: "outcome-card" },
+        el("p", { class: "outcome-label" }, "Framework violations"),
+        el("p", { class: "outcome-value " + (m.framework_violations_30d > 0 ? "neg" : "") },
+          m.framework_violations_30d ?? 0),
+        el("p", { class: "outcome-sub" }, "target = 0")
+      )
+    )
+  );
+  target.appendChild(metrics);
+
+  const entriesCard = el("div", { class: "card" },
+    el("h2", {}, "Recent entries"),
+    el("p", { class: "muted small" }, "Sorted newest first")
+  );
+  const entries = (data && data.entries) ? data.entries : [];
+  if (entries.length === 0) {
+    entriesCard.appendChild(el("p", { class: "empty-state" }, "No journal entries yet. Log your first trade above."));
+  } else {
+    for (const entry of entries.slice(0, 30)) {
+      const actionClass = {
+        OPEN: "pill-info", CLOSE: "pill-success", ROLL: "pill-fair",
+        TRIM: "pill-mute", ADD: "pill-info", NOTE: "pill-mute"
+      }[entry.action] || "pill-mute";
+      const row = el("div", { class: "journal-entry" },
+        el("div", { class: "journal-meta" },
+          el("span", { class: "journal-action" },
+            el("span", { class: "pill " + actionClass }, entry.action), " ",
+            entry.ticker, " · ", entry.description || ""),
+          el("div", { style: "display:flex;gap:8px;align-items:center;" },
+            entry.realized_pnl != null
+              ? el("span", { class: "pill " + (entry.realized_pnl >= 0 ? "pill-success" : "pill-blocked"), style: "font-size:11px;" },
+                  (entry.realized_pnl >= 0 ? "+" : "") + fmt.currencyExact(entry.realized_pnl))
+              : null,
+            el("span", { class: "journal-date" }, fmt.shortDate(entry.timestamp)),
+            el("button", {
+              class: "action-cta",
+              style: "padding:2px 8px;font-size:11px;",
+              onclick: `deleteJournalEntry('${entry.id}')`
+            }, "×")
+          )
+        ),
+        entry.outside_universe_justification
+          ? el("p", { class: "muted small", style: "color:var(--warn);" }, "§3.4.4: " + entry.outside_universe_justification)
+          : null,
+        entry.notes ? el("p", { class: "journal-text" }, entry.notes) : null
+      );
+      entriesCard.appendChild(row);
+    }
+  }
+  target.appendChild(entriesCard);
+}
+
+function toggleOutsideUniverse() {
+  const cb = document.getElementById("jnl-outside-universe");
+  const row = document.getElementById("jnl-outside-universe-row");
+  if (row) row.style.display = cb && cb.checked ? "flex" : "none";
+}
+
+async function submitJournalEntry() {
+  const ticker = (document.getElementById("jnl-ticker").value || "").trim().toUpperCase();
+  const action = document.getElementById("jnl-action").value;
+  const strategy = document.getElementById("jnl-strategy").value;
+  const description = (document.getElementById("jnl-description").value || "").trim();
+  const pnl = document.getElementById("jnl-pnl").value;
+  const dc = document.getElementById("jnl-debit-credit").value;
+  const outsideUniverse = document.getElementById("jnl-outside-universe").checked;
+  const justification = (document.getElementById("jnl-justification").value || "").trim();
+  const notes = (document.getElementById("jnl-notes").value || "").trim();
+
+  if (!ticker || !description) { alert("Ticker and description are required."); return; }
+  if (outsideUniverse && !justification) {
+    alert("Strategy §3.4.4: A justification is required for outside-universe trades.");
+    return;
+  }
+
+  const body = {
+    ticker, action, strategy, description,
+    realized_pnl: pnl ? parseFloat(pnl) : null,
+    debit_credit: dc ? parseFloat(dc) : null,
+    outside_universe: outsideUniverse,
+    outside_universe_justification: outsideUniverse ? justification : null,
+    notes: notes || null,
+  };
+
+  try {
+    await apiFetch("/api/journal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    ["jnl-ticker","jnl-description","jnl-pnl","jnl-debit-credit","jnl-justification","jnl-notes"].forEach(id => {
+      const e2 = document.getElementById(id);
+      if (e2) e2.value = "";
+    });
+    const data = await apiFetch("/api/journal");
+    renderJournalWithForm(data);
+  } catch (e) {
+    alert("Failed to log entry: " + e.message);
+  }
+}
+
+async function deleteJournalEntry(id) {
+  if (!confirm("Delete this journal entry?")) return;
+  try {
+    await apiFetch(`/api/journal/${id}`, { method: "DELETE" });
+    const data = await apiFetch("/api/journal");
+    renderJournalWithForm(data);
+  } catch (e) {
+    alert("Failed to delete entry: " + e.message);
+  }
+}
+
+// =====================================================================
+// Alerts CRUD editor
+// =====================================================================
+function renderAlerts(data) {
+  const target = document.getElementById("alerts-content");
+  if (!target) return;
+  target.innerHTML = "";
+
+  const alerts = (data && data.alerts) ? data.alerts.filter(function(a) { return !a.snoozed; }) : [];
+
+  const form = el("div", { class: "card", style: "margin-bottom:12px;" },
+    el("h3", {}, "Add alert"),
+    el("div", { class: "form-row" },
+      el("label", {}, "Ticker",
+        el("input", { type: "text", id: "alert-ticker", placeholder: "MSFT", maxlength: "10" })
+      ),
+      el("label", {}, "Severity",
+        Object.assign(el("select", { id: "alert-severity" }), {
+          innerHTML: '<option value="info">Info</option><option value="warn">Warn</option><option value="critical">Critical</option>'
+        })
+      ),
+      el("label", { style: "flex:2;" }, "Message",
+        el("input", { type: "text", id: "alert-message", placeholder: "e.g. Delta approaching 0.40 — monitor roll" })
+      ),
+      el("button", {
+        class: "action-cta action-cta-primary",
+        onclick: "createAlert()"
+      }, "+ Add alert")
+    )
+  );
+  target.appendChild(form);
+
+  const listCard = el("div", { class: "card" }, el("h3", {}, "Active alerts"));
+  if (alerts.length === 0) {
+    listCard.appendChild(el("p", { class: "empty-state" }, "No active alerts."));
+  } else {
+    for (const a of alerts) {
+      const severityClass = { info: "pill-info", warn: "pill-fair", critical: "pill-blocked" }[a.severity] || "pill-mute";
+      const row = el("div", { style: "display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);" },
+        el("span", { class: "pill " + severityClass }, a.severity.toUpperCase()),
+        el("span", { class: "ticker", style: "min-width:50px;" }, a.ticker),
+        el("span", { style: "flex:1;font-size:13px;" }, a.message),
+        el("span", { class: "muted small", style: "min-width:80px;text-align:right;" }, fmt.shortDate(a.created_at)),
+        el("button", {
+          class: "action-cta",
+          style: "padding:4px 10px;font-size:12px;",
+          onclick: "dismissAlert('" + a.id + "')"
+        }, "Dismiss")
+      );
+      listCard.appendChild(row);
+    }
+  }
+  target.appendChild(listCard);
+}
+
+async function createAlert() {
+  const ticker = (document.getElementById("alert-ticker").value || "").trim().toUpperCase();
+  const severity = document.getElementById("alert-severity").value;
+  const message = (document.getElementById("alert-message").value || "").trim();
+  if (!ticker || !message) { alert("Ticker and message are required."); return; }
+  try {
+    await apiFetch("/api/alerts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ticker, severity, message, source: "manual" })
+    });
+    const el2 = document.getElementById("alert-ticker");
+    const el3 = document.getElementById("alert-message");
+    if (el2) el2.value = "";
+    if (el3) el3.value = "";
+    const data = await apiFetch("/api/alerts");
+    renderAlerts(data);
+  } catch (e) {
+    alert("Failed to create alert: " + e.message);
+  }
+}
+
+async function dismissAlert(id) {
+  try {
+    await apiFetch("/api/alerts/" + id, { method: "DELETE" });
+    const data = await apiFetch("/api/alerts");
+    renderAlerts(data);
+  } catch (e) {
+    alert("Failed to dismiss alert: " + e.message);
+  }
+}
+
+// =====================================================================
+// Phase 3 uploads
+// =====================================================================
+function setupUploadZone(zoneId, inputId, onFileSelected) {
+  const zone = document.getElementById(zoneId);
+  const input = document.getElementById(inputId);
+  if (!zone || !input) return;
+  zone.addEventListener("click", () => input.click());
+  zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("drag-over"); });
+  zone.addEventListener("dragleave", () => zone.classList.remove("drag-over"));
+  zone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    zone.classList.remove("drag-over");
+    if (e.dataTransfer.files.length > 0) onFileSelected(e.dataTransfer.files[0]);
+  });
+  input.addEventListener("change", () => {
+    if (input.files.length > 0) onFileSelected(input.files[0]);
+  });
+}
+
+setupUploadZone("ibkr-upload-zone", "ibkr-file-input", async (file) => {
+  const result = document.getElementById("ibkr-upload-result");
+  if (result) result.innerHTML = '<div class="loading">Uploading and running OCR…</div>';
+  const fd = new FormData();
+  fd.append("file", file);
+  try {
+    const res = await authFetch("/api/uploads/ibkr", { method: "POST", body: fd });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    let html = `<div class="upload-result"><p><strong>Upload successful.</strong> OCR status: ${data.ocr_status}</p>`;
+    if (data.note) html += `<p class="muted small">${data.note}</p>`;
+    html += "</div>";
+    if (result) result.innerHTML = html;
+    refreshUploadsList();
+  } catch (e) {
+    if (result) result.innerHTML = `<div class="error-banner"><span>Upload failed: ${e.message}</span></div>`;
+  }
+});
+
+setupUploadZone("chart-upload-zone", "chart-file-input", async (file) => {
+  const ticker = (document.getElementById("chart-ticker")?.value || "").trim().toUpperCase();
+  const context = document.getElementById("chart-context")?.value || "";
+  const result = document.getElementById("chart-upload-result");
+  if (!ticker || !/^[A-Z]{1,5}$/.test(ticker)) {
+    if (result) result.innerHTML = '<div class="error-banner"><span>Enter a valid ticker first</span></div>';
+    return;
+  }
+  if (result) result.innerHTML = '<div class="loading">Uploading…</div>';
+  const fd = new FormData();
+  fd.append("ticker", ticker);
+  fd.append("context", context);
+  fd.append("file", file);
+  try {
+    const res = await authFetch("/api/uploads/chart", { method: "POST", body: fd });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    if (result) result.innerHTML = `<div class="upload-result"><p><strong>Chart uploaded for ${data.ticker}</strong> (${data.context})</p></div>`;
+    refreshUploadsList();
+  } catch (e) {
+    if (result) result.innerHTML = `<div class="error-banner"><span>Upload failed: ${e.message}</span></div>`;
+  }
+});
+
+async function refreshUploadsList() {
+  const target = document.getElementById("uploads-list");
+  if (!target) return;
+  const data = await apiFetch("/api/uploads");
+  if (!data) return showError(target, "uploads");
+  target.innerHTML = "";
+  const all = [
+    ...(data.ibkr_uploads || []).map(u => ({ ...u, type: "IBKR" })),
+    ...(data.chart_annotations || []).map(c => ({ ...c, type: "Chart" })),
+  ].sort((a, b) => (b.timestamp || "").localeCompare(a.timestamp || ""));
+  if (all.length === 0) {
+    target.appendChild(el("div", { class: "empty-state" }, "No uploads yet."));
+    return;
+  }
+  const table = el("table");
+  table.appendChild(el("thead", {}, el("tr", {},
+    el("th", {}, "Type"), el("th", {}, "Ticker / context"), el("th", {}, "When"), el("th", {}, "Status")
+  )));
+  const tbody = el("tbody");
+  for (const item of all.slice(0, 20)) {
+    const status = item.type === "IBKR"
+      ? (item.applied_to_positions ? "applied" : (item.ocr_status || "pending"))
+      : (item.read ? "annotated" : "uploaded");
+    tbody.appendChild(el("tr", {},
+      el("td", {}, el("span", { class: "pill pill-mute" }, item.type)),
+      el("td", {}, item.ticker || item.context || "—"),
+      el("td", { class: "muted small" }, fmt.shortDate(item.timestamp)),
+      el("td", {}, el("span", { class: "pill pill-info" }, status))
+    ));
+  }
+  table.appendChild(tbody);
+  target.appendChild(table);
+}
+
+// =====================================================================
+// Run scripts (manage tab)
+// =====================================================================
+async function renderScriptsList() {
+  const target = document.getElementById("scripts-list");
+  if (!target) return;
+  const data = await apiFetch("/api/run/scripts");
+  if (!data) return showError(target, "scripts");
+  target.innerHTML = "";
+  const grid = el("div", { class: "scripts-grid" });
+  for (const script of data.scripts || []) {
+    const btn = el("button", {
+      class: "script-btn",
+      onclick: () => runScript(script.key, btn)
+    },
+      el("strong", {}, script.key),
+      el("span", { class: "muted small" }, script.filename)
+    );
+    grid.appendChild(btn);
+  }
+  target.appendChild(grid);
+  target.appendChild(el("div", { id: "script-output", class: "script-output" }));
+}
+
+async function runScript(key, btn) {
+  const output = document.getElementById("script-output");
+  if (output) output.innerHTML = `<div class="loading">Running ${key}…</div>`;
+  if (btn) btn.disabled = true;
+  try {
+    const res = await authFetch(`/api/run/${key}`, { method: "POST" });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    if (output) output.innerHTML = `
+      <p><strong>${data.script}</strong> — exit ${data.exit_code} · ${data.duration_seconds}s</p>
+      <pre class="script-stdout">${escapeHtml(data.stdout || "(no stdout)")}</pre>
+      ${data.stderr ? `<p class="warn small">stderr:</p><pre class="script-stderr">${escapeHtml(data.stderr)}</pre>` : ""}
+    `;
+  } catch (e) {
+    if (output) output.innerHTML = `<div class="error-banner"><span>Run failed: ${e.message}</span></div>`;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// =====================================================================
+// IBKR backend status — uses /api/ibkr/capability (Web API + OPRA aware).
+// Renders the "backend pill" shown above the Sync button on the Uploads card.
+// (The legacy /api/ibkr/status TWS-gateway probe is kept on the backend but no
+//  longer drives any UI element after the May 2026 Web API migration.)
+// =====================================================================
+async function checkGatewayStatus() {
+  const dot = document.getElementById('gw-dot');
+  const text = document.getElementById('gw-status-text');
+  if (!dot && !text) return;
+  try {
+    const res = await authFetch('/api/ibkr/capability');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const cap = await res.json();
+    const active = cap.active_backend;
+    const web = cap.web_api || {};
+    const sess = web.session_status || {};
+    const opra = web.opra_subscribed;
+
+    if (active === 'web_api' && sess.authenticated && sess.established) {
+      if (dot) dot.style.background = '#22c55e';
+      if (text) text.textContent = `Web API ready — account ${web.account || '—'}${opra ? ' · OPRA Greeks' : ''}`;
+    } else if (active === 'web_api' && sess.reachable && !sess.authenticated) {
+      if (dot) dot.style.background = '#f59e0b';
+      if (text) text.textContent = 'Web API re-auth pending — approve push on IBKR Mobile';
+    } else if (active === 'bs_yfinance') {
+      if (dot) dot.style.background = '#f59e0b';
+      if (text) text.textContent = 'Fallback active — Black-Scholes from yfinance (no OPRA Greeks)';
+    } else if (active === 'tws_ibkr') {
+      if (dot) dot.style.background = '#f59e0b';
+      if (text) text.textContent = 'Legacy TWS gateway — Web API preferred when available';
+    } else {
+      if (dot) dot.style.background = '#ef4444';
+      if (text) text.textContent = `Backend unavailable${cap.resolution_hint ? ` — hint: ${cap.resolution_hint}` : ''}`;
+    }
+  } catch (e) {
+    if (dot) dot.style.background = '#ef4444';
+    if (text) text.textContent = `Backend check failed: ${e.message}`;
+  }
+}
+
+async function triggerIbkrSync() {
+  const btn = document.getElementById('ibkr-sync-btn');
+  const result = document.getElementById('ibkr-sync-result');
+  if (btn) { btn.disabled = true; btn.textContent = '↺ Syncing…'; }
+  if (result) result.innerHTML = '<span class="muted">Syncing from IBKR (Web API)…</span>';
+  try {
+    const res = await authFetch('/api/ibkr/sync', { method: 'POST' });
+    const data = await res.json();
+    if (res.ok) {
+      // Strategy v3.6 — USD-native display
+      const fmtUsd = (v) => v != null ? `$${Math.round(v).toLocaleString('en-US')}` : '—';
+      const netliq = fmtUsd(data.net_liq);
+      const excess = fmtUsd(data.excess_liq);
+      const avail = fmtUsd(data.available_funds);
+      if (result) result.innerHTML = `
+        <div style="color:#22c55e; font-weight:600; margin-bottom:6px;">✓ Sync complete</div>
+        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; font-size:12px;">
+          <div><span class="muted">Positions</span><br><strong>${data.positions_count}</strong></div>
+          <div><span class="muted">NetLiq</span><br><strong>${netliq}</strong></div>
+          <div><span class="muted">Excess Liq</span><br><strong>${excess}</strong></div>
+          <div><span class="muted">Available</span><br><strong>${avail}</strong></div>
+          <div><span class="muted">Synced at</span><br><strong>${new Date(data.synced_at).toLocaleTimeString()}</strong></div>
+        </div>`;
+      refreshAll();
+    } else {
+      const detail = data.detail || data;
+      const hint = typeof detail === 'object' ? (detail.hint || detail.message || JSON.stringify(detail)) : detail;
+      if (result) result.innerHTML = `<div style="color:#ef4444;">✗ Sync failed: ${hint}</div>`;
+    }
+  } catch (e) {
+    if (result) result.innerHTML = `<div style="color:#ef4444;">✗ Error: ${e.message}</div>`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '↺ Sync from IBKR'; }
+  }
+}
+
+async function previewIbkrSync() {
+  const btn = document.getElementById('ibkr-preview-btn');
+  const result = document.getElementById('ibkr-sync-result');
+  if (btn) { btn.disabled = true; btn.textContent = 'Previewing…'; }
+  if (result) result.innerHTML = '<span class="muted">Fetching preview from IBKR (Web API)…</span>';
+  try {
+    const res = await authFetch('/api/ibkr/preview');
+    const data = await res.json();
+    if (res.ok && data.data) {
+      const d = data.data;
+      const positions = d.positions || [];
+      const rows = positions.map(p =>
+        `<tr><td>${p.ticker}</td><td>${p.strategy}</td><td>${p.expiry || '—'}</td><td>${p.qty !== undefined ? p.qty : '—'}</td><td>${p.current_delta !== undefined ? p.current_delta : '—'}</td><td>${p.net_liq_pct !== undefined ? p.net_liq_pct + '%' : '—'}</td></tr>`
+      ).join('');
+      const fmtUsd = (v) => v != null ? `$${Math.round(v).toLocaleString('en-US')}` : '—';
+      if (result) result.innerHTML = `
+        <div style="color:#f59e0b; font-weight:600; margin-bottom:8px;">Preview only — not saved</div>
+        <div style="font-size:12px; margin-bottom:6px;">NetLiq: <strong>${fmtUsd(d.net_liq)}</strong> &nbsp; Excess: <strong>${fmtUsd(d.excess_liq)}</strong></div>
+        <table style="width:100%; font-size:12px; border-collapse:collapse;">
+          <thead><tr style="color:var(--text-muted); text-align:left;"><th>Ticker</th><th>Strategy</th><th>Expiry</th><th>Qty</th><th>Delta</th><th>NetLiq%</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+    } else {
+      const detail = data.detail || data;
+      const hint = typeof detail === 'object' ? (detail.message || JSON.stringify(detail)) : detail;
+      if (result) result.innerHTML = `<div style="color:#ef4444;">✗ Preview failed: ${hint}</div>`;
+    }
+  } catch (e) {
+    if (result) result.innerHTML = `<div style="color:#ef4444;">✗ Error: ${e.message}</div>`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Preview (dry run)'; }
+  }
+}
+
+// =====================================================================
+// Jade Lizard gate check (New Trade tab)
+// =====================================================================
+function showJadeLizardGate() {
+  const strategy = document.getElementById("pt-strategy")?.value;
+  const gateDiv = document.getElementById("jade-lizard-gate");
+  if (gateDiv) gateDiv.style.display = strategy === "JADE_LIZARD" ? "block" : "none";
+}
+
+async function validateJadeLizard() {
+  const putStrike = parseFloat(document.getElementById("jl-put-strike")?.value);
+  const callShort = parseFloat(document.getElementById("jl-call-short")?.value);
+  const callLong = parseFloat(document.getElementById("jl-call-long")?.value);
+  const putCredit = parseFloat(document.getElementById("jl-put-credit")?.value);
+  const callCredit = parseFloat(document.getElementById("jl-call-credit")?.value);
+  const resultDiv = document.getElementById("jl-result");
+
+  if ([putStrike, callShort, callLong, putCredit, callCredit].some(isNaN)) {
+    if (resultDiv) resultDiv.innerHTML = '<p class="warn">All fields are required.</p>';
+    return;
+  }
+
+  try {
+    const result = await apiFetch("/api/manage/validate_jade_lizard", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        put_strike: putStrike,
+        call_short_strike: callShort,
+        call_long_strike: callLong,
+        put_credit: putCredit,
+        call_spread_credit: callCredit,
+      })
+    });
+    if (!result) throw new Error("No response from server");
+    const isPass = result.verdict === "PASS";
+    if (resultDiv) resultDiv.innerHTML = `
+      <div style="padding:10px 14px;border-radius:6px;background:var(--bg-card);border:1px solid ${isPass ? "var(--green)" : "var(--red)"};margin-top:10px;">
+        <strong style="color:${isPass ? "var(--green)" : "var(--red)"};">${result.verdict}</strong> — ${result.message}
+        <div style="margin-top:6px;font-size:12px;color:var(--muted);">
+          Call spread width: $${result.computed.call_spread_width.toFixed(2)} ·
+          Total credit: $${result.computed.total_credit.toFixed(2)} ·
+          Margin: ${result.computed.margin >= 0 ? "+" : ""}$${result.computed.margin.toFixed(2)}
+        </div>
+      </div>`;
+  } catch (e) {
+    if (resultDiv) resultDiv.innerHTML = `<p class="warn">Validation failed: ${e.message}</p>`;
+  }
+}
+
+// =====================================================================
+// Refresh cycle
+// =====================================================================
+async function refreshAll() {
+  console.log("[fortress] refreshing", new Date().toISOString());
+  const [briefing, positions, candidates, universe, calendar, journal] = await Promise.all([
+    apiFetch("/api/briefing"),
+    apiFetch("/api/positions"),
+    apiFetch("/api/candidates"),
+    apiFetch("/api/universe"),
+    apiFetch("/api/calendar"),
+    apiFetch("/api/journal"),
+  ]);
+  renderHeader(briefing);
+  renderBriefing(briefing);
+  renderCandidates(candidates);
+  renderPositions(positions);
+  renderUniverse(universe);
+  renderCalendar(calendar);
+  renderJournal(journal);
+  // Alerts are rendered lazily when the Strategy tab is opened (initStrategy)
+  // Only re-render if the Strategy tab is already active
+  if (document.getElementById("alerts-content")) {
+    apiFetch("/api/alerts").then(a => renderAlerts(a)).catch(() => {});
+  }
+  refreshUploadsList();
+}
+
+function startAutoRefresh() {
+  if (refreshTimer) clearInterval(refreshTimer);
+  if (autoRefreshEnabled) refreshTimer = setInterval(refreshAll, REFRESH_INTERVAL_MS);
+}
+
+document.getElementById("refresh-btn")?.addEventListener("click", refreshAll);
+document.getElementById("auto-refresh-toggle")?.addEventListener("click", function () {
+  autoRefreshEnabled = !autoRefreshEnabled;
+  this.dataset.on = autoRefreshEnabled ? "true" : "false";
+  this.textContent = autoRefreshEnabled ? "Auto: ON" : "Auto: OFF";
+  startAutoRefresh();
+});
+
+// Initial load
+// window._tokenReady is a Promise that resolves once the Bearer token has been
+// fetched. Other scripts (phase4.js) can await it before making API calls.
+let _tokenReadyResolve;
+window._tokenReady = new Promise(resolve => { _tokenReadyResolve = resolve; });
+
+async function init() {
+  await _initToken();  // fetch Bearer token before any API calls
+  _tokenReadyResolve();  // signal to other scripts that the token is ready
+  await refreshAll();
+  startAutoRefresh();
+  await renderScriptsList();
+  checkGatewayStatus();
+  setInterval(checkGatewayStatus, 30000);
+}
+init().catch(err => console.error("[fortress] init failed:", err));

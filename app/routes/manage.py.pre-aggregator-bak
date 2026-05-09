@@ -1,0 +1,258 @@
+"""
+Manage endpoints — Phase 4 §8.1 (stop-loss aggregator) and §8.2 (roll evaluator).
+
+Position lookup: positions in active_positions.json don't currently carry an
+explicit `id` field (Build Spec v1.2 §3.1.5 minimal record). We accept either:
+  - a ticker (case-insensitive) when there is exactly one position with that ticker
+  - a synthesized id of the form <ticker>_<exp-mmm><dd>_<short_strike>c
+"""
+
+from __future__ import annotations
+
+import glob
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
+
+from fastapi import APIRouter, HTTPException, Query
+
+from app.services import state, chain as chain_svc
+from app.services.roll import evaluate_roll
+from app.services.stop_loss import evaluate_stop_loss, parse_dp_floors_from_daily_report
+
+router = APIRouter()
+
+
+def _synthesize_id(pos: dict) -> str:
+    """e.g. UNH_jun18_390c"""
+    ticker = (pos.get("ticker") or "").lower()
+    expiry = pos.get("expiry") or ""
+    short_strike = pos.get("short_strike")
+    try:
+        d = datetime.strptime(expiry[:10], "%Y-%m-%d")
+        exp_short = d.strftime("%b%d").lower()
+    except ValueError:
+        exp_short = "unkn"
+    strike_part = f"{int(short_strike)}c" if short_strike else "?c"
+    return f"{ticker}_{exp_short}_{strike_part}"
+
+
+def _find_position(position_id: str) -> Optional[dict]:
+    """Resolve a position by ticker or synthesized id."""
+    data = state.get_active_positions()
+    positions = data.get("positions", [])
+    pid = position_id.strip()
+
+    # 1. Exact `id` field match (forward-compat)
+    for p in positions:
+        if p.get("id") and p["id"].lower() == pid.lower():
+            return p
+
+    # 2. Synthesized id match
+    for p in positions:
+        if _synthesize_id(p).lower() == pid.lower():
+            return p
+
+    # 3. Ticker match (only if unique)
+    matches = [p for p in positions if (p.get("ticker") or "").upper() == pid.upper()]
+    if len(matches) == 1:
+        return matches[0]
+
+    return None
+
+
+def _get_latest_daily_report() -> Optional[Path]:
+    """Find the most recent QuantData Daily Report .md in BASE_DIR."""
+    matches = sorted(glob.glob(str(state.BASE_DIR / "QuantData Daily Report*.md")))
+    return Path(matches[-1]) if matches else None
+
+
+# ---------------------------------------------------------------------------
+# Stop-loss aggregator
+# ---------------------------------------------------------------------------
+
+@router.get("/manage/stop_loss/{position_id}")
+def stop_loss(
+    position_id: str,
+    fundamental_break: bool = Query(False, description="Manual flag — fires Signal 3"),
+    peak_mv: Optional[float] = Query(None, description="Peak MV in last 90d (Phase 3 input)"),
+    current_mv: Optional[float] = Query(None, description="Current MV (Phase 3 input)"),
+):
+    pos = _find_position(position_id)
+    if not pos:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Position '{position_id}' not found. Try the ticker (e.g., 'MSFT') if unique.",
+        )
+
+    ticker = (pos.get("ticker") or "").upper()
+
+    # Latest price + 200-day SMA from yfinance (graceful-degrades if offline)
+    latest_price = chain_svc.get_spot(ticker)
+    sma_200 = chain_svc.get_sma(ticker, 200)
+
+    # Dark pool floors from latest QuantData Daily Report
+    dp_floors: list[float] = []
+    daily_path = _get_latest_daily_report()
+    if daily_path:
+        try:
+            with daily_path.open("r", encoding="utf-8") as f:
+                content = f.read()
+            floors_map = parse_dp_floors_from_daily_report(content)
+            dp_floors = floors_map.get(ticker, [])
+        except OSError:
+            pass
+
+    result = evaluate_stop_loss(
+        position=pos,
+        latest_price=latest_price,
+        sma_200=sma_200,
+        dp_floors=dp_floors,
+        peak_mv=peak_mv,
+        current_mv=current_mv,
+        fundamental_break=fundamental_break,
+    )
+    result["position"] = {
+        "ticker": ticker,
+        "strategy": pos.get("strategy"),
+        "expiry": pos.get("expiry"),
+        "short_strike": pos.get("short_strike"),
+        "long_strike": pos.get("long_strike"),
+        "synthesized_id": _synthesize_id(pos),
+    }
+    result["sources"] = {
+        "spot": "yfinance",
+        "sma_200": "yfinance (computed from 200d daily close)",
+        "dp_floors": str(daily_path) if daily_path else None,
+    }
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Roll candidate evaluator
+# ---------------------------------------------------------------------------
+
+@router.get("/manage/roll/{position_id}")
+def roll(
+    position_id: str,
+    target_dte_low: int = Query(30, ge=1, le=180),
+    target_dte_high: int = Query(45, ge=1, le=365),
+    target_delta_low: float = Query(0.20, ge=0.05, le=0.50),
+    target_delta_high: float = Query(0.25, ge=0.05, le=0.60),
+):
+    pos = _find_position(position_id)
+    if not pos:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Position '{position_id}' not found.",
+        )
+
+    if (pos.get("strategy") or "").upper() == "SPY_HEDGE":
+        raise HTTPException(
+            status_code=400,
+            detail="SPY hedge positions are not roll candidates per Strategy §2.D.",
+        )
+
+    if pos.get("short_strike") is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Position has no short_strike — cannot evaluate roll.",
+        )
+
+    result = evaluate_roll(
+        position=pos,
+        target_dte=(target_dte_low, target_dte_high),
+        target_delta=(target_delta_low, target_delta_high),
+    )
+    result["position"] = {
+        "ticker": pos.get("ticker"),
+        "strategy": pos.get("strategy"),
+        "expiry": pos.get("expiry"),
+        "short_strike": pos.get("short_strike"),
+        "long_strike": pos.get("long_strike"),
+        "synthesized_id": _synthesize_id(pos),
+    }
+    return result
+
+
+@router.get("/manage/positions")
+def list_manageable_positions():
+    """
+    Helper for the UI — returns the simplified position list with synthesized
+    ids so the Manage tab can show a picker.
+    """
+    data = state.get_active_positions()
+    out = []
+    for p in data.get("positions", []):
+        out.append({
+            "ticker": p.get("ticker"),
+            "strategy": p.get("strategy"),
+            "expiry": p.get("expiry"),
+            "short_strike": p.get("short_strike"),
+            "long_strike": p.get("long_strike"),
+            "current_delta": p.get("current_delta"),
+            "alert_state": p.get("alert_state"),
+            "id": _synthesize_id(p),
+        })
+    return {"positions": out}
+
+
+# ---------------------------------------------------------------------------
+# Jade Lizard credit validation — Strategy §2.E
+# ---------------------------------------------------------------------------
+
+from pydantic import BaseModel, Field, model_validator as _model_validator
+
+class JadeLizardValidationRequest(BaseModel):
+    put_strike: float = Field(..., gt=0, description="Short put strike")
+    call_short_strike: float = Field(..., gt=0, description="Short call strike")
+    call_long_strike: float = Field(..., gt=0, description="Long call strike (higher than short)")
+    put_credit: float = Field(..., gt=0, description="Credit received for the short put (per share, positive)")
+    call_spread_credit: float = Field(..., description="Net credit for the call spread (per share, positive = credit)")
+
+    @_model_validator(mode="after")
+    def validate_strikes(self):
+        if self.call_long_strike <= self.call_short_strike:
+            raise ValueError(
+                "call_long_strike must be greater than call_short_strike "
+                "(the long call is the upper leg of the spread)."
+            )
+        return self
+
+
+@router.post("/manage/validate_jade_lizard")
+def validate_jade_lizard(body: JadeLizardValidationRequest):
+    """
+    Validate a Jade Lizard structure per Strategy §2.E.
+    Rule: Total credit (put credit + call spread credit) must EXCEED call spread width.
+    """
+    call_spread_width = round(body.call_long_strike - body.call_short_strike, 4)
+    total_credit = round(body.put_credit + body.call_spread_credit, 4)
+    credit_exceeds_width = total_credit > call_spread_width
+    margin = round(total_credit - call_spread_width, 4)
+
+    return {
+        "verdict": "PASS" if credit_exceeds_width else "FAIL",
+        "rule": "Strategy §2.E — Total credit must exceed call spread width",
+        "credit_exceeds_width": credit_exceeds_width,
+        "inputs": {
+            "put_strike": body.put_strike,
+            "call_short_strike": body.call_short_strike,
+            "call_long_strike": body.call_long_strike,
+            "put_credit": body.put_credit,
+            "call_spread_credit": body.call_spread_credit,
+        },
+        "computed": {
+            "call_spread_width": call_spread_width,
+            "total_credit": total_credit,
+            "margin": margin,
+        },
+        "message": (
+            f"Total credit ${total_credit:.2f} exceeds call spread width ${call_spread_width:.2f} "
+            f"by ${margin:.2f}. Trade is valid per §2.E."
+            if credit_exceeds_width else
+            f"REJECTED: Total credit ${total_credit:.2f} does NOT exceed call spread width "
+            f"${call_spread_width:.2f} (short by ${abs(margin):.2f}). "
+            "Widen the put credit or narrow the call spread per §2.E."
+        ),
+    }

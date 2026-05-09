@@ -1,0 +1,365 @@
+/* Fortress Dashboard — Phase 4 logic engines (Manage / Playbook / New trade)
+   Reuses helpers from app.js (el, fmt, apiFetch, escapeHtml, navigateToTab). */
+
+(function () {
+  // ---------- Position picker shared by stop-loss + roll ----------
+  let positionsCache = [];
+
+  async function loadPositionPickers() {
+    const data = await apiFetch("/api/manage/positions");
+    if (!data) return;
+    positionsCache = data.positions || [];
+    fillPicker("stop-loss-position", positionsCache, p =>
+      `${p.ticker} — ${p.strategy}${p.short_strike ? ` ${p.short_strike}c` : ""}${p.expiry ? " " + shortExp(p.expiry) : ""}`
+    );
+    fillPicker("roll-position", positionsCache.filter(p => p.strategy !== "SPY_HEDGE" && p.short_strike != null), p =>
+      `${p.ticker} short ${p.short_strike}c ${shortExp(p.expiry)}`
+    );
+  }
+
+  function fillPicker(id, items, label) {
+    const sel = document.getElementById(id);
+    if (!sel) return;
+    sel.innerHTML = "";
+    if (!items.length) {
+      sel.appendChild(el("option", { value: "" }, "no positions"));
+      return;
+    }
+    for (const p of items) {
+      sel.appendChild(el("option", { value: p.id }, label(p)));
+    }
+  }
+
+  function shortExp(iso) {
+    if (!iso) return "";
+    try {
+      const d = new Date(iso);
+      const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+      return `${months[d.getUTCMonth()]} ${String(d.getUTCFullYear()).slice(-2)}`;
+    } catch { return iso; }
+  }
+
+  // ---------- Verdict pill helper ----------
+  function verdictPill(v) {
+    const map = {
+      HOLD: "pill-success", WATCH: "pill-fair", ACT: "pill-blocked", ACT_IMMEDIATELY: "pill-blocked",
+      PASS: "pill-mute", PRIME_ENTRY: "pill-prime", CONDITIONAL: "pill-fair", EVALUATE: "pill-info",
+      PROCEED: "pill-prime", PROFIT_TRIM: "pill-info"
+    };
+    const cls = map[v] || "pill-mute";
+    return el("span", { class: "pill " + cls + " pill-large" }, (v || "").replace(/_/g, " "));
+  }
+
+  function signalRow(s) {
+    const dotClass =
+      s.status === "fired" ? "dot-red" :
+      s.status === "approaching" ? "dot-amber" :
+      s.status === "clear" ? "dot-green" : "dot-gray";
+    return el("li", { class: "signal-row" },
+      el("span", { class: "dot " + dotClass }),
+      el("strong", {}, s.label),
+      el("span", { class: "pill pill-mute pill-small" }, s.status),
+      el("p", { class: "muted small" }, s.detail || "")
+    );
+  }
+
+  // ---------- Stop-loss aggregator ----------
+  document.getElementById("stop-loss-run")?.addEventListener("click", async () => {
+    const target = document.getElementById("stop-loss-result");
+    const positionId = document.getElementById("stop-loss-position").value;
+    if (!positionId) { target.innerHTML = '<p class="warn">Select a position first.</p>'; return; }
+    const fundamental = document.getElementById("stop-loss-fundamental").checked;
+    const peakMv = document.getElementById("stop-loss-peak-mv").value;
+    const currentMv = document.getElementById("stop-loss-current-mv").value;
+    const params = new URLSearchParams({ fundamental_break: String(fundamental) });
+    if (peakMv) params.set("peak_mv", peakMv);
+    if (currentMv) params.set("current_mv", currentMv);
+    target.innerHTML = '<div class="loading">Evaluating signals…</div>';
+    try {
+      const res = await fetch(`/api/manage/stop_loss/${encodeURIComponent(positionId)}?${params}`);
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      target.innerHTML = "";
+
+      const headline = el("div", { class: "verdict-headline" },
+        el("div", {},
+          el("h3", { class: "muted-h3" }, `${data.position?.ticker} — ${data.position?.strategy}`),
+          el("p", { class: "muted small" }, `${data.signals_fired}/3 signals fired`)
+        ),
+        verdictPill(data.verdict)
+      );
+      target.appendChild(headline);
+      target.appendChild(el("p", { class: "verdict-action" }, data.recommended_action || ""));
+
+      const inputs = data.inputs || {};
+      target.appendChild(el("div", { class: "muted small input-meta" },
+        `Spot: ${fmtPrice(inputs.latest_price)} · 200-SMA: ${fmtPrice(inputs.sma_200)} · DP floors: ${
+          (inputs.dp_floors || []).map(f => "$" + f.toFixed(2)).join(", ") || "—"
+        }`
+      ));
+
+      const sigList = el("ul", { class: "signal-list" });
+      (data.signals || []).forEach(s => sigList.appendChild(signalRow(s)));
+      target.appendChild(sigList);
+    } catch (e) {
+      target.innerHTML = `<div class="error-banner"><span>Stop-loss evaluation failed: ${escapeHtml(e.message)}</span></div>`;
+    }
+  });
+
+  function fmtPrice(v) {
+    return v == null ? "—" : "$" + Number(v).toFixed(2);
+  }
+
+  // ---------- Roll candidate evaluator ----------
+  document.getElementById("roll-run")?.addEventListener("click", async () => {
+    const target = document.getElementById("roll-result");
+    const positionId = document.getElementById("roll-position").value;
+    if (!positionId) { target.innerHTML = '<p class="warn">Select a position first.</p>'; return; }
+    const params = new URLSearchParams({
+      target_dte_low: document.getElementById("roll-dte-low").value,
+      target_dte_high: document.getElementById("roll-dte-high").value,
+      target_delta_low: document.getElementById("roll-delta-low").value,
+      target_delta_high: document.getElementById("roll-delta-high").value,
+    });
+    target.innerHTML = '<div class="loading">Fetching chain (yfinance, may take a few seconds)…</div>';
+    try {
+      const res = await fetch(`/api/manage/roll/${encodeURIComponent(positionId)}?${params}`);
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      target.innerHTML = "";
+
+      target.appendChild(el("div", { class: "verdict-headline" },
+        el("div", {},
+          el("h3", { class: "muted-h3" }, `${data.position?.ticker} — short ${data.current_short?.strike}c ${shortExp(data.current_short?.expiry)}`),
+          el("p", { class: "muted small" }, data.spot ? `Spot $${data.spot.toFixed(2)} · current short mid ≈ ${fmtPrice(data.current_short?.estimated_mid)}` : "")
+        ),
+        el("span", { class: "pill pill-info pill-large" }, `${(data.candidates||[]).length} candidate${(data.candidates||[]).length === 1 ? "" : "s"}`)
+      ));
+
+      if (data.error) {
+        target.appendChild(el("div", { class: "error-banner" }, el("span", {}, "Chain error: " + data.error)));
+        return;
+      }
+
+      if (!data.candidates || !data.candidates.length) {
+        target.appendChild(el("p", { class: "empty-state" }, "No candidates in target band. Widen DTE/delta or check chain."));
+        return;
+      }
+
+      const cards = el("div", { class: "candidates-grid" });
+      for (const c of data.candidates) {
+        const labelPill = c.label === "framework_match"
+          ? el("span", { class: "pill pill-prime" }, "framework match")
+          : c.label === "conservative"
+            ? el("span", { class: "pill pill-info" }, "conservative")
+            : el("span", { class: "pill pill-fair" }, "aggressive");
+        const recBadge = c.recommended ? el("span", { class: "pill pill-success" }, "★ recommended") : null;
+        const creditClass = c.net_credit_total >= 0 ? "pos" : "neg";
+
+        cards.appendChild(el("div", { class: "candidate-card" + (c.recommended ? " candidate-rec" : "") },
+          el("div", { class: "candidate-row" }, labelPill, recBadge),
+          el("h3", {}, `$${c.strike} ${shortExp(c.expiry)}`),
+          el("table", { class: "candidate-table" },
+            el("tbody", {},
+              row("DTE", `${c.dte}d`),
+              row("Δ", c.delta?.toFixed(2)),
+              row("IV", c.iv != null ? (c.iv*100).toFixed(1)+"%" : "—"),
+              row("Mid", c.mid != null ? "$"+c.mid.toFixed(2) : "—"),
+              row("Bid/Ask", `$${(c.bid||0).toFixed(2)} / $${(c.ask||0).toFixed(2)}`),
+              row("OI", c.open_interest),
+              rowEl("Net credit", el("span", { class: creditClass },
+                (c.net_credit_total >= 0 ? "+" : "") + "$" + Math.abs(c.net_credit_total).toFixed(0)
+              ))
+            )
+          )
+        ));
+      }
+      target.appendChild(cards);
+
+      if (data.ticket_text) {
+        target.appendChild(el("h3", { class: "muted-h3", style: "margin-top:16px" }, "IBKR ticket"));
+        target.appendChild(el("pre", { class: "ticket-text" }, data.ticket_text));
+        const copyBtn = el("button", { class: "action-cta action-cta-small", style: "margin-top:8px" }, "Copy ticket");
+        copyBtn.addEventListener("click", () => {
+          navigator.clipboard.writeText(data.ticket_text).then(() => {
+            copyBtn.textContent = "Copied ✓";
+            setTimeout(() => { copyBtn.textContent = "Copy ticket"; }, 2000);
+          });
+        });
+        target.appendChild(copyBtn);
+      }
+    } catch (e) {
+      target.innerHTML = `<div class="error-banner"><span>Roll evaluation failed: ${escapeHtml(e.message)}</span></div>`;
+    }
+  });
+
+  function row(label, val) {
+    return el("tr", {},
+      el("td", { class: "muted small" }, label),
+      el("td", { class: "num" }, val == null ? "—" : String(val))
+    );
+  }
+  function rowEl(label, valEl) {
+    return el("tr", {},
+      el("td", { class: "muted small" }, label),
+      el("td", { class: "num" }, valEl)
+    );
+  }
+
+  // ---------- Post-earnings playbook ----------
+  document.getElementById("pb-run")?.addEventListener("click", async () => {
+    const target = document.getElementById("pb-result");
+    const ticker = document.getElementById("pb-ticker").value.trim().toUpperCase();
+    const gap = parseFloat(document.getElementById("pb-gap").value);
+    const ivCrush = parseFloat(document.getElementById("pb-iv-crush").value);
+    const concRaw = document.getElementById("pb-concentration").value;
+    const concentration = concRaw === "" ? null : parseFloat(concRaw);
+
+    if (!/^[A-Z]{1,5}$/.test(ticker)) {
+      target.innerHTML = '<p class="warn">Enter a 1–5 letter ticker.</p>'; return;
+    }
+    if (Number.isNaN(gap) || Number.isNaN(ivCrush)) {
+      target.innerHTML = '<p class="warn">Enter both gap % and IV crush %.</p>'; return;
+    }
+
+    const thesis = {
+      revenue_beat: document.getElementById("pb-revenue").checked,
+      guidance_maintained: document.getElementById("pb-guidance").checked,
+      no_leadership_or_regulatory_event: document.getElementById("pb-leadership").checked,
+      sector_context_normal: document.getElementById("pb-sector").checked,
+    };
+
+    const payload = { ticker, gap_pct: gap, iv_crush_pct: ivCrush, thesis };
+    if (concentration !== null && !Number.isNaN(concentration)) payload.concentration_pct = concentration;
+
+    target.innerHTML = '<div class="loading">Running matrix…</div>';
+    try {
+      const res = await fetch("/api/playbook/post_earnings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      target.innerHTML = "";
+
+      target.appendChild(el("div", { class: "verdict-headline" },
+        el("div", {},
+          el("h3", { class: "muted-h3" }, `${data.ticker} — ${data.matrix_band || ""}`),
+          el("p", { class: "muted small" }, data.verdict_reason || "")
+        ),
+        verdictPill(data.final_action || data.verdict)
+      ));
+
+      const meta = el("ul", { class: "meta-list" },
+        el("li", {}, "Matrix verdict: ", el("strong", {}, data.verdict)),
+        el("li", {}, "Final action: ", el("strong", {}, data.final_action || "—")),
+        el("li", {}, "Size cap: ", el("strong", {}, data.size_cap === null ? "standard" : data.size_cap === 0 ? "no add" : `${data.size_cap} contract(s)`)),
+        el("li", {}, "Thesis required: ", el("strong", {}, data.thesis_required ? "yes" : "no")),
+        el("li", {}, "Thesis passed: ", el("strong", {}, data.thesis_passed === null ? "—" : data.thesis_passed ? "yes" : "no")),
+      );
+      if (data.overrides_applied?.length) {
+        meta.appendChild(el("li", {}, "Overrides: ", data.overrides_applied.join(", ")));
+      }
+      target.appendChild(meta);
+
+      if (data.notes?.length) {
+        const notes = el("ul", { class: "notes-list" });
+        for (const n of data.notes) notes.appendChild(el("li", { class: "muted" }, n));
+        target.appendChild(notes);
+      }
+    } catch (e) {
+      target.innerHTML = `<div class="error-banner"><span>Playbook failed: ${escapeHtml(e.message)}</span></div>`;
+    }
+  });
+
+  // ---------- Pre-trade checklist (lightweight) ----------
+  document.getElementById("pt-check")?.addEventListener("click", async () => {
+    const target = document.getElementById("pretrade-result");
+    const ticker = document.getElementById("pt-ticker").value.trim().toUpperCase();
+    const strategy = document.getElementById("pt-strategy").value;
+    if (!/^[A-Z]{1,5}$/.test(ticker)) {
+      target.innerHTML = '<p class="warn">Enter a 1–5 letter ticker.</p>'; return;
+    }
+    target.innerHTML = '<div class="loading">Checking earnings + concentration…</div>';
+    try {
+      const [calendar, briefing, universe] = await Promise.all([apiFetch("/api/calendar"), apiFetch("/api/briefing"), apiFetch("/api/universe")]);
+      const ent = calendar?.tickers?.[ticker];
+      const concentration = briefing?.concentration?.all?.[ticker] ?? 0;
+      const days = ent?.days_to_earnings;
+      const universeDays = strategy === "PMCC" ? 14 : strategy === "PCS" ? 10 : strategy === "JADE_LIZARD" ? 10 : strategy === "DIAGONAL" ? 10 : null;
+
+      const gates = [];
+
+      // Hard exclusion gate per Strategy §3.3 — runs first, blocks all other checks
+      const excludedList = (universe && universe.excluded) || [];
+      const excludedHit = excludedList.find(e =>
+        e && e.ticker && e.ticker.toUpperCase() === ticker
+      );
+      if (excludedHit) {
+        const reasonText = excludedHit.reason === "ignored_entirely"
+          ? `${ticker} is on the §3.3 ignored-entirely list. Display only — never recommend.`
+          : excludedHit.reason === "regulatory"
+            ? `${ticker} excluded for regulatory risk per §3.3 — wait until cleared.`
+            : `${ticker} excluded per §3.3 (${excludedHit.reason || "unspecified reason"}).`;
+        gates.push({ ok: false, label: `Hard exclusion (§3.3)`, detail: reasonText });
+      }
+
+      if (universeDays != null) {
+        if (days == null) {
+          gates.push({ ok: null, label: `Earnings date for ${ticker}`, detail: "No date in earnings_blocklist.json — verify via IR/WSH first." });
+        } else if (days >= 0 && days < universeDays) {
+          gates.push({ ok: false, label: `Earnings blackout (${universeDays}d)`, detail: `${ticker} earnings in ${days}d. ${strategy} blocked per §4.` });
+        } else {
+          gates.push({ ok: true, label: `Earnings clearance (${universeDays}d)`, detail: `Earnings ${days >= 0 ? days+"d away" : "passed"}.` });
+        }
+      }
+      if (strategy === "PMCC" || strategy === "DIAGONAL") {
+        if (concentration > 50) {
+          gates.push({ ok: false, label: "Concentration > 50%", detail: `${ticker} at ${concentration.toFixed(1)}% — high-concentration override applies (Strategy §7).` });
+        } else if (concentration > 30) {
+          gates.push({ ok: null, label: "Concentration 30–50%", detail: `${ticker} at ${concentration.toFixed(1)}%.` });
+        } else {
+          gates.push({ ok: true, label: "Concentration", detail: `${ticker} at ${concentration.toFixed(1)}%.` });
+        }
+      }
+      // VIX gate
+      const vix = briefing?.macro_regime?.vix;
+      const vixState = briefing?.macro_regime?.vix_state;
+      if (vix != null && vixState !== "normal") {
+        gates.push({ ok: false, label: "VIX state", detail: `VIX ${vix} (${vixState}) — pause new entries per §7.` });
+      } else if (vix != null) {
+        gates.push({ ok: true, label: "VIX state", detail: `VIX ${vix}.` });
+      }
+
+      target.innerHTML = "";
+      target.appendChild(el("div", { class: "verdict-headline" },
+        el("div", {},
+          el("h3", { class: "muted-h3" }, `${ticker} — ${strategy}`),
+          el("p", { class: "muted small" }, "Soft gates only. Final decision is yours per §15.1.")
+        ),
+        gates.every(g => g.ok !== false)
+          ? el("span", { class: "pill pill-success pill-large" }, "GATES OK")
+          : el("span", { class: "pill pill-blocked pill-large" }, "GATE FAILED")
+      ));
+
+      const list = el("ul", { class: "signal-list" });
+      for (const g of gates) {
+        const dot = g.ok === true ? "dot-green" : g.ok === false ? "dot-red" : "dot-amber";
+        list.appendChild(el("li", { class: "signal-row" },
+          el("span", { class: "dot " + dot }),
+          el("strong", {}, g.label),
+          el("p", { class: "muted small" }, g.detail || "")
+        ));
+      }
+      target.appendChild(list);
+    } catch (e) {
+      target.innerHTML = `<div class="error-banner"><span>Pre-trade check failed: ${escapeHtml(e.message)}</span></div>`;
+    }
+  });
+
+  // Boot
+  document.addEventListener("DOMContentLoaded", loadPositionPickers);
+  // If DOMContentLoaded already fired (script after body), call immediately
+  if (document.readyState !== "loading") loadPositionPickers();
+})();

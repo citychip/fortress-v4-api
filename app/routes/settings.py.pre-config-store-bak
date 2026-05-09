@@ -1,0 +1,62 @@
+"""
+Dashboard settings endpoint.
+
+Exposes the dashboard's runtime configuration: greeks_backend, IBKR Web API
+connection details, FX cache TTL, UI preferences. Persists to
+quant/dashboard_settings.json with atomic writes + backup.
+
+Endpoints:
+  GET  /api/settings           — current settings (deep-merged with defaults)
+  PUT  /api/settings           — partial update; merges into existing
+"""
+
+from __future__ import annotations
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
+
+from app.services import state
+
+router = APIRouter()
+
+
+class IbkrWebApiSettings(BaseModel):
+    cp_gateway_url: str | None = None
+    verify_ssl: bool | None = None
+    tickle_interval_s: int | None = Field(None, ge=10, le=600)
+    request_timeout_s: int | None = Field(None, ge=1, le=120)
+
+
+class FxSettings(BaseModel):
+    default_pair: str | None = None
+    cache_ttl_s: int | None = Field(None, ge=60, le=86400)
+
+
+class UiSettings(BaseModel):
+    show_eur_equivalent: bool | None = None
+    default_position_view: str | None = None  # "aggregated" | "per_leg"
+
+
+class SettingsUpdate(BaseModel):
+    greeks_backend: str | None = Field(None, pattern="^(auto|web_api|bs_yfinance|tws_ibkr)$")
+    ibkr_account_id: str | None = None
+    ibkr_web_api: IbkrWebApiSettings | None = None
+    fx: FxSettings | None = None
+    ui: UiSettings | None = None
+
+
+@router.get("/settings")
+def get_settings():
+    return state.get_dashboard_settings()
+
+
+@router.put("/settings")
+def update_settings(body: SettingsUpdate):
+    payload = body.model_dump(exclude_none=True)
+    if not payload:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    try:
+        merged = state.save_dashboard_settings(payload)
+    except state.StateError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return merged

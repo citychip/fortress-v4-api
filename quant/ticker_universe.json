@@ -1,0 +1,48 @@
+{
+  "_comment": "Master ticker universe for all QuantData workflow scripts.",
+  "_instructions": "Add or remove tickers here. All scripts will automatically use this list.",
+  "tier1": [
+    "MSFT",
+    "AVGO",
+    "NFLX",
+    "VST",
+    "GOOGL",
+    "AMZN",
+    "AMD",
+    "MSTR",
+    "UNH"
+  ],
+  "tier2": [
+    "META",
+    "AAPL",
+    "NVDA"
+  ],
+  "macro": [
+    "SPX",
+    "SPY"
+  ],
+  "excluded": [
+    {
+      "ticker": "COIN",
+      "reason": "regulatory",
+      "until_cleared": true
+    },
+    {
+      "ticker": "HOOD",
+      "reason": "regulatory",
+      "until_cleared": true
+    },
+    {
+      "ticker": "SMCI",
+      "reason": "regulatory",
+      "until_cleared": true
+    },
+    {
+      "ticker": "OST",
+      "reason": "ignored_entirely",
+      "until_cleared": false,
+      "note": "Strategy §3.3 — ignored entirely. Display in book, never recommend."
+    }
+  ],
+  "_last_updated": "2026-05-06"
+}

@@ -1,0 +1,182 @@
+"""
+Option chain provider — yfinance-backed with module-level cache.
+Used by the roll evaluator (Build Spec v1.1 §8.2).
+"""
+
+from __future__ import annotations
+import math, time
+from datetime import datetime, timezone
+from typing import Optional
+
+_CHAIN_CACHE: dict = {}
+_CHAIN_TTL_S = 300
+RISK_FREE = 0.045
+
+
+def normal_cdf(x: float) -> float:
+    return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+
+def bs_call_delta(spot, strike, t_years, sigma, r=RISK_FREE):
+    if spot <= 0 or strike <= 0 or t_years <= 0 or sigma <= 0:
+        return None
+    try:
+        d1 = (math.log(spot / strike) + (r + 0.5 * sigma * sigma) * t_years) / (sigma * math.sqrt(t_years))
+        return normal_cdf(d1)
+    except (ValueError, ZeroDivisionError):
+        return None
+
+
+def _cached(key, fetcher):
+    now = time.time()
+    if key in _CHAIN_CACHE:
+        ts, val = _CHAIN_CACHE[key]
+        if now - ts < _CHAIN_TTL_S:
+            return val
+    val = fetcher()
+    _CHAIN_CACHE[key] = (now, val)
+    return val
+
+
+def _safe_float(v, default=0.0):
+    try:
+        x = float(v)
+        if x != x:
+            return default
+        return x
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_int(v, default=0):
+    try:
+        x = float(v)
+        if x != x:
+            return default
+        return int(x)
+    except (TypeError, ValueError):
+        return default
+
+
+def get_spot(ticker):
+    def _fetch():
+        try:
+            import yfinance as yf
+            tk = yf.Ticker(ticker)
+            try:
+                info = getattr(tk, 'fast_info', None)
+                if info is not None:
+                    for attr in ('last_price', 'lastPrice', 'regular_market_price'):
+                        p = None
+                        try:
+                            p = getattr(info, attr, None)
+                        except Exception:
+                            p = None
+                        if p is None and hasattr(info, 'get'):
+                            try:
+                                p = info.get(attr)
+                            except Exception:
+                                p = None
+                        if p is not None:
+                            f = _safe_float(p, default=0.0)
+                            if f > 0:
+                                return f
+            except Exception:
+                pass
+            try:
+                hist = tk.history(period='5d', interval='1d')
+                if hist is not None and not hist.empty:
+                    last = _safe_float(hist['Close'].iloc[-1], default=0.0)
+                    if last > 0:
+                        return last
+            except Exception:
+                pass
+        except Exception:
+            pass
+        return None
+    return _cached(('spot', ticker.upper()), _fetch)
+
+
+def get_sma(ticker, window=200):
+    def _fetch():
+        try:
+            import yfinance as yf
+            tk = yf.Ticker(ticker)
+            period = '2y' if window >= 200 else '1y'
+            hist = tk.history(period=period, interval='1d')
+            if hist is None or hist.empty or len(hist) < window:
+                return None
+            return float(hist['Close'].iloc[-window:].mean())
+        except Exception:
+            return None
+    return _cached(('sma', ticker.upper(), window), _fetch)
+
+
+def get_chain(ticker, max_expiries=8):
+    def _fetch():
+        try:
+            import yfinance as yf
+        except ImportError:
+            return {'ticker': ticker, 'error': 'yfinance not installed', 'expirations': {}}
+        try:
+            tk = yf.Ticker(ticker)
+            spot = get_spot(ticker)
+            try:
+                expiries = list(tk.options or [])[:max_expiries]
+            except Exception as e:
+                return {'ticker': ticker, 'error': f'options listing failed: {e}', 'expirations': {}, 'spot': spot}
+            out = {
+                'ticker': ticker.upper(),
+                'spot': spot,
+                'as_of': datetime.now(timezone.utc).isoformat(),
+                'expirations': {},
+            }
+            for exp in expiries:
+                try:
+                    chain = tk.option_chain(exp)
+                except Exception:
+                    continue
+
+                def _rows(df):
+                    rows = []
+                    if df is None or df.empty:
+                        return rows
+                    for _, r in df.iterrows():
+                        bid = _safe_float(r.get('bid'))
+                        ask = _safe_float(r.get('ask'))
+                        last = _safe_float(r.get('lastPrice'))
+                        if bid > 0 and ask > 0:
+                            mid = (bid + ask) / 2
+                        elif last > 0:
+                            mid = last
+                        else:
+                            mid = None
+                        rows.append({
+                            'strike': _safe_float(r.get('strike')),
+                            'bid': bid,
+                            'ask': ask,
+                            'last': last,
+                            'mid': mid,
+                            'iv': _safe_float(r.get('impliedVolatility')),
+                            'open_interest': _safe_int(r.get('openInterest')),
+                            'volume': _safe_int(r.get('volume')),
+                        })
+                    return rows
+
+                out['expirations'][exp] = {
+                    'calls': _rows(chain.calls),
+                    'puts': _rows(chain.puts),
+                }
+            return out
+        except Exception as e:
+            return {'ticker': ticker, 'error': str(e), 'expirations': {}}
+    return _cached(('chain', ticker.upper(), max_expiries), _fetch)
+
+
+def years_to_expiry(expiry_iso, now=None):
+    now = now or datetime.now(timezone.utc)
+    try:
+        exp_dt = datetime.strptime(expiry_iso[:10], '%Y-%m-%d').replace(tzinfo=timezone.utc)
+        return max((exp_dt - now).total_seconds() / (365.25 * 86400), 1.0 / 365.25)
+    except ValueError:
+        return 0.0

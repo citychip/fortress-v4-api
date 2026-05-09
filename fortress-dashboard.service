@@ -1,0 +1,19 @@
+[Unit]
+Description=Fortress Trading Dashboard
+After=network.target
+Documentation=https://github.com/yourorg/fortress
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/Fortress_Dashboard
+Environment="PATH=/home/ubuntu/Fortress_Dashboard/venv/bin"
+Environment="FORTRESS_DATA_DIR=/home/ubuntu/Fortress_Dashboard"
+# Optional: explicit Tesseract path on non-PATH installs
+# Environment="TESSERACT_CMD=/usr/bin/tesseract"
+ExecStart=/home/ubuntu/Fortress_Dashboard/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8080
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

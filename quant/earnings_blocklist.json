@@ -1,0 +1,95 @@
+{
+  "_comment": "Earnings blackout calendar for Portfolio Strategy v3.2. Update before each earnings season.",
+  "_rule": "No new entries (PCS, Jade Lizard, PMCC short call) within 10 days of earnings date.",
+  "_last_updated": "2026-05-08",
+  "_instructions": "Set 'next_earnings' to the expected earnings date (YYYY-MM-DD). Set 'confirmed' to true once date is confirmed by the company. Update immediately after earnings pass.",
+  "tickers": {
+    "MSFT": {
+      "next_earnings": "2026-07-29",
+      "confirmed": false,
+      "notes": "Q4 FY2026 expected late July"
+    },
+    "AVGO": {
+      "next_earnings": "2026-06-03",
+      "confirmed": false,
+      "notes": "Q2 FY2026 expected early June",
+      "_updated_at": "2026-05-04T15:23:57.322646+00:00",
+      "_source": "yfinance_auto"
+    },
+    "NFLX": {
+      "next_earnings": "2026-07-16",
+      "confirmed": false,
+      "notes": "Q2 2026 expected mid-July",
+      "_updated_at": "2026-05-04T15:23:57.322646+00:00",
+      "_source": "yfinance_auto"
+    },
+    "VST": {
+      "next_earnings": "2026-05-07",
+      "confirmed": false,
+      "notes": "Q2 2026 expected early August",
+      "_updated_at": "2026-05-04T15:23:57.322646+00:00",
+      "_source": "yfinance_auto"
+    },
+    "GOOGL": {
+      "next_earnings": "2026-07-23",
+      "confirmed": false,
+      "notes": "Q2 2026 expected late July",
+      "_updated_at": "2026-05-04T15:23:57.322646+00:00",
+      "_source": "yfinance_auto"
+    },
+    "AMZN": {
+      "next_earnings": "2026-07-30",
+      "confirmed": false,
+      "notes": "Q2 2026 expected late July"
+    },
+    "AMD": {
+      "next_earnings": "2026-08-04",
+      "confirmed": false,
+      "notes": "Q2 2026 expected late July",
+      "_updated_at": "2026-05-07T10:37:26.787288+00:00",
+      "_source": "yfinance_auto"
+    },
+    "MSTR": {
+      "next_earnings": "2026-07-30",
+      "confirmed": false,
+      "notes": "Q2 2026 expected early August",
+      "_updated_at": "2026-05-07T10:37:26.787288+00:00",
+      "_source": "yfinance_auto"
+    },
+    "META": {
+      "next_earnings": "2026-07-29",
+      "confirmed": false,
+      "notes": "Q2 2026 expected late July"
+    },
+    "AAPL": {
+      "next_earnings": "2026-07-30",
+      "confirmed": false,
+      "notes": "Q3 FY2026 expected late July"
+    },
+    "NVDA": {
+      "next_earnings": "2026-05-20",
+      "confirmed": false,
+      "notes": "Q2 FY2027 expected late August",
+      "_updated_at": "2026-05-04T15:23:57.322646+00:00",
+      "_source": "yfinance_auto"
+    },
+    "UNH": {
+      "next_earnings": "2026-07-28",
+      "confirmed": false,
+      "notes": "Q2 2026 expected mid-July",
+      "_updated_at": "2026-05-07T10:37:26.787288+00:00",
+      "_source": "yfinance_auto"
+    },
+    "SPX": {
+      "next_earnings": null,
+      "confirmed": true,
+      "notes": "Index — no earnings"
+    },
+    "SPY": {
+      "next_earnings": null,
+      "confirmed": true,
+      "notes": "ETF — no earnings"
+    }
+  },
+  "_last_auto_fetch": "2026-05-08T08:56:04.146130+00:00"
+}

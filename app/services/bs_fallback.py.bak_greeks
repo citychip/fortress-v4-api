@@ -1,0 +1,201 @@
+"""
+BS delta computation — v3.
+
+The IBKR Greeks path (reqMktData snapshot) is unreliable on this gateway
+because the API-client write-access dialog interrupts the snapshot mid-fetch
+roughly every 30 seconds. The result is duplicated delta values across
+different strikes (e.g. all 6 MSFT legs reading 0.8281 in one sync, or all
+4 NFLX strikes reading -0.2066).
+
+v3 inverts the priority: we ALWAYS compute BS from yfinance IV when possible
+and use BS as the source of record. IBKR's value is preserved on the leg as
+'_ibkr_delta_raw' for audit, but only used if BS fails.
+
+This trades a small amount of accuracy (yfinance's IV is end-of-day, not
+real-time) for consistency. Over the timescale of a 30-45 DTE short call
+that we monitor for drift, IV moves slowly; the trade is cheap.
+"""
+
+from __future__ import annotations
+
+import logging
+import time
+from datetime import datetime, timezone
+from typing import Optional
+
+logger = logging.getLogger("fortress.bs_fallback")
+
+_EXP_CACHE: dict[tuple[str, str], tuple[float, dict]] = {}
+_EXP_TTL_S = 300
+
+
+def _strike(p: dict) -> Optional[float]:
+    return p.get("short_strike") or p.get("long_strike")
+
+
+def _safe_float(v, default=None):
+    try:
+        x = float(v)
+        if x != x:
+            return default
+        return x
+    except (TypeError, ValueError):
+        return default
+
+
+def _fetch_single_expiry(ticker: str, expiry: str) -> Optional[dict]:
+    key = (ticker.upper(), expiry[:10])
+    now = time.time()
+    if key in _EXP_CACHE:
+        ts, val = _EXP_CACHE[key]
+        if now - ts < _EXP_TTL_S:
+            return val
+    try:
+        import yfinance as yf
+        tk = yf.Ticker(ticker)
+        chain = tk.option_chain(expiry[:10])
+
+        def _rows(df):
+            rows = []
+            if df is None or df.empty:
+                return rows
+            for _, r in df.iterrows():
+                rows.append({
+                    "strike": _safe_float(r.get("strike"), 0.0),
+                    "iv": _safe_float(r.get("impliedVolatility"), 0.0),
+                    "bid": _safe_float(r.get("bid"), 0.0),
+                    "ask": _safe_float(r.get("ask"), 0.0),
+                })
+            return rows
+
+        val = {"calls": _rows(chain.calls), "puts": _rows(chain.puts)}
+        _EXP_CACHE[key] = (now, val)
+        return val
+    except Exception as e:
+        logger.debug("_fetch_single_expiry(%s, %s) failed: %s", ticker, expiry, e)
+        _EXP_CACHE[key] = (now, None)
+        return None
+
+
+def fill_missing_deltas(positions: list[dict]) -> dict:
+    """Compute delta for every option position. BS authoritative; IBKR is fallback.
+
+    Mutates each position to set:
+      - current_delta            — the canonical value used by downstream code
+      - current_delta_source     — 'bs_estimate' | 'ibkr' | 'unavailable'
+      - _ibkr_delta_raw          — preserved IBKR value for audit (may be None)
+      - bs_inputs                — {spot, iv, t_years, strike, right} when BS succeeded
+      - bs_skip_reason           — when BS failed
+    """
+    try:
+        from app.services import chain as chain_svc
+    except Exception as e:
+        logger.warning("chain module unavailable: %s", e)
+        return {"computed": 0, "skipped": len(positions), "reason": "no_chain_module"}
+
+    now = datetime.now(timezone.utc)
+    bs_computed = 0
+    used_ibkr_fallback = 0
+    unavailable = 0
+    non_options = 0
+
+    by_ticker: dict[str, list[dict]] = {}
+    for p in positions:
+        if p.get("sec_type") != "OPT":
+            non_options += 1
+            continue
+        # Preserve IBKR value before we overwrite
+        if "_ibkr_delta_raw" not in p:
+            p["_ibkr_delta_raw"] = p.get("current_delta")
+        by_ticker.setdefault((p.get("ticker") or "").upper(), []).append(p)
+
+    for ticker, pending in by_ticker.items():
+        try:
+            chain = chain_svc.get_chain(ticker)
+        except Exception as e:
+            logger.info("chain fetch failed for %s: %s", ticker, e)
+            chain = None
+
+        spot = (chain or {}).get("spot")
+        if not spot or spot <= 0:
+            spot = chain_svc.get_spot(ticker)
+        if not spot or spot <= 0:
+            for p in pending:
+                _apply_fallback(p, reason="no_spot")
+                if p["current_delta"] is None: unavailable += 1
+                else: used_ibkr_fallback += 1
+            continue
+
+        cached_expirations = (chain or {}).get("expirations", {}) if chain else {}
+
+        for p in pending:
+            strike = _strike(p)
+            expiry = p.get("expiry")
+            right = (p.get("right") or "").upper()
+            if not strike or not expiry or right not in ("C", "P"):
+                _apply_fallback(p, reason="missing_inputs")
+                if p["current_delta"] is None: unavailable += 1
+                else: used_ibkr_fallback += 1
+                continue
+
+            exp_key = expiry[:10]
+            legs = cached_expirations.get(exp_key)
+            if not legs:
+                legs = _fetch_single_expiry(ticker, expiry)
+                if not legs:
+                    _apply_fallback(p, reason="expiry_unavailable")
+                    if p["current_delta"] is None: unavailable += 1
+                    else: used_ibkr_fallback += 1
+                    continue
+
+            book = legs.get("calls") if right == "C" else legs.get("puts")
+            iv = None
+            for o in book or []:
+                if abs((o.get("strike") or 0) - strike) < 0.01:
+                    iv = o.get("iv")
+                    break
+            if not iv or iv <= 0:
+                _apply_fallback(p, reason="no_iv_at_strike")
+                if p["current_delta"] is None: unavailable += 1
+                else: used_ibkr_fallback += 1
+                continue
+
+            t_years = chain_svc.years_to_expiry(expiry, now)
+            call_delta = chain_svc.bs_call_delta(spot, strike, t_years, iv)
+            if call_delta is None:
+                _apply_fallback(p, reason="bs_failed")
+                if p["current_delta"] is None: unavailable += 1
+                else: used_ibkr_fallback += 1
+                continue
+
+            option_delta = (call_delta - 1.0) if right == "P" else call_delta
+            p["current_delta"] = round(option_delta, 4)
+            p["current_delta_source"] = "bs_estimate"
+            p["bs_inputs"] = {
+                "spot": round(spot, 2),
+                "iv": round(iv, 4),
+                "t_years": round(t_years, 4),
+                "strike": strike,
+                "right": right,
+            }
+            p.pop("bs_skip_reason", None)
+            bs_computed += 1
+
+    summary = {
+        "bs_computed": bs_computed,
+        "ibkr_fallback_used": used_ibkr_fallback,
+        "unavailable": unavailable,
+        "non_options": non_options,
+        "tickers_attempted": len(by_ticker),
+    }
+    logger.info("BS delta v3: %s", summary)
+    return summary
+
+
+def _apply_fallback(p: dict, reason: str):
+    """When BS can't compute, fall back to whatever IBKR gave (which may be None)."""
+    raw = p.get("_ibkr_delta_raw")
+    p["current_delta"] = raw  # may be None
+    p["current_delta_source"] = "ibkr" if raw is not None else "unavailable"
+    p["bs_skip_reason"] = reason
+    p.pop("bs_inputs", None)

@@ -1,0 +1,22 @@
+services:
+  ibeam:
+    image: voyz/ibeam:latest
+    container_name: cp-gateway
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "127.0.0.1:5000:5000"   # CP Gateway HTTPS
+      - "127.0.0.1:5001:5001"   # ibeam health/control endpoint
+    healthcheck:
+      test: ["CMD", "curl", "-fsk", "https://localhost:5000/v1/api/one/user", "-o", "/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    volumes:
+      - ibeam_inputs:/srv/inputs
+      - ./conf/conf.yaml:/srv/clientportal.gw/root/conf.yaml:ro
+
+volumes:
+  ibeam_inputs:

@@ -1,0 +1,66 @@
+"""
+Candidates endpoint: latest IV Crush report with earnings + concentration cross-checks.
+"""
+
+from __future__ import annotations
+
+from fastapi import APIRouter, HTTPException
+
+from app.services import state
+
+router = APIRouter()
+
+
+def enrich_row(row: dict, calendar: dict, concentration: dict) -> dict:
+    """Add cross-check fields per Build Spec §5.2."""
+    ticker = row.get("ticker", "")
+    days = row.get("days_to_earnings")
+    if days is None:
+        days = state.days_to_earnings(ticker, calendar)
+
+    if days is not None and 0 <= days <= 10:
+        earnings_state = "blackout"
+    elif days is not None and 0 <= days <= 30:
+        earnings_state = "approaching"
+    else:
+        earnings_state = "clear"
+
+    conc_pct = concentration.get(ticker, 0)
+    if conc_pct >= 50:
+        concentration_state = "high"
+    elif conc_pct >= 30:
+        concentration_state = "moderate"
+    else:
+        concentration_state = "low"
+
+    can_trade = (earnings_state != "blackout") and (concentration_state != "high")
+
+    return {
+        **row,
+        "days_to_earnings": days,
+        "concentration_pct": conc_pct,
+        "earnings_state": earnings_state,
+        "concentration_state": concentration_state,
+        "can_trade": can_trade,
+    }
+
+
+@router.get("/candidates")
+def get_candidates():
+    """Latest IV Crush report rows enriched with strategy cross-checks."""
+    try:
+        report = state.get_iv_crush_report()
+        calendar = state.get_earnings_blocklist()
+        positions = state.get_active_positions()
+    except state.StateError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    concentration = state.compute_concentration(positions)
+    rows = report.get("rows", []) or []
+    enriched = [enrich_row(row, calendar, concentration) for row in rows]
+
+    return {
+        "as_of": report.get("_last_updated"),
+        "source": report.get("_source"),
+        "rows": enriched,
+    }

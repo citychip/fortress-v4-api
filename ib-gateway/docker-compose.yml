@@ -1,0 +1,47 @@
+version: "3.4"
+
+# Fortress Dashboard — IB Gateway Service
+# Runs the Interactive Brokers Gateway headlessly via gnzsnz/ib-gateway.
+# Credentials are read from .env (never committed to git).
+# Ports are bound to 127.0.0.1 only — the TWS API socket is unencrypted
+# and must not be exposed to the network.
+
+services:
+  ib-gateway:
+    image: fortress-ib-gateway:latest
+    restart: unless-stopped
+    environment:
+      TWS_USERID: ${TWS_USERID}
+      TWS_PASSWORD: ${TWS_PASSWORD}
+      TRADING_MODE: ${TRADING_MODE:-live}
+      READ_ONLY_API: ${READ_ONLY_API:-yes}
+      TWOFA_TIMEOUT_ACTION: ${TWOFA_TIMEOUT_ACTION:-exit}
+      AUTO_RESTART_TIME: ${AUTO_RESTART_TIME:-11:59 PM}
+      RELOGIN_AFTER_TWOFA_TIMEOUT: ${RELOGIN_AFTER_TWOFA_TIMEOUT:-no}
+      TWS_ACCEPT_INCOMING: accept
+      VNC_SERVER_PASSWORD: fortress123
+      TRUSTED_TWS_API_CLIENT_IPS: 127.0.0.1
+      TIME_ZONE: ${TIME_ZONE:-Europe/Amsterdam}
+    ports:
+      # Live account TWS API — localhost only
+      - "127.0.0.1:4001:4003"
+      # Paper account TWS API — localhost only
+      - "127.0.0.1:4002:4001"
+      # VNC (optional, for debugging the Gateway UI)
+      # Uncomment and set VNC_SERVER_PASSWORD in .env to enable
+      - "127.0.0.1:5900:5900"
+    healthcheck:
+      # The Gateway is ready when port 4001 accepts connections
+      test: ["CMD-SHELL", "nc -z localhost 4003 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    volumes:
+      # Persist IBC config and jts.ini across container restarts
+      - ib_gateway_config:/root/ibc
+      - ib_gateway_jts:/root/Jts
+
+volumes:
+  ib_gateway_config:
+  ib_gateway_jts:

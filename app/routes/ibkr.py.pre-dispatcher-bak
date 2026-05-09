@@ -1,0 +1,159 @@
+"""
+app/routes/ibkr.py
+Fortress Dashboard — IB Gateway API Routes
+Phase 3: Direct IBKR sync endpoints replacing OCR-based upload.
+
+Endpoints:
+  GET  /api/ibkr/status     — Check if the IB Gateway container is reachable
+  POST /api/ibkr/sync       — Trigger a full sync from IB Gateway
+  GET  /api/ibkr/preview    — Fetch live data without writing to disk (dry run)
+
+Design note: ib_async uses its own asyncio event loop. FastAPI/uvicorn also
+runs an event loop. To avoid "this event loop is already running", the sync
+service runs ib_async in a dedicated background thread (via threading.Thread
+with its own loop). The FastAPI route uses asyncio.get_event_loop().run_in_executor
+to call the synchronous wrapper without blocking the uvicorn event loop.
+"""
+from __future__ import annotations
+
+import asyncio
+import logging
+from fastapi import APIRouter, HTTPException
+from app.services import state
+from app.services.ibkr_sync import gateway_status, sync_from_gateway
+
+logger = logging.getLogger("fortress.ibkr")
+router = APIRouter(tags=["ibkr"])
+
+
+@router.get("/ibkr/status")
+async def get_gateway_status():
+    """
+    Check whether the IB Gateway Docker container is reachable and connected.
+    Returns connection status, account ID, and any error message.
+    """
+    try:
+        loop = asyncio.get_event_loop()
+        status = await loop.run_in_executor(None, gateway_status)
+        return status
+    except Exception as e:
+        logger.error("Gateway status check failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/ibkr/sync")
+async def trigger_sync():
+    """
+    Trigger a full sync from the IB Gateway.
+    Fetches account summary, positions, and option greeks from IBKR.
+    Merges the result into active_positions.json, preserving existing
+    human annotations (notes, strategy overrides, alert_state).
+    """
+    try:
+        # Load existing positions to preserve human annotations
+        existing_data = state.get_active_positions()
+        existing_positions = (
+            existing_data.get("positions", [])
+            if isinstance(existing_data, dict)
+            else []
+        )
+
+        # Run the sync in a background thread (avoids event loop conflict)
+        loop = asyncio.get_event_loop()
+        synced = await loop.run_in_executor(
+            None, sync_from_gateway, existing_positions
+        )
+
+        # Extract positions list and top-level account fields
+        positions = synced.pop("positions", [])
+
+        # Build the new active_positions.json structure
+        new_data = {
+            **synced,  # account fields + timestamps
+            "positions": positions,
+        }
+
+        # Write to disk
+        state.save_positions(new_data)
+
+        return {
+            "status": "ok",
+            "synced_at": synced.get("ibkr_last_sync"),
+            "positions_count": len(positions),
+            "net_liq": synced.get("net_liq"),
+            "excess_liquidity": synced.get("excess_liquidity"),
+            "available_funds": synced.get("available_funds"),
+        }
+
+    except TimeoutError as e:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "gateway_unreachable",
+                "message": str(e),
+                "hint": (
+                    "Start the IB Gateway: "
+                    "cd /home/ubuntu/Fortress_Dashboard/ib-gateway && docker compose up -d"
+                ),
+            },
+        )
+    except Exception as e:
+        logger.error("IBKR sync failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/ibkr/preview")
+async def preview_sync():
+    """
+    Fetch live data from IB Gateway without writing to disk.
+    Useful for verifying the connection and data quality before committing.
+    """
+    try:
+        existing_data = state.get_active_positions()
+        existing_positions = (
+            existing_data.get("positions", [])
+            if isinstance(existing_data, dict)
+            else []
+        )
+
+        loop = asyncio.get_event_loop()
+        synced = await loop.run_in_executor(
+            None, sync_from_gateway, existing_positions
+        )
+
+        return {
+            "status": "ok",
+            "preview": True,
+            "data": synced,
+        }
+
+    except TimeoutError as e:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "gateway_unreachable", "message": str(e)},
+        )
+    except Exception as e:
+        logger.error("IBKR preview failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ---------------------------------------------------------------------------
+# Capability check (May 4 2026) — Web API + TWS Gateway availability
+# ---------------------------------------------------------------------------
+@router.get("/ibkr/capability")
+async def get_capability_endpoint(refresh: bool = False):
+    """Return current backend capability snapshot. Cached 60s; pass ?refresh=1 to bust."""
+    from app.services.ibkr_web import capability as cap_mod
+    from app.services import state as _state
+    try:
+        cap = cap_mod.get_capability(force_refresh=bool(refresh))
+    except Exception as e:
+        logger.error("capability check failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"capability_check_failed: {e}")
+    settings = _state.get_dashboard_settings()
+    active = _state.resolve_greeks_backend(settings, cap)
+    return {
+        **cap,
+        "settings_value": settings.get("greeks_backend"),
+        "active_backend": active,
+        "fallback_backend": "bs_yfinance",
+    }

@@ -1,0 +1,72 @@
+2026-05-05 14:39:28,491|I| ############ Starting IBeam version 0.5.12 ############
+2026-05-05 14:39:28,493|I| Secrets source: env
+2026-05-05 14:39:28,494|I| Health server started at port=5001
+2026-05-05 14:39:28,494|I| Configuration:
+{'INPUTS_DIR': '/srv/inputs', 'OUTPUTS_DIR': '/srv/outputs', 'GATEWAY_DIR': '/srv/clientportal.gw', 'CHROME_DRIVER_PATH': '/usr/bin/chromedriver', 'GATEWAY_STARTUP': 60, 'GATEWAY_PROCESS_MATCH': 'ibgroup.web.core.clientportal.gw.GatewayStart', 'MAINTENANCE_INTERVAL': 60, 'SPAWN_NEW_PROCESSES': False, 'LOG_LEVEL': 'DEBUG', 'LOG_TO_FILE': True, 'LOG_FORMAT': '%(asctime)s|%(levelname)-.1s| %(message)s', 'REQUEST_RETRIES': 2, 'REQUEST_TIMEOUT': 15, 'RESTART_FAILED_SESSIONS': True, 'RESTART_WAIT': 15, 'REAUTHENTICATE_WAIT': 15, 'HEALTH_SERVER_PORT': 5001, 'SECRETS_SOURCE': 'env', 'GCP_SECRETS_URL': None, 'START_ACTIVE': True, 'GATEWAY_BASE_URL': 'https://localhost:5000', 'ROUTE_AUTH': '/sso/Login?forwardTo=22&RL=1&ip2loc=on', 'ROUTE_VALIDATE': '/v1/portal/sso/validate', 'ROUTE_REAUTHENTICATE': '/v1/portal/iserver/reauthenticate?force=true', 'ROUTE_INITIALISE': '/v1/api/iserver/auth/ssodh/init', 'ROUTE_AUTH_STATUS': '/v1/api/iserver/auth/status', 'ROUTE_TICKLE': '/v1/api/tickle', 'ROUTE_LOGOUT': '/v1/api/logout', 'USER_NAME_EL': None, 'PASSWORD_EL': 'NAME@@password', 'SUBMIT_EL': 'CSS_SELECTOR@@.btn.btn-lg.xyz-button-login', 'ERROR_EL': None, 'SUCCESS_EL_TEXT': 'TAG_NAME@@Client login succeeds', 'LIVE_PAPER_TOGGLE_EL': 'FOR@@label[for=toggle1]', 'USE_PAPER_ACCOUNT': False, 'OAUTH_TIMEOUT': 60, 'PAGE_LOAD_TIMEOUT': 60, 'ERROR_SCREENSHOTS': True, 'MAX_FAILED_AUTH': 3, 'COUNT_TIMEOUT_AS_FAILED': False, 'MIN_PRESUBMIT_BUFFER': 5, 'MAX_PRESUBMIT_BUFFER': 15, 'MAX_IMMEDIATE_ATTEMPTS': 10, 'IBKEY_PROMO_EL_CLASS': 'CLASS_NAME@@ibkey-promo-skip', 'AUTHENTICATION_STRATEGY': 'B', 'MAX_STATUS_CHECK_RETRIES': 120, 'MAX_REAUTHENTICATE_RETRIES': 3, 'UI_SCALING': 1.0, 'TWO_FA_EL_ID': 'ID@@twofactbase', 'TWO_FA_NOTIFICATION_EL': 'CLASS_NAME@@login-step-notification', 'TWO_FA_INPUT_EL_ID': 'ID@@xyz-field-bronze-response', 'TWO_FA_HANDLER': 'PUSH', 'STRICT_TWO_FA_CODE': True, 'TWO_FA_SELECT_EL_ID': 'ID@@xyz-field-bronze-response', 'TWO_FA_SELECT_TARGET': 'IB Key', 'CUSTOM_TWO_FA_HANDLER': 'custom_two_fa_handler.CustomTwoFaHandler'}
+2026-05-05 14:39:28,495|I| Gateway not found, starting new one...
+2026-05-05 14:39:28,495|I| Note that the Gateway log below may display "Open https://localhost:[PORT] to login" - ignore this command.
+2026-05-05 14:39:28,495|I| Starting Gateway as Linux process with params: ['bash', 'bin/run.sh', 'root/conf.yaml']
+2026-05-05 14:39:28,501|I| Gateway started with pids: [11]
+2026-05-05 14:39:28,501|D| GET https://localhost:5000 (unverified)
+2026-05-05 14:39:28,503|I| Gateway running but not serving yet. Consider increasing IBEAM_GATEWAY_STARTUP timeout. Error: <urlopen error [Errno 111] Connection refused>
+2026-05-05 14:39:28,503|I| Gateway connection established
+2026-05-05 14:39:28,503|D| POST https://localhost:5000/v1/api/tickle (unverified)
+2026-05-05 14:39:28,503|I| Gateway running but not serving yet. Consider increasing IBEAM_GATEWAY_STARTUP timeout. Error: <urlopen error [Errno 111] Connection refused>
+2026-05-05 14:39:28,503|I| NO SESSION Status(running=True, session=False, connected=False, authenticated=False, competing=False, collision=False, session_id=None, server_name=None, server_version=None, expires=None)
+2026-05-05 14:39:28,504|I| Authentication strategy: "B"
+2026-05-05 14:39:28,504|I| No active sessions, logging in...
+2026-05-05 14:39:28,504|I| Loading auth webpage at https://localhost:5000/sso/Login?forwardTo=22&RL=1&ip2loc=on
+2026-05-05 14:39:36,530|D| Targets: {'PASSWORD': Target(NAME@@password), 'SUBMIT': Target(CSS_SELECTOR@@.btn.btn-lg.xyz-button-login), 'SUCCESS': Target(TAG_NAME@@Client login succeeds), 'IBKEY_PROMO': Target(CLASS_NAME@@ibkey-promo-skip), 'TWO_FA': Target(ID@@twofactbase), 'TWO_FA_NOTIFICATION': Target(CLASS_NAME@@login-step-notification), 'TWO_FA_INPUT': Target(ID@@xyz-field-bronze-response), 'TWO_FA_SELECT': Target(ID@@xyz-field-bronze-response), 'LIVE_PAPER_TOGGLE': Target(FOR@@label[for=toggle1]), 'USER_NAME': Target(NAME@@username), 'ERROR': Target(CSS_SELECTOR@@.xyz-errormessage)}
+2026-05-05 14:39:36,555|I| Gateway auth webpage loaded
+2026-05-05 14:39:36,556|I| Login attempt number 1
+2026-05-05 14:39:36,685|D| target: Target(NAME@@username)
+2026-05-05 14:39:41,855|I| Submitting the form
+2026-05-05 14:40:42,119|E| Timeout reached when waiting for authentication. The website seems to not be loaded correctly. Consider increasing IBEAM_PAGE_LOAD_TIMEOUT. 
+Website URL: https://localhost:5000/sso/Login?forwardTo=22&RL=1&ip2loc=on 
+ 
+Exception:
+  File "/srv/ibeam/ibeam_starter.py", line 182, in <module>
+    success, shutdown, status = client.start_and_authenticate()
+  File "/srv/ibeam/src/gateway_client.py", line 62, in start_and_authenticate
+    success, shutdown, status = self.strategy_handler.try_authenticating(request_retries=request_retries)
+  File "/srv/ibeam/src/handlers/strategy_handler.py", line 85, in try_authenticating
+    return self._authentication_strategy_B(status, request_retries)
+  File "/srv/ibeam/src/handlers/strategy_handler.py", line 140, in _authentication_strategy_B
+    return self._log_in(status)
+  File "/srv/ibeam/src/handlers/strategy_handler.py", line 151, in _log_in
+    success, shutdown = self.login_handler.login()
+  File "/srv/ibeam/src/handlers/login_handler.py", line 515, in login
+    self.handle_timeout_exception(e, targets, driver, website_version, self.route_auth, self.base_url, self.outputs_dir)
+  File "/srv/ibeam/src/handlers/login_handler.py", line 495, in login
+    self.attempt(targets, wait_and_identify_trigger, driver)
+  File "/srv/ibeam/src/handlers/login_handler.py", line 416, in attempt
+    trigger, target = self.step_login(targets, wait_and_identify_trigger, driver, self.secrets_handler.account, self.secrets_handler.password, self.secrets_handler.key, self.presubmit_buffer)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/srv/ibeam/src/handlers/login_handler.py", line 198, in step_login
+    trigger, target = wait_and_identify_trigger(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/srv/ibeam/src/handlers/login_handler.py", line 67, in _wait_and_identify_trigger
+    trigger = WebDriverWait(driver, timeout).until(any_of(*expected_conditions))
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/venv/lib/python3.11/site-packages/selenium/webdriver/support/wait.py", line 95, in until
+    raise TimeoutException(message, screen, stacktrace)
+
+  <class 'selenium.common.exceptions.TimeoutException'> Message: 
+
+2026-05-05 14:40:42,153|I| Saving screenshot to /srv/outputs/ibeam__0.5.12__2026-05-05_14-40-42__timeout-exception.png. Make sure to cover your credentials if you share it with others.
+2026-05-05 14:40:42,220|I| Cleaning up the resources. Display: <pyvirtualdisplay.display.Display object at 0x76863cdd5fd0> | Driver: <selenium.webdriver.chrome.webdriver.WebDriver (session="0986c17c090c7c878dcf64f8b4d94475")>
+2026-05-05 14:40:43,312|I| Logging in failed
+2026-05-05 14:40:43,315|I| Starting maintenance with interval 60 seconds
+2026-05-05 14:41:43,316|I| Maintenance
+2026-05-05 14:41:43,318|D| POST https://localhost:5000/v1/api/tickle (unverified)
+2026-05-05 14:41:43,361|I| Attempt number 2
+2026-05-05 14:41:43,361|D| POST https://localhost:5000/v1/api/tickle (unverified)
+2026-05-05 14:41:43,403|I| Max request retries reached after 2 attempts. Consider increasing the retries by setting IBEAM_REQUEST_RETRIES environment variable
+2026-05-05 14:41:43,404|I| NO SESSION Status(running=True, session=False, connected=False, authenticated=False, competing=False, collision=False, session_id=None, server_name=None, server_version=None, expires=None)
+2026-05-05 14:41:43,404|I| Authentication strategy: "B"
+2026-05-05 14:41:43,404|I| No active sessions, logging in...
+2026-05-05 14:41:43,405|I| Loading auth webpage at https://localhost:5000/sso/Login?forwardTo=22&RL=1&ip2loc=on
+2026-05-05 14:41:50,110|D| Targets: {'PASSWORD': Target(NAME@@password), 'SUBMIT': Target(CSS_SELECTOR@@.btn.btn-lg.xyz-button-login), 'SUCCESS': Target(TAG_NAME@@Client login succeeds), 'IBKEY_PROMO': Target(CLASS_NAME@@ibkey-promo-skip), 'TWO_FA': Target(ID@@twofactbase), 'TWO_FA_NOTIFICATION': Target(CLASS_NAME@@login-step-notification), 'TWO_FA_INPUT': Target(ID@@xyz-field-bronze-response), 'TWO_FA_SELECT': Target(ID@@xyz-field-bronze-response), 'LIVE_PAPER_TOGGLE': Target(FOR@@label[for=toggle1]), 'USER_NAME': Target(NAME@@username), 'ERROR': Target(CSS_SELECTOR@@.xyz-errormessage)}
+2026-05-05 14:41:50,135|I| Gateway auth webpage loaded
+2026-05-05 14:41:50,135|I| Login attempt number 1
+2026-05-05 14:41:50,272|D| target: Target(NAME@@username)

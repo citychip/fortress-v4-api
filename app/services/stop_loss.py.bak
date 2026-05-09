@@ -1,0 +1,200 @@
+"""
+Stop-loss signal aggregator — per Build Spec v1.1 §8.1 and Strategy v3.4 §6.
+
+Three-signal multi-trigger logic for LEAPS thesis-break detection:
+  Signal 1  — 200-day SMA AND dark pool floor both broken
+  Signal 1b — DP floor proximity (warning, does not count)
+  Signal 2  — LEAP MTM 50% drop from peak
+  Signal 3  — Fundamental break (manual flag only)
+
+Verdict: 0 fired = HOLD, 1 fired = WATCH, ≥2 fired = ACT.
+"""
+
+from __future__ import annotations
+
+import re
+from typing import Optional
+
+
+DP_FLOOR_PROXIMITY_PCT = 2.0  # within 2% of any DP floor → APPROACHING
+LEAP_MV_PEAK_DROP_PCT = 50.0  # current MV < 0.5 × peak MV → FIRED
+
+
+def parse_dp_floors_from_daily_report(content: str) -> dict[str, list[float]]:
+    """
+    Parse '### {TICKER} Execution Profile' sections from QuantData Daily Report.
+
+    Each section has a 'Dark Pool Hard Floors:' line with $-prefixed prices.
+    Returns {ticker: [floor1, floor2, ...]} sorted descending (most recent/highest first).
+    """
+    result: dict[str, list[float]] = {}
+    current_ticker: Optional[str] = None
+    header_re = re.compile(r"^###\s+([A-Z]{1,5})\s+Execution Profile", re.MULTILINE)
+
+    for m in header_re.finditer(content):
+        ticker = m.group(1)
+        # Find the section: from this header to the next header or end
+        start = m.end()
+        next_match = header_re.search(content, start)
+        end = next_match.start() if next_match else len(content)
+        section = content[start:end]
+
+        # Extract DP floors line
+        dp_match = re.search(r"Dark Pool Hard Floors:\s*([^\n]+)", section)
+        if dp_match:
+            floor_text = dp_match.group(1)
+            # Pull all $XXX.XX style numbers
+            floors = re.findall(r"\$?(\d+\.\d{2})", floor_text)
+            if floors:
+                vals = sorted({float(f) for f in floors}, reverse=True)
+                result[ticker] = vals
+
+    return result
+
+
+def evaluate_stop_loss(
+    position: dict,
+    latest_price: Optional[float],
+    sma_200: Optional[float],
+    dp_floors: list[float],
+    peak_mv: Optional[float] = None,
+    current_mv: Optional[float] = None,
+    fundamental_break: bool = False,
+) -> dict:
+    """
+    Apply three-signal logic per Strategy §6.
+
+    Returns a dict with per-signal status, total fired count, and verdict.
+    """
+    ticker = position.get("ticker", "?")
+    signals: list[dict] = []
+
+    # Signal 1: 200-day SMA AND dark pool floor both broken
+    sig1_status = "unknown"
+    sig1_detail = ""
+    if latest_price is None or sma_200 is None or not dp_floors:
+        sig1_status = "unknown"
+        missing = []
+        if latest_price is None: missing.append("latest_price")
+        if sma_200 is None: missing.append("sma_200")
+        if not dp_floors: missing.append("dp_floors")
+        sig1_detail = f"Inputs missing: {', '.join(missing)}."
+    else:
+        max_floor = max(dp_floors)
+        below_sma = latest_price < sma_200
+        below_dp = latest_price < max_floor
+        if below_sma and below_dp:
+            sig1_status = "fired"
+            sig1_detail = f"Stock ${latest_price:.2f} below 200-SMA ${sma_200:.2f} AND below top DP floor ${max_floor:.2f}."
+        else:
+            sig1_status = "clear"
+            parts = []
+            parts.append(f"vs 200-SMA: ${latest_price:.2f} {'<' if below_sma else '≥'} ${sma_200:.2f}")
+            parts.append(f"vs top DP floor: ${latest_price:.2f} {'<' if below_dp else '≥'} ${max_floor:.2f}")
+            sig1_detail = "; ".join(parts) + "."
+    signals.append({
+        "id": "signal_1",
+        "label": "200-day SMA / DP floor",
+        "status": sig1_status,
+        "detail": sig1_detail,
+    })
+
+    # Signal 1b: DP floor proximity (warning, does not count toward fired total)
+    sig1b_status = "unknown"
+    sig1b_detail = ""
+    if latest_price is not None and dp_floors:
+        nearest = min((abs(latest_price - f), f) for f in dp_floors)
+        nearest_dist, nearest_floor = nearest
+        proximity_pct = (nearest_dist / nearest_floor) * 100 if nearest_floor else None
+        if proximity_pct is not None and proximity_pct <= DP_FLOOR_PROXIMITY_PCT:
+            sig1b_status = "approaching"
+            sig1b_detail = f"Stock ${latest_price:.2f} within {proximity_pct:.1f}% of DP floor ${nearest_floor:.2f}."
+        else:
+            sig1b_status = "clear"
+            sig1b_detail = f"Nearest DP floor ${nearest_floor:.2f} is {proximity_pct:.1f}% away." if proximity_pct is not None else ""
+    else:
+        sig1b_detail = "Inputs missing."
+    signals.append({
+        "id": "signal_1b",
+        "label": "DP floor proximity (warning)",
+        "status": sig1b_status,
+        "detail": sig1b_detail,
+    })
+
+    # Signal 2: LEAP MTM 50% drop from peak
+    sig2_status = "unknown"
+    sig2_detail = ""
+    if peak_mv is None or current_mv is None:
+        sig2_detail = "Peak/current MV not provided. Phase 3 IBKR sync needed."
+        sig2_status = "unknown"
+    else:
+        ratio = (current_mv / peak_mv) if peak_mv else None
+        if ratio is not None and ratio < 0.5:
+            sig2_status = "fired"
+            sig2_detail = f"Current MV ${current_mv:,.0f} is {ratio*100:.0f}% of peak ${peak_mv:,.0f} — below 50% threshold."
+        elif ratio is not None:
+            sig2_status = "clear"
+            sig2_detail = f"Current MV ${current_mv:,.0f} is {ratio*100:.0f}% of peak ${peak_mv:,.0f}."
+    signals.append({
+        "id": "signal_2",
+        "label": "LEAP MTM 50% drop",
+        "status": sig2_status,
+        "detail": sig2_detail,
+    })
+
+    # Signal 3: Fundamental break (manual flag)
+    sig3_status = "fired" if fundamental_break else "clear"
+    sig3_detail = (
+        "Manually flagged: thesis broken (guidance cut, regulatory action, CEO departure, etc.)."
+        if fundamental_break
+        else "No manual flag. Set fundamental_break=true to fire."
+    )
+    signals.append({
+        "id": "signal_3",
+        "label": "Fundamental break (manual flag)",
+        "status": sig3_status,
+        "detail": sig3_detail,
+    })
+
+    # Count fired (signal_1b doesn't count)
+    fired_ids = [s["id"] for s in signals if s["status"] == "fired" and s["id"] != "signal_1b"]
+    fired_count = len(fired_ids)
+    approaching = signals[1]["status"] == "approaching"
+
+    # Verdict per Strategy §6: AT LEAST TWO of three = act.
+    if fired_count >= 3:
+        verdict = "ACT_IMMEDIATELY"
+        action = "All three signals fired. Close or materially reduce LEAPS position immediately per Strategy §6."
+    elif fired_count == 2:
+        verdict = "ACT"
+        action = "Two signals fired. Close or materially reduce LEAPS position per Strategy §6 'AT LEAST TWO = act'."
+    elif fired_count == 1 and approaching:
+        verdict = "WATCH"
+        action = "One signal fired and DP floor proximity approaching. Monitor closely; revisit at next session close."
+    elif fired_count == 1:
+        verdict = "WATCH"
+        action = "One signal fired. Monitor; one more = act per §6."
+    elif approaching:
+        verdict = "WATCH"
+        action = "DP floor proximity approaching. Watch for break."
+    else:
+        verdict = "HOLD"
+        action = "No defensive trade. Re-check next session close."
+
+    return {
+        "position_ref": ticker,
+        "inputs": {
+            "latest_price": latest_price,
+            "sma_200": sma_200,
+            "dp_floors": dp_floors,
+            "peak_mv": peak_mv,
+            "current_mv": current_mv,
+            "fundamental_break": fundamental_break,
+        },
+        "signals": signals,
+        "signals_fired": fired_count,
+        "fired_ids": fired_ids,
+        "approaching": approaching,
+        "verdict": verdict,
+        "recommended_action": action,
+    }

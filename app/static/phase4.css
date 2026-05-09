@@ -1,0 +1,192 @@
+/* Phase 4 styles — appended to style.css */
+
+.form-row {
+  display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end;
+  margin-bottom: 12px;
+}
+.form-row label {
+  display: flex; flex-direction: column; gap: 4px;
+  font-size: 12px; color: var(--color-text-secondary);
+}
+.form-row label.checkbox-label {
+  flex-direction: row; align-items: center; gap: 6px;
+  font-size: 13px; color: var(--color-text-primary);
+}
+.form-row input[type="text"],
+.form-row input[type="number"],
+.form-row select {
+  padding: 6px 8px;
+  border: 1px solid var(--color-border-tertiary);
+  border-radius: 6px;
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-size: 13px;
+  min-width: 90px;
+}
+.form-row input[type="text"]:focus,
+.form-row input[type="number"]:focus,
+.form-row select:focus {
+  outline: none;
+  border-color: var(--color-border-info);
+}
+.form-thesis {
+  background: var(--color-bg-secondary);
+  padding: 12px;
+  border-radius: 8px;
+  align-items: center;
+}
+.form-thesis .small { width: 100%; }
+
+.phase4-result {
+  margin-top: 16px;
+  padding: 16px;
+  background: var(--color-bg-secondary);
+  border-radius: 8px;
+  min-height: 24px;
+}
+.phase4-result:empty { display: none; }
+
+.verdict-headline {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 16px; margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--color-border-tertiary);
+}
+.verdict-action {
+  font-size: 14px; font-weight: 500;
+  margin: 8px 0 12px;
+  padding: 10px 12px;
+  background: var(--color-bg-primary);
+  border-left: 3px solid var(--color-border-info);
+  border-radius: 4px;
+}
+.muted-h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  text-transform: none;
+  letter-spacing: 0;
+  margin: 0;
+}
+.input-meta { margin-bottom: 12px; }
+
+.pill-large {
+  font-size: 13px; padding: 6px 12px;
+  font-weight: 600;
+}
+.pill-small {
+  font-size: 10px; padding: 2px 6px;
+}
+
+.signal-list {
+  list-style: none; margin: 0; padding: 0;
+}
+.signal-row {
+  display: grid;
+  grid-template-columns: 16px 1fr auto;
+  gap: 8px 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--color-border-tertiary);
+  align-items: start;
+}
+.signal-row:last-child { border-bottom: none; }
+.signal-row p {
+  grid-column: 2 / span 2;
+  margin: 4px 0 0;
+}
+.signal-row .pill-mute {
+  align-self: start;
+}
+
+.candidates-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+.candidate-card {
+  border: 1px solid var(--color-border-tertiary);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--color-bg-primary);
+}
+.candidate-rec {
+  border-color: var(--color-border-success);
+  background: var(--color-bg-success);
+}
+.candidate-row {
+  display: flex; gap: 6px; flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.candidate-card h3 {
+  font-size: 16px; font-weight: 600;
+  text-transform: none; letter-spacing: 0;
+  color: var(--color-text-primary);
+  margin: 4px 0 8px;
+}
+.candidate-table {
+  width: 100%;
+  font-size: 12px;
+}
+.candidate-table td {
+  padding: 3px 0;
+  border: none;
+}
+.candidate-table td.num { text-align: right; }
+
+.ticket-text {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--color-bg-primary);
+  padding: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border-tertiary);
+  white-space: pre-wrap;
+  margin: 8px 0 0;
+}
+
+.meta-list, .notes-list {
+  list-style: none; padding: 0; margin: 8px 0 0;
+}
+.meta-list li {
+  font-size: 13px;
+  padding: 4px 0;
+}
+.notes-list li {
+  padding: 4px 0;
+  font-size: 12px;
+}
+
+.matrix-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.matrix-table th, .matrix-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-border-tertiary);
+}
+.matrix-table th {
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.checklist {
+  margin: 0; padding-left: 18px;
+}
+.checklist li {
+  padding: 4px 0;
+  font-size: 13px;
+}
+
+.phase-info {
+  background: var(--color-bg-info);
+  border: 1px solid var(--color-border-info);
+}
+
+.action-cta-small {
+  padding: 4px 10px; font-size: 12px;
+}

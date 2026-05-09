@@ -1,0 +1,23 @@
+{
+  "_comment": "Master ticker universe for all QuantData workflow scripts.",
+  "_instructions": "Add or remove tickers here. All scripts will automatically use this list.",
+  "tier1": [
+    "MSFT",
+    "AVGO",
+    "NFLX",
+    "VST",
+    "GOOGL",
+    "AMZN",
+    "AMD",
+    "MSTR"
+  ],
+  "tier2": [
+    "META",
+    "AAPL",
+    "NVDA"
+  ],
+  "macro": [
+    "SPX",
+    "SPY"
+  ]
+}

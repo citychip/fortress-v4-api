@@ -1,0 +1,13 @@
+# Fortress Dashboard requirements (additions to QuantData pipeline base)
+# Already required by QuantData scripts: yfinance, pytz, apscheduler, etc.
+
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.6  # for FastAPI file uploads
+
+# Phase 3 OCR (optional — install only if using IBKR screenshot OCR)
+# Run: sudo apt install -y tesseract-ocr
+pytesseract>=0.3.10
+Pillow>=10.0.0
+# Phase 3 IB Gateway sync (replaces OCR)
+ib_async>=2.1.0

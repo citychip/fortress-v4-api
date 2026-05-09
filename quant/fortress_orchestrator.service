@@ -1,0 +1,15 @@
+[Unit]
+Description=Fortress Dashboard Master Orchestrator
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/Fortress_Dashboard
+ExecStart=/usr/bin/python3 /home/ubuntu/Fortress_Dashboard/master_orchestrator.py
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

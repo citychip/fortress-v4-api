@@ -1,0 +1,62 @@
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+*.whl
+pip-wheel-metadata/
+
+# ── Virtual environments ───────────────────────────────────────────────────────
+venv/
+.venv/
+env/
+.env/
+
+# ── Environment / secrets ──────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+ib-gateway/.env
+cp-gateway/.env
+
+# ── Live runtime data (never commit) ──────────────────────────────────────────
+quant/active_positions.json
+quant/ibkr_uploads.json
+quant/journal.json
+quant/alerts.json
+quant/fortress_config.json
+quant/uploads/
+quant/backups/
+quant/reports/
+
+# ── Keep the example config ───────────────────────────────────────────────────
+!quant/fortress_config.example.json
+!fortress_config.example.json
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── OS / editor ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ── SSH keys (safety net) ─────────────────────────────────────────────────────
+*.pem
+*.key
+id_rsa
+id_ed25519
+fortress_vps
+
+# ── Node (if any frontend tooling is added) ───────────────────────────────────
+node_modules/

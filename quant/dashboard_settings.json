@@ -1,0 +1,19 @@
+{
+  "_last_updated": "2026-05-05T19:01:33.403140+00:00",
+  "greeks_backend": "auto",
+  "ibkr_account_id": "YOUR_IBKR_ACCOUNT_ID",
+  "ibkr_web_api": {
+    "cp_gateway_url": "https://localhost:5000",
+    "verify_ssl": false,
+    "tickle_interval_s": 60,
+    "request_timeout_s": 15
+  },
+  "fx": {
+    "default_pair": "EURUSD",
+    "cache_ttl_s": 3600
+  },
+  "ui": {
+    "show_eur_equivalent": true,
+    "default_position_view": "aggregated"
+  }
+}

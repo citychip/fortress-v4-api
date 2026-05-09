@@ -1,0 +1,103 @@
+{
+  "_comment": "Active book per Strategy v3.4. Required fields: ticker, strategy, expiry, net_liq_pct, notes. Optional fields populated by Phase 3 IBKR sync: current_delta, leg_type, qty, alert_state. Spreads use both short_strike and long_strike.",
+  "_last_updated": "2026-05-01T16:30:00-04:00",
+  "ocr_last_sync": "2026-05-01T16:30:00-04:00",
+  "positions": [
+    {
+      "ticker": "MSFT",
+      "strategy": "PMCC",
+      "leg_type": "MIXED",
+      "long_strike": 310,
+      "short_strike": 480,
+      "expiry": "2028-01-21",
+      "net_liq_pct": 70.0,
+      "current_delta": 0.39,
+      "alert_state": "watch",
+      "notes": "Primary engine, DTE exception on Dec18 480 short"
+    },
+    {
+      "ticker": "AVGO",
+      "strategy": "PMCC",
+      "leg_type": "MIXED",
+      "long_strike": 280,
+      "short_strike": 480,
+      "expiry": "2028-01-21",
+      "net_liq_pct": 14.0,
+      "current_delta": 0.18,
+      "alert_state": "safe",
+      "notes": "Secondary engine"
+    },
+    {
+      "ticker": "VST",
+      "strategy": "PMCC",
+      "leg_type": "MIXED",
+      "long_strike": 130,
+      "short_strike": 200,
+      "expiry": "2028-01-21",
+      "net_liq_pct": 14.4,
+      "current_delta": 0.12,
+      "alert_state": "safe",
+      "notes": "Earnings May 7 — held through per design"
+    },
+    {
+      "ticker": "UNH",
+      "strategy": "DIAGONAL",
+      "leg_type": "MIXED",
+      "long_strike": 360,
+      "short_strike": 390,
+      "expiry": "2026-06-18",
+      "net_liq_pct": 5.2,
+      "current_delta": 0.42,
+      "alert_state": "critical_gamma",
+      "notes": "Rolled May15 380 → May29 390 on Apr 27"
+    },
+    {
+      "ticker": "NFLX",
+      "strategy": "PMCC",
+      "leg_type": "MIXED",
+      "long_strike": 70,
+      "short_strike": 98,
+      "expiry": "2028-01-21",
+      "net_liq_pct": 0.0,
+      "current_delta": 0.20,
+      "alert_state": "safe",
+      "notes": "Including 87/82 PCS"
+    },
+    {
+      "ticker": "NVDA",
+      "strategy": "PCS",
+      "leg_type": "PUT_SPREAD",
+      "short_strike": 185,
+      "long_strike": 175,
+      "expiry": "2026-06-05",
+      "net_liq_pct": 0.2,
+      "current_delta": -0.16,
+      "alert_state": "safe",
+      "notes": "Pre-earnings IV crush capture"
+    },
+    {
+      "ticker": "AMZN",
+      "strategy": "PCS",
+      "leg_type": "PUT_SPREAD",
+      "short_strike": 235,
+      "long_strike": 225,
+      "expiry": "2026-05-29",
+      "net_liq_pct": 0.1,
+      "current_delta": -0.07,
+      "alert_state": "safe",
+      "notes": "Held to expiry per preference"
+    },
+    {
+      "ticker": "SPY",
+      "strategy": "SPY_HEDGE",
+      "leg_type": "PUT_SPREAD",
+      "short_strike": 715,
+      "long_strike": 695,
+      "expiry": "2026-06-18",
+      "net_liq_pct": 1.6,
+      "current_delta": -0.30,
+      "alert_state": "hedge",
+      "notes": "Protective hedge ×3"
+    }
+  ]
+}

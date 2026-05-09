@@ -1,0 +1,400 @@
+"""
+ibkr_sync.py — IB Gateway sync service for Fortress Dashboard.
+
+Connects to the gnzsnz/ib-gateway Docker container via ib_async and fetches
+live account summary, positions, and option greeks.
+
+The key design constraint: FastAPI/uvicorn runs its own asyncio event loop.
+ib_async also needs an asyncio event loop. Running ib_async coroutines
+directly inside the FastAPI loop causes "this event loop is already running".
+
+Solution: run all ib_async work in a dedicated background thread that owns
+its own event loop, then communicate results back via a queue/future.
+"""
+
+from __future__ import annotations
+from app.services.config_store import cfg
+
+import asyncio
+import concurrent.futures
+import logging
+import threading
+from datetime import datetime, timezone
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+def GATEWAY_HOST():       return cfg("technical.ibkr_gateway_host", "127.0.0.1")
+def GATEWAY_PORT():       return cfg("technical.ibkr_gateway_port", 4001)          # host-side Docker port mapping
+def GATEWAY_CLIENT_ID():  return cfg("technical.ibkr_gateway_client_id", 10)       # must not conflict with other clients
+def GATEWAY_TIMEOUT():    return cfg("technical.ibkr_gateway_timeout_s", 90)         # seconds to wait for connection
+def DELTA_TIMEOUT():      return cfg("technical.ibkr_delta_timeout_s", 8)            # seconds to wait for market data per position
+
+# ---------------------------------------------------------------------------
+# Thread-based runner — avoids event loop conflict with uvicorn
+# ---------------------------------------------------------------------------
+
+def _run_in_thread(coro) -> Any:
+    """
+    Run an ib_async coroutine in a fresh thread with its own event loop.
+    Returns the result or re-raises any exception.
+    """
+    result_holder: list[Any] = [None, None]  # [result, exception]
+
+    def thread_target():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result_holder[0] = loop.run_until_complete(coro)
+        except Exception as exc:
+            result_holder[1] = exc
+        finally:
+            loop.close()
+
+    t = threading.Thread(target=thread_target, daemon=True)
+    t.start()
+    t.join(timeout=GATEWAY_TIMEOUT() + 10)
+
+    if t.is_alive():
+        raise TimeoutError(
+            f"IB Gateway thread did not complete within {GATEWAY_TIMEOUT() + 10}s."
+        )
+    if result_holder[1] is not None:
+        raise result_holder[1]
+    return result_holder[0]
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _extract_account_fields(summary_values) -> dict[str, Any]:
+    """
+    Map IBKR AccountValue objects to our schema fields.
+    AccountValue has: account, tag, value, currency
+    We only take the BASE currency values (currency == 'BASE' or 'USD').
+    """
+    tag_map = {
+        "NetLiquidation": "net_liq",
+        "AvailableFunds": "available_funds",
+        "ExcessLiquidity": "excess_liquidity",
+        "DayTradesRemaining": "day_trades_remaining",
+        "BuyingPower": "buying_power",
+    }
+    result: dict[str, Any] = {}
+    for sv in summary_values:
+        key = tag_map.get(getattr(sv, 'tag', None))
+        if key and key not in result:  # take first match (BASE currency)
+            try:
+                result[key] = float(sv.value)
+            except (ValueError, TypeError):
+                result[key] = sv.value
+    return result
+
+
+def _map_position(raw_pos, existing_positions: list[dict]) -> dict[str, Any]:
+    """Map a raw ib_async Position object to our active_positions schema."""
+    contract = raw_pos.contract
+    ticker = contract.symbol
+
+    # Preserve human annotations from the existing record
+    existing = next(
+        (p for p in existing_positions if p.get("ticker") == ticker),
+        {}
+    )
+
+    # Format expiry from YYYYMMDD to YYYY-MM-DD so JS Date() parses it correctly
+    raw_expiry = getattr(contract, "lastTradeDateOrContractMonth", None) or ""
+    if raw_expiry and len(raw_expiry) == 8 and raw_expiry.isdigit():
+        expiry = f"{raw_expiry[:4]}-{raw_expiry[4:6]}-{raw_expiry[6:8]}"
+    else:
+        expiry = raw_expiry or None
+
+    # Strike: store as short_strike (the leg's own strike) so the frontend
+    # strikeStr logic (which reads short_strike / long_strike) works correctly.
+    # For multi-leg strategies, the human annotations carry the spread context.
+    raw_strike = getattr(contract, "strike", None)
+    strike_val = float(raw_strike) if raw_strike else None
+
+    rec: dict[str, Any] = {
+        "ticker": ticker,
+        "sec_type": contract.secType,
+        "currency": contract.currency,
+        "qty": raw_pos.position,
+        "avg_cost": round(raw_pos.avgCost, 6) if raw_pos.avgCost else None,
+        # Option-specific fields — names match the frontend schema
+        "expiry": expiry,
+        "short_strike": strike_val,   # frontend reads short_strike / long_strike
+        "long_strike": existing.get("long_strike"),  # preserve if set manually
+        "right": getattr(contract, "right", None),   # "C" or "P"
+        "multiplier": getattr(contract, "multiplier", "100"),
+        "local_symbol": getattr(contract, "localSymbol", None),
+        # Fields matching frontend schema
+        "current_delta": existing.get("current_delta"),  # enriched by delta fetch
+        "delta_state": existing.get("delta_state"),
+        "net_liq_pct": existing.get("net_liq_pct", 0.0),
+        "dp_floor": existing.get("dp_floor"),
+        "strategy": existing.get("strategy"),
+        "notes": existing.get("notes"),
+        "alert_state": existing.get("alert_state", "unknown"),
+        "alert_reason": existing.get("alert_reason"),
+        # Sync metadata
+        "_ibkr_synced": True,
+        "_ibkr_sync_time": datetime.now(timezone.utc).isoformat(),
+    }
+    return rec
+
+
+async def _fetch_deltas(ib, positions_data: list[dict], raw_positions) -> None:
+    """
+    Request live market data for option positions to get current delta.
+    Updates positions_data in-place.
+    """
+    from ib_async import util
+
+    option_indices = [
+        i for i, p in enumerate(positions_data)
+        if p.get("sec_type") == "OPT"
+    ]
+
+    if not option_indices:
+        return
+
+    # Request market data for all option positions
+    tickers = []
+    for i in option_indices:
+        contract = raw_positions[i].contract
+        ticker_obj = ib.reqMktData(contract, genericTickList="", snapshot=True, regulatorySnapshot=False)
+        tickers.append((i, ticker_obj))
+
+    # Wait for data to arrive
+    await asyncio.sleep(DELTA_TIMEOUT())
+
+    for i, ticker_obj in tickers:
+        try:
+            greeks = ticker_obj.modelGreeks or ticker_obj.lastGreeks
+            if greeks and greeks.delta is not None:
+                positions_data[i]["current_delta"] = round(greeks.delta, 4)
+        except Exception as e:
+            logger.debug("Could not get delta for position %d: %s", i, e)
+
+    # Cancel all market data subscriptions
+    for _, ticker_obj in tickers:
+        try:
+            ib.cancelMktData(ticker_obj.contract)
+        except Exception:
+            pass
+
+
+# ---------------------------------------------------------------------------
+# Core async sync function (runs inside dedicated thread)
+# ---------------------------------------------------------------------------
+
+async def _async_sync(existing_positions: list[dict]) -> dict[str, Any]:
+    """The actual ib_async work — runs in its own thread's event loop."""
+    from ib_async import IB
+
+    ib = IB()
+    try:
+        logger.info("Connecting to IB Gateway at %s:%d", GATEWAY_HOST(), GATEWAY_PORT())
+        await asyncio.wait_for(
+            ib.connectAsync(GATEWAY_HOST(), GATEWAY_PORT(), clientId=GATEWAY_CLIENT_ID()),
+            timeout=GATEWAY_TIMEOUT(),
+        )
+        logger.info("Connected to IB Gateway")
+
+        # 1. Account summary
+        # reqAccountUpdatesAsync never resolves with accountDownloadEnd in Read-Only mode,
+        # so we call it with a short timeout and read from the populated cache.
+        account = ib.managedAccounts()[0] if ib.managedAccounts() else None
+        if not account:
+            raise ValueError("No managed accounts found.")
+
+        try:
+            await asyncio.wait_for(ib.reqAccountUpdatesAsync(account), timeout=5)
+        except asyncio.TimeoutError:
+            pass  # expected — cache is populated during the wait
+
+        summary_values = ib.accountValues(account)
+        account_fields = _extract_account_fields(summary_values)
+        net_liq = account_fields.get("net_liq")
+
+        # 2. Positions — use async request
+        raw_positions = await ib.reqPositionsAsync()
+        positions_data = [_map_position(p, existing_positions) for p in raw_positions]
+
+        # 3. Net liq percentage, market value, and 80% profit-take trigger
+        # IBKR avgCost for options is the TOTAL cost per contract (price * multiplier).
+        # So market_value = qty * avg_cost (already includes the multiplier).
+        # For net_liq_pct we use abs(qty * avg_cost) / net_liq.
+        if net_liq and net_liq > 0:
+            for rec in positions_data:
+                qty = rec.get("qty", 0)
+                avg_cost = rec.get("avg_cost")
+                if qty and avg_cost is not None:
+                    market_value = qty * float(avg_cost)  # signed (negative for short)
+                    rec["net_liq_pct"] = round((abs(market_value) / net_liq) * 100, 2)
+                    rec["market_value"] = round(market_value, 2)
+
+        # 4. Option greeks (delta)
+        await _fetch_deltas(ib, positions_data, raw_positions)
+        # 4b. Fill missing deltas with BS estimate from yfinance chain.
+        # IBKR Greeks via reqMktData require an OPRA subscription; without one, every
+        # delta comes back None. We fall back to yfinance IV + Black-Scholes so the
+        # §5 Delta Drift visual indicators and roll evaluator stay useful.
+        try:
+            from app.services import bs_fallback
+            bs_summary = bs_fallback.fill_missing_deltas(positions_data)
+            logger.info('bs_fallback summary: %s', bs_summary)
+        except Exception as e:
+            logger.warning('BS delta fallback failed: %s', e)
+
+
+        # 5. 80% profit-take trigger (Strategy §5)
+        # pct_captured = 1 - (current_premium / original_premium)
+        # original_premium = avg_cost / multiplier (per-share cost of the short)
+        # current_premium = last_price from greeks (modelGreeks.optPrice)
+        # We compute this for short option legs (qty < 0) where we have avg_cost.
+        for i, rec in enumerate(positions_data):
+            if rec.get("sec_type") == "OPT" and (rec.get("qty") or 0) < 0:
+                avg_cost = rec.get("avg_cost")
+                if avg_cost and avg_cost > 0:
+                    multiplier = float(rec.get("multiplier") or 100)
+                    original_premium = avg_cost / multiplier  # per-share credit received
+                    # Try to get current option price from the greeks we already fetched
+                    try:
+                        raw_p = raw_positions[i]
+                        ticker_obj = ib.ticker(raw_p.contract)
+                        greeks = None
+                        if ticker_obj:
+                            greeks = ticker_obj.modelGreeks or ticker_obj.lastGreeks
+                        if greeks and getattr(greeks, 'optPrice', None) is not None:
+                            current_premium = greeks.optPrice
+                            if original_premium > 0:
+                                pct_captured = round((1 - current_premium / original_premium) * 100, 1)
+                                rec["pct_captured"] = pct_captured
+                                rec["profit_take_80"] = pct_captured >= 80.0
+                    except Exception:
+                        pass
+
+        # 6. SPY hedge coverage tracker (Strategy §7)
+        # Target: hedge covers €20K–€30K of book drawdown.
+        # The SPY hedge is a put spread: long put (positive qty) + short put (negative qty).
+        # Net market value = sum of signed market values (long MV - short MV).
+        # A properly structured hedge will have a positive net MV (long > short cost).
+        spy_hedge_positions = [
+            rec for rec in positions_data
+            if (rec.get("strategy") or "").upper() == "SPY_HEDGE"
+        ]
+        if spy_hedge_positions and net_liq:
+            # Sum signed market values: long puts have positive MV, short puts negative
+            hedge_net_mv = sum(rec.get("market_value") or 0 for rec in spy_hedge_positions)
+            hedge_mv = abs(hedge_net_mv)  # absolute value for coverage display
+            # Target coverage: 20K–30K EUR. We store in USD here.
+            hedge_coverage = {
+                "hedge_market_value": round(hedge_mv, 2),
+                "hedge_net_market_value": round(hedge_net_mv, 2),
+                "hedge_pct_of_netliq": round((hedge_mv / net_liq) * 100, 2) if net_liq else None,
+                "target_min": 20000,
+                "target_max": 30000,
+                "coverage_ok": cfg("strategy.spy_hedge_min_usd", 22000) <= hedge_mv <= cfg("strategy.spy_hedge_max_usd", 33000),
+            }
+        else:
+            hedge_coverage = {
+                "hedge_market_value": 0,
+                "hedge_pct_of_netliq": 0,
+                "target_min": 20000,
+                "target_max": 30000,
+                "coverage_ok": False,
+            }
+
+        result = {
+            **account_fields,
+            "_last_updated": datetime.now(timezone.utc).isoformat(),
+            "ibkr_last_sync": datetime.now(timezone.utc).isoformat(),
+            "positions": positions_data,
+            "spy_hedge_coverage": hedge_coverage,
+        }
+
+        logger.info(
+            "Sync complete: %d positions, NetLiq=%.2f",
+            len(positions_data),
+            net_liq or 0,
+        )
+        return result
+
+    except asyncio.TimeoutError as e:
+        raise TimeoutError(
+            f"IB Gateway did not respond within {GATEWAY_TIMEOUT()}s. "
+            "Is the ib-gateway container running? Check: docker ps"
+        ) from e
+    except Exception as e:
+        logger.error("IB Gateway sync failed: %s", e)
+        raise
+    finally:
+        if ib.isConnected():
+            ib.disconnect()
+            logger.info("Disconnected from IB Gateway")
+
+
+async def _async_status() -> dict[str, Any]:
+    """Gateway status check — runs in its own thread's event loop."""
+    import socket
+
+    status: dict[str, Any] = {
+        "host": GATEWAY_HOST(),
+        "port": GATEWAY_PORT(),
+        "reachable": False,
+        "connected": False,
+        "account": None,
+        "error": None,
+    }
+
+    # Quick TCP check
+    try:
+        sock = socket.create_connection((GATEWAY_HOST(), GATEWAY_PORT()), timeout=3)
+        sock.close()
+        status["reachable"] = True
+    except (OSError, ConnectionRefusedError) as e:
+        status["error"] = f"TCP connection failed: {e}"
+        return status
+
+    # Full IB API handshake
+    try:
+        from ib_async import IB
+        ib = IB()
+        await asyncio.wait_for(
+            ib.connectAsync(GATEWAY_HOST(), GATEWAY_PORT(), clientId=GATEWAY_CLIENT_ID() + 1),
+            timeout=10,
+        )
+        accounts = ib.managedAccounts()
+        status["connected"] = True
+        status["account"] = accounts[0] if accounts else None
+        ib.disconnect()
+    except Exception as e:
+        status["error"] = str(e)
+
+    return status
+
+
+# ---------------------------------------------------------------------------
+# Public API — called from FastAPI route handlers
+# ---------------------------------------------------------------------------
+
+def sync_from_gateway(existing_positions: list[dict]) -> dict[str, Any]:
+    """
+    Synchronous wrapper: run the full IBKR sync in a dedicated thread.
+    Safe to call from within a FastAPI/uvicorn async context.
+    """
+    return _run_in_thread(_async_sync(existing_positions))
+
+
+def gateway_status() -> dict[str, Any]:
+    """
+    Synchronous wrapper: check gateway status in a dedicated thread.
+    Safe to call from within a FastAPI/uvicorn async context.
+    """
+    return _run_in_thread(_async_status())
