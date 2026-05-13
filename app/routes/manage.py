@@ -63,6 +63,16 @@ def _get_latest_daily_report() -> Optional[Path]:
     return Path(matches[-1]) if matches else None
 
 
+def _dte_days(expiry_str: str) -> Optional[int]:
+    """Return days to expiry from an ISO date string, or None if unparseable."""
+    from datetime import date
+    try:
+        exp = date.fromisoformat(str(expiry_str)[:10])
+        return max(0, (exp - date.today()).days)
+    except (ValueError, TypeError):
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Stop-loss aggregator (Strategy §6)
 # ---------------------------------------------------------------------------
@@ -305,14 +315,50 @@ def pre_trade_check(ticker: str):
         "vix_threshold": vix_high,
     }
 
-    gates = [gate_exclusion, gate_earnings, gate_concentration, gate_vix]
+    # Gate 5: LEAP earnings blackout
+    # If a LEAP / long-dated long call (DTE > 90) is already open on this ticker,
+    # block new short-leg entries within N days of earnings to avoid turning a
+    # defined-risk PMCC into an undefined-risk short call through the event.
+    leap_blackout_days = int(strategy_cfg.get("leap_earnings_blackout_days", 21))
+    has_leap = any(
+        p.get("ticker", "").upper() == ticker
+        and str(p.get("strategy", "")).upper() in ("PMCC", "LEAPS", "DIAGONAL")
+        and (_dte_days(p.get("long_expiry") or p.get("expiry") or "") or 0) > 90
+        for p in (positions_data.get("positions") or [])
+    )
+    if has_leap and days_to_earnings is not None and 0 <= days_to_earnings <= leap_blackout_days:
+        leap_gate_passed = False
+        leap_detail = (
+            f"LEAP position open on {ticker}; earnings in {days_to_earnings}d "
+            f"(≤ {leap_blackout_days}d blackout) — short-leg entry blocked to avoid "
+            f"undefined-risk exposure post-earnings"
+        )
+    else:
+        leap_gate_passed = True
+        if has_leap and days_to_earnings is not None:
+            leap_detail = f"LEAP open on {ticker}; earnings in {days_to_earnings}d — outside {leap_blackout_days}d blackout"
+        elif has_leap:
+            leap_detail = f"LEAP open on {ticker}; no earnings date found — treat as clear"
+        else:
+            leap_detail = f"No LEAP/PMCC position on {ticker} — gate not applicable"
+    gate_leap = {
+        "name": "leap_earnings_blackout",
+        "rule": f"Strategy §4 — no short-leg entry within {leap_blackout_days}d of earnings when a LEAP is open",
+        "passed": leap_gate_passed,
+        "detail": leap_detail,
+        "has_leap": has_leap,
+        "days_to_earnings": days_to_earnings,
+        "blackout_days": leap_blackout_days,
+    }
+
+    gates = [gate_exclusion, gate_earnings, gate_concentration, gate_vix, gate_leap]
     hard_failures = [g for g in gates if not g["passed"]]
     all_passed = len(hard_failures) == 0
 
     # Overall verdict
     if all_passed:
         verdict = "PROCEED"
-        verdict_reason = "All four pre-trade gates passed."
+        verdict_reason = "All five pre-trade gates passed."
     else:
         verdict = "BLOCKED"
         verdict_reason = f"{len(hard_failures)} gate(s) failed: {', '.join(g['name'] for g in hard_failures)}. Requires explicit acknowledgment per Strategy §15.1."

@@ -87,12 +87,19 @@ def evaluate_roll(
 
     current_dte = _dte(expiry) if expiry else None
 
-    # ── Roll urgency ──────────────────────────────────────────────────────
+    # ── DTE exception registry ────────────────────────────────────────────
+    # Positions listed in strategy.dte_exceptions as "TICKER:YYYY-MM-DD" are
+    # exempt from DTE-based roll alerts (e.g. intentional long-dated PMCC legs).
+    dte_exceptions: list[str] = cfg("strategy.dte_exceptions") or []
+    exception_key = f"{ticker}:{expiry}" if expiry else None
+    dte_exempt = exception_key is not None and exception_key in dte_exceptions
+
+    # ── Roll urgency ─────────────────────────────────────────────────────
     roll_needed = False
     urgency = "NONE"
     reasons: list[str] = []
 
-    if current_dte is not None:
+    if current_dte is not None and not dte_exempt:
         if current_dte <= dte_urgent:
             roll_needed = True
             urgency = "URGENT"
@@ -152,6 +159,7 @@ def evaluate_roll(
         "reasons":      reasons,
         "current_dte":  current_dte,
         "current_delta": current_delta,
+        "dte_exempt":   dte_exempt,
         "candidates":   candidates[:10],  # top 10
         "thresholds_used": {
             "target_dte":       (dte_low, dte_high),

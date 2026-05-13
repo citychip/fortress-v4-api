@@ -156,8 +156,12 @@ def _probe_opra(client: WebApiClient, account_id: Optional[str]) -> dict:
         return res
     try:
         positions = web_portfolio.all_positions(client, account_id)
-        # Filter to option positions only — Greeks are options-specific
-        option_legs = [p for p in positions if (p.get("assetClass") or "").upper() == "OPT"]
+        # Filter to option positions only — Greeks are options-specific.
+        # IBKR Web API may return assetClass or secType depending on endpoint version.
+        option_legs = [
+            p for p in positions
+            if (p.get("assetClass") or p.get("secType") or "").upper() == "OPT"
+        ]
         if not option_legs:
             res["method"] = "no_option_positions_found"
             return res

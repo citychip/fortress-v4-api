@@ -119,6 +119,8 @@ SCHEMA: dict[str, list[dict]] = {
         {"key": "target_dte_low", "label": "Target DTE (low)", "type": "number", "unit": "days", "min": 1, "max": 730},
         {"key": "target_dte_high", "label": "Target DTE (high)", "type": "number", "unit": "days", "min": 1, "max": 730},
         {"key": "dte_roll_threshold", "label": "DTE roll trigger", "type": "number", "unit": "days", "min": 1, "max": 60, "description": "Roll short leg when DTE falls below this"},
+        {"key": "dte_exceptions", "label": "DTE exception list", "type": "list", "description": "Positions exempt from DTE roll alerts. One entry per line, format: TICKER:YYYY-MM-DD (e.g. MSFT:2026-12-18)"},
+        {"key": "leap_earnings_blackout_days", "label": "LEAP earnings blackout", "type": "number", "unit": "days", "min": 0, "max": 60, "description": "Block new short-leg entries this many days before earnings when a LEAP/PMCC long call is open on the same ticker"},
         # --- Profit / Loss management ---
         {"key": "profit_target_pct", "label": "Profit-take target", "type": "number", "unit": "% of max profit", "min": 10, "max": 100, "step": 5, "description": "Close position when this % of max profit is reached"},
         {"key": "stop_loss_drawdown_pct", "label": "Stop-loss drawdown threshold", "type": "number", "unit": "%", "min": 0, "max": 200, "step": 1, "description": "Max MV loss before stop-loss fires"},

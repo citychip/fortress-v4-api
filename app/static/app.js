@@ -252,6 +252,29 @@ function renderBriefing(data) {
   container.appendChild(renderActionsCard(data.actions || []));
   container.appendChild(renderRegimeRow(data));
 
+  // PCS exposure card — only shown when there are active PCS positions
+  const greeks = data.greeks || {};
+  if (greeks.pcs_count > 0) {
+    const pcsNotional = greeks.pcs_put_notional_usd != null
+      ? `$${Math.round(greeks.pcs_put_notional_usd).toLocaleString("en-US")}`
+      : "—";
+    const pcsCard = el("div", { class: "card card-tight" },
+      el("h2", {}, "PCS exposure"),
+      el("div", { class: "row row-2" },
+        el("div", { class: "stat" },
+          el("p", { class: "stat-label" }, "Active spreads"),
+          el("p", { class: "stat-value" }, String(greeks.pcs_count))
+        ),
+        el("div", { class: "stat" },
+          el("p", { class: "stat-label" }, "Short-put notional"),
+          el("p", { class: "stat-value" }, pcsNotional),
+          el("p", { class: "stat-sub muted" }, "strike × contracts × 100")
+        )
+      )
+    );
+    container.appendChild(pcsCard);
+  }
+
   const scannerCard = el("div", { class: "card", id: "scanner-card" },
     el("h2", {}, "Candidate scanner"),
     el("p", { class: "muted small" }, "Sorted by IV/HV spread. Earnings within 10 days are blocked per §4."),

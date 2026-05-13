@@ -144,6 +144,15 @@ DEFAULTS: dict[str, Any] = {
         "high_conc_prime_low":      -8.0,        # tightened prime band lower (high-conc)
         "high_conc_prime_high":     -5.0,        # tightened prime band upper (high-conc)
 
+        # LEAP earnings blackout — days before earnings to block new short-leg entries
+        # when a LEAP / long-dated long call (DTE > 90) is open on the same ticker.
+        "leap_earnings_blackout_days": 21,
+
+        # DTE exception registry — positions exempt from DTE roll alerts.
+        # Each entry is a string in the form "TICKER:YYYY-MM-DD" matching the
+        # short-leg expiry. Example: ["MSFT:2026-12-18", "VST:2026-09-19"]
+        "dte_exceptions":           [],
+
          # DTE roll trigger
         "dte_roll_threshold":       21,          # roll short leg when DTE < this
         # Profit / loss management
@@ -259,14 +268,22 @@ def save() -> None:
     """
     Persist the current in-memory config to disk atomically.
     Uses write-to-temp + rename to avoid partial writes.
+    Keeps a rolling backup of the previous version at fortress_config.bak.json.
     """
     tmp = _CONFIG_FILE.with_suffix(".tmp")
     with _lock:
         snapshot = deepcopy(_config)
     with tmp.open("w", encoding="utf-8") as f:
         json.dump(snapshot, f, indent=2, ensure_ascii=False)
+    # Rotate: current → .bak before replacing
+    bak = _CONFIG_FILE.with_name(_CONFIG_FILE.stem + ".bak.json")
+    if _CONFIG_FILE.exists():
+        try:
+            _CONFIG_FILE.replace(bak)
+        except Exception as exc:
+            logger.warning("Could not rotate config backup: %s", exc)
     tmp.replace(_CONFIG_FILE)
-    logger.info("Config saved to %s", _CONFIG_FILE)
+    logger.info("Config saved to %s (backup: %s)", _CONFIG_FILE, bak)
 
 
 def cfg(key: str, default: Any = None) -> Any:

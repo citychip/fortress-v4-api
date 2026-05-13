@@ -41,6 +41,8 @@ def compute_portfolio_greeks(data: dict) -> dict:
     total_vega = 0.0
     positions_with_greeks = 0
     positions_total = 0
+    pcs_count = 0
+    pcs_put_notional = 0.0  # sum of (short_strike * |qty| * multiplier) for PCS short-put legs
 
     for pos in data.get("positions", []):
         positions_total += 1
@@ -64,6 +66,26 @@ def compute_portfolio_greeks(data: dict) -> dict:
         if vega is not None:
             total_vega += float(vega) * qty * mult
 
+        # PCS exposure — count short-put legs and accumulate notional
+        strategy = str(pos.get("strategy") or "").upper()
+        if strategy == "PCS":
+            leg_role = str(pos.get("leg_role") or pos.get("leg") or "").lower()
+            right = str(pos.get("right") or "").upper()
+            # Count the short put leg only (avoid double-counting the long put)
+            is_short_put = (
+                leg_role in ("short", "short_put")
+                or (right == "P" and qty < 0)
+                or (leg_role == "" and qty < 0)
+            )
+            if is_short_put:
+                pcs_count += 1
+                short_strike = pos.get("short_strike") or pos.get("strike")
+                if short_strike is not None:
+                    try:
+                        pcs_put_notional += float(short_strike) * abs(qty) * mult
+                    except (ValueError, TypeError):
+                        pass
+
     # Classify net delta exposure
     _long_thresh  = cfg("strategy.delta_bias_long_threshold", 5000.0)
     _short_thresh = cfg("strategy.delta_bias_short_threshold", -5000.0)
@@ -81,6 +103,8 @@ def compute_portfolio_greeks(data: dict) -> dict:
         "delta_bias": delta_bias,
         "positions_with_greeks": positions_with_greeks,
         "positions_total": positions_total,
+        "pcs_count": pcs_count,
+        "pcs_put_notional_usd": round(pcs_put_notional, 0),
     }
 
 
