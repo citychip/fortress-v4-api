@@ -52,6 +52,15 @@ WORKFLOW_SCRIPTS = {
 # Safety: limit subprocess execution time
 SCRIPT_TIMEOUT_SECONDS = 120
 
+# Time-of-day script groups for auto-run (item F)
+# Keys map to WORKFLOW_SCRIPTS above
+TIME_OF_DAY_SCRIPTS = {
+    "pre_market":    ["premarket", "entry_scoring"],
+    "market_hours":  ["position_monitor", "dark_pool_alert"],
+    "post_market":   ["eod_review", "max_pain"],
+    "any_time":      ["iv_crush", "whale_flow"],
+}
+
 
 @router.get("/run/scripts")
 def list_scripts():
@@ -128,4 +137,120 @@ def run_script(script_key: str):
         "finished_at": finished.isoformat(),
         "stdout": "\n".join(stdout_lines[-100:]),
         "stderr": "\n".join(stderr_lines[-50:]) if stderr_lines else "",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Time-of-day auto-run endpoint  (item F)
+# ---------------------------------------------------------------------------
+
+@router.get("/run/time_of_day")
+def get_time_of_day_group():
+    """
+    Return the appropriate script group for the current time of day (ET).
+    Used by the Strategy tab to auto-run the right scripts on activation.
+    """
+    import pytz
+    from datetime import time as _time
+
+    try:
+        et = pytz.timezone("America/New_York")
+        now_et = datetime.now(et).time()
+    except Exception:
+        now_et = datetime.utcnow().time()
+
+    pre_market_start  = _time(4, 0)
+    market_open       = _time(9, 30)
+    market_close      = _time(16, 0)
+    post_market_end   = _time(20, 0)
+
+    if pre_market_start <= now_et < market_open:
+        group = "pre_market"
+    elif market_open <= now_et < market_close:
+        group = "market_hours"
+    elif market_close <= now_et < post_market_end:
+        group = "post_market"
+    else:
+        group = "any_time"
+
+    scripts = TIME_OF_DAY_SCRIPTS[group]
+    # Filter to only scripts that exist and pass QuantData guard
+    available = []
+    for key in scripts:
+        if key not in WORKFLOW_SCRIPTS:
+            continue
+        if key in QUANTDATA_REQUIRED_SCRIPTS and not config_store.cfg("security.use_quantdata", True):
+            available.append({"key": key, "blocked": True, "reason": "QuantData disabled"})
+        else:
+            script_path = state.BASE_DIR / WORKFLOW_SCRIPTS[key]
+            available.append({
+                "key": key,
+                "filename": WORKFLOW_SCRIPTS[key],
+                "blocked": not script_path.exists(),
+                "reason": "script file not found" if not script_path.exists() else None,
+            })
+
+    return {
+        "group": group,
+        "scripts": available,
+        "all_groups": TIME_OF_DAY_SCRIPTS,
+    }
+
+
+@router.post("/run/group/{group_name}")
+def run_group(group_name: str):
+    """
+    Run all scripts in a time-of-day group sequentially.
+    Returns results for each script.
+    """
+    if group_name not in TIME_OF_DAY_SCRIPTS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown group '{group_name}'. Available: {list(TIME_OF_DAY_SCRIPTS.keys())}"
+        )
+
+    scripts = TIME_OF_DAY_SCRIPTS[group_name]
+    results = []
+
+    for script_key in scripts:
+        if script_key not in WORKFLOW_SCRIPTS:
+            results.append({"script": script_key, "status": "skipped", "reason": "not in whitelist"})
+            continue
+
+        if script_key in QUANTDATA_REQUIRED_SCRIPTS and not config_store.cfg("security.use_quantdata", True):
+            results.append({"script": script_key, "status": "skipped", "reason": "QuantData disabled"})
+            continue
+
+        script_path = state.BASE_DIR / WORKFLOW_SCRIPTS[script_key]
+        if not script_path.exists():
+            results.append({"script": script_key, "status": "skipped", "reason": "file not found"})
+            continue
+
+        started = datetime.now(timezone.utc)
+        try:
+            result = subprocess.run(
+                [sys.executable, str(script_path)],
+                capture_output=True,
+                text=True,
+                timeout=SCRIPT_TIMEOUT_SECONDS,
+                cwd=state.BASE_DIR,
+            )
+            finished = datetime.now(timezone.utc)
+            stdout_lines = result.stdout.splitlines()
+            results.append({
+                "script": script_key,
+                "status": "ok" if result.returncode == 0 else "error",
+                "exit_code": result.returncode,
+                "duration_seconds": round((finished - started).total_seconds(), 2),
+                "stdout": "\n".join(stdout_lines[-50:]),
+            })
+        except subprocess.TimeoutExpired:
+            results.append({"script": script_key, "status": "timeout"})
+        except Exception as e:
+            results.append({"script": script_key, "status": "error", "reason": str(e)})
+
+    return {
+        "group": group_name,
+        "scripts_run": len([r for r in results if r.get("status") not in ("skipped",)]),
+        "results": results,
     }

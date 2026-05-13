@@ -712,6 +712,15 @@ function renderField(section, field, value) {
       <div id="banner-use_quantdata" class="datasource-warning-banner" style="display:none;">
         <span class="datasource-warning-icon">⚠️</span>
         <span>QuantData disabled — workflow scripts blocked, candidate scanner empty, macro regime unknown, chart shows plain candlesticks only.</span>
+      </div>
+      <div style="margin-top:8px;">
+        <button class="btn btn-secondary btn-sm" onclick="testQuantDataConnection()">Test QuantData connection</button>
+        <span id="quantdata-test-status" class="settings-save-status" style="margin-left:10px"></span>
+      </div>`;
+  } else if (field.key === "ibkr_auto_sync_enabled") {
+    warningBanner = `
+      <div style="margin-top:8px;">
+        <span class="field-desc">When enabled, the server automatically syncs from IBKR every N minutes (configurable via <code>ibkr_auto_sync_interval_min</code>). Requires IBKR Web API to be active.</span>
       </div>`;
   }
 
@@ -818,6 +827,28 @@ async function confirmReset() {
   }
 }
 
+// ─── QuantData connection test (item J) ─────────────────────────────────────
+async function testQuantDataConnection() {
+  const statusEl = document.getElementById("quantdata-test-status");
+  if (statusEl) { statusEl.textContent = "Testing…"; statusEl.className = "settings-save-status unsaved"; }
+  try {
+    const res = await authFetch("/api/settings/test_quantdata");
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Test failed");
+    if (statusEl) {
+      if (data.ok) {
+        statusEl.textContent = `✓ Connected — ${data.message || "QuantData API reachable"}`;
+        statusEl.className = "settings-save-status success";
+      } else {
+        statusEl.textContent = `✗ ${data.message || "Connection failed"}`;
+        statusEl.className = "settings-save-status error";
+      }
+    }
+  } catch (err) {
+    if (statusEl) { statusEl.textContent = `✗ ${err.message}`; statusEl.className = "settings-save-status error"; }
+  }
+}
+
 // ─── Utilities ────────────────────────────────────────────────────────────────
 function escHtml(str) {
   return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
@@ -837,6 +868,7 @@ window.refreshNarrative = refreshNarrative;
 window.downloadBackup   = downloadBackup;
 window.uploadRestore    = uploadRestore;
 window.updateDataSourceBanners = updateDataSourceBanners;
+window.testQuantDataConnection = testQuantDataConnection;
 
 // Auto-init if either tab is already active on page load
 document.addEventListener("DOMContentLoaded", function () {

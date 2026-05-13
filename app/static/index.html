@@ -301,7 +301,16 @@
     </div>
     <div class="header-buttons">
       <button class="action-cta" id="refresh-btn">↺ Refresh</button>
-      <button class="action-cta action-cta-primary" id="auto-refresh-toggle" data-on="true">Auto: ON</button>
+      <button class="action-cta action-cta-primary" id="auto-refresh-toggle" data-on="true">Live: ON</button>
+    </div>
+  </div>
+
+  <!-- Live alerts banner (item D) — shown when position_monitor finds ACT/URGENT issues -->
+  <div id="live-alerts-banner" style="display:none; margin-bottom:10px; padding:10px 14px; border-radius:6px; background:var(--color-bg-danger); border:0.5px solid var(--color-border-danger); color:var(--color-text-danger); font-size:13px; display:flex; align-items:center; justify-content:space-between;">
+    <span id="live-alerts-text">Position monitor: action required.</span>
+    <div style="display:flex;gap:8px;">
+      <button class="action-cta action-cta-small" onclick="navigateToTab('manage')">View Manage</button>
+      <button class="action-cta action-cta-small" id="live-alerts-dismiss" onclick="document.getElementById('live-alerts-banner').style.display='none'">Dismiss</button>
     </div>
   </div>
 
@@ -311,6 +320,7 @@
     <button class="tab" data-tab="positions">Positions</button>
     <button class="tab" data-tab="manage">Manage</button>
     <button class="tab" data-tab="trade">Trade</button>
+    <button class="tab" data-tab="reports">&#128196; Reports</button>
     <button class="tab" data-tab="data">Data</button>
     <button class="tab" data-tab="journal">Journal</button>
     <button class="tab" data-tab="strategy">&#128202; Strategy</button>
@@ -394,6 +404,42 @@
         <button class="action-cta action-cta-primary" id="roll-run">Find candidates</button>
       </div>
       <div id="roll-result" class="phase4-result"></div>
+    </div>
+
+    <!-- Batch stop-loss scan (item B) -->
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <h2>Batch stop-loss scan</h2>
+          <p class="muted small">Run §6 stop-loss evaluation across all active positions at once.</p>
+        </div>
+        <button class="action-cta action-cta-primary" id="batch-stop-loss-run">Scan all positions</button>
+      </div>
+      <div id="batch-stop-loss-result" class="phase4-result"></div>
+    </div>
+
+    <!-- Batch roll scan (item H) -->
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <h2>Batch roll scan</h2>
+          <p class="muted small">Find roll candidates across all short positions using default DTE 30–45, Δ 0.20–0.25.</p>
+        </div>
+        <button class="action-cta action-cta-primary" id="batch-roll-run">Scan all short positions</button>
+      </div>
+      <div id="batch-roll-result" class="phase4-result"></div>
+    </div>
+
+    <!-- Position monitor — auto-alerts (item E) -->
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <h2>Position monitor</h2>
+          <p class="muted small">Check all positions for delta, DTE, and drawdown thresholds. Writes alerts for any ACT signals.</p>
+        </div>
+        <button class="action-cta" id="position-monitor-run">Run monitor</button>
+      </div>
+      <div id="position-monitor-result" class="phase4-result"></div>
     </div>
 
     <!-- Run scripts -->
@@ -607,6 +653,137 @@
   </div>
 
   <!-- ================================================================
+       REPORTS TAB  (item 8 — trade evaluation reports)
+       ================================================================ -->
+  <div class="tab-content" data-content="reports">
+
+    <!-- Batch pre-trade matrix (item C/K) -->
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <h2>Pre-trade matrix — all universe tickers</h2>
+          <p class="muted small">Run §8 gate checks across every ticker in your universe. Highlights PRIME_ENTRY and CONDITIONAL candidates.</p>
+        </div>
+        <button class="action-cta action-cta-primary" id="pretrade-all-run">Run full matrix</button>
+      </div>
+      <div id="pretrade-all-result" class="phase4-result"></div>
+    </div>
+
+    <!-- New trade evaluation report -->
+    <div class="card">
+      <h2>New trade evaluation</h2>
+      <p class="muted small">Deep-dive report for a single ticker: gates, IV rank, DP floors, GEX walls, earnings, concentration, and recommended structure.</p>
+      <div class="form-row">
+        <label>Ticker
+          <select id="rpt-new-ticker"><option value="">— loading —</option></select>
+        </label>
+        <label>Strategy
+          <select id="rpt-new-strategy">
+            <option value="PMCC">PMCC</option>
+            <option value="DIAGONAL">Diagonal</option>
+            <option value="PCS">Put credit spread</option>
+            <option value="JADE_LIZARD">Jade Lizard</option>
+            <option value="SPY_HEDGE">SPY hedge</option>
+            <option value="COVERED_CALL">Covered call</option>
+            <option value="IRON_CONDOR">Iron condor</option>
+            <option value="STRADDLE">Straddle</option>
+            <option value="STRANGLE">Strangle</option>
+          </select>
+        </label>
+        <label>Contracts
+          <input type="number" id="rpt-new-qty" value="1" min="1" max="100" style="width:70px">
+        </label>
+        <button class="action-cta action-cta-primary" id="rpt-new-run">Generate report</button>
+      </div>
+      <div id="rpt-new-result" class="phase4-result"></div>
+    </div>
+
+    <!-- Roll evaluation report -->
+    <div class="card">
+      <h2>Roll evaluation report</h2>
+      <p class="muted small">Full roll analysis for a position: current Greeks, P&amp;L, DTE, and top 3 roll candidates with IBKR ticket text.</p>
+      <div class="form-row">
+        <label>Position
+          <select id="rpt-roll-position"><option>Loading…</option></select>
+        </label>
+        <label>DTE band
+          <input type="number" id="rpt-roll-dte-low" value="30" min="1" max="180" style="width:60px"> –
+          <input type="number" id="rpt-roll-dte-high" value="45" min="1" max="365" style="width:60px">
+        </label>
+        <label>Δ band
+          <input type="number" id="rpt-roll-delta-low" value="0.20" step="0.01" min="0.05" max="0.50" style="width:70px"> –
+          <input type="number" id="rpt-roll-delta-high" value="0.25" step="0.01" min="0.05" max="0.60" style="width:70px">
+        </label>
+        <button class="action-cta action-cta-primary" id="rpt-roll-run">Generate report</button>
+      </div>
+      <div id="rpt-roll-result" class="phase4-result"></div>
+    </div>
+
+    <!-- Buy evaluation report -->
+    <div class="card">
+      <h2>Buy / open position report</h2>
+      <p class="muted small">Evaluate opening a new long or credit position: entry quality, sizing, margin impact, and order checklist.</p>
+      <div class="form-row">
+        <label>Ticker
+          <select id="rpt-buy-ticker"><option value="">— loading —</option></select>
+        </label>
+        <label>Strategy
+          <select id="rpt-buy-strategy">
+            <option value="PMCC">PMCC</option>
+            <option value="DIAGONAL">Diagonal</option>
+            <option value="PCS">Put credit spread</option>
+            <option value="JADE_LIZARD">Jade Lizard</option>
+            <option value="COVERED_CALL">Covered call</option>
+            <option value="IRON_CONDOR">Iron condor</option>
+            <option value="STRADDLE">Straddle</option>
+            <option value="STRANGLE">Strangle</option>
+          </select>
+        </label>
+        <label>Target credit/debit ($/share)
+          <input type="number" id="rpt-buy-credit" step="0.01" placeholder="3.50">
+        </label>
+        <label>Contracts
+          <input type="number" id="rpt-buy-qty" value="1" min="1" max="100" style="width:70px">
+        </label>
+        <button class="action-cta action-cta-primary" id="rpt-buy-run">Generate report</button>
+      </div>
+      <div id="rpt-buy-result" class="phase4-result"></div>
+    </div>
+
+    <!-- Sell / close position report -->
+    <div class="card">
+      <h2>Sell / close position report</h2>
+      <p class="muted small">Evaluate closing or reducing a position: P&amp;L realisation, tax lot impact, margin release, and post-close checklist.</p>
+      <div class="form-row">
+        <label>Position
+          <select id="rpt-sell-position"><option>Loading…</option></select>
+        </label>
+        <label>Close price ($/share)
+          <input type="number" id="rpt-sell-price" step="0.01" placeholder="2.10">
+        </label>
+        <label>Qty to close
+          <input type="number" id="rpt-sell-qty" value="1" min="1" max="100" style="width:70px">
+        </label>
+        <button class="action-cta action-cta-primary" id="rpt-sell-run">Generate report</button>
+      </div>
+      <div id="rpt-sell-result" class="phase4-result"></div>
+    </div>
+
+    <!-- Full trade report (all positions) -->
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <h2>Full book trade report</h2>
+          <p class="muted small">Comprehensive report across all positions: stop-loss status, roll candidates, pre-trade matrix, and action items.</p>
+        </div>
+        <button class="action-cta action-cta-primary" id="full-report-run">Generate full report</button>
+      </div>
+      <div id="full-report-result" class="phase4-result"></div>
+    </div>
+
+  </div>
+
+  <!-- ================================================================
        DATA TAB  (merged Universe + Uploads)
        ================================================================ -->
   <div class="tab-content" data-content="data">
@@ -717,11 +894,12 @@
 </div><!-- .dash -->
 
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="/static/app.js?v=e9d3782"></script>
-<script src="/static/phase4.js?v=e9d3782"></script>
-<script src="/static/chart.js?v=e9d3782"></script>
-<script src="/static/settings.js?v=e9d3782"></script>
-<script src="/static/universe.js?v=e9d3782"></script>
+<script src="/static/app.js?v=f1a2b3c"></script>
+<script src="/static/phase4.js?v=f1a2b3c"></script>
+<script src="/static/chart.js?v=f1a2b3c"></script>
+<script src="/static/settings.js?v=f1a2b3c"></script>
+<script src="/static/universe.js?v=f1a2b3c"></script>
+<script src="/static/reports.js?v=f1a2b3c"></script>
 <script>
 /* ── Fortress Dashboard v3 — inline enhancements ──
    Extends app.js without replacing it.

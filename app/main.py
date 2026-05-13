@@ -9,7 +9,9 @@ Phase 4: strategy logic engines (stop-loss aggregator, roll evaluator, post-earn
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -19,6 +21,7 @@ from fastapi.responses import FileResponse
 from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from app.middleware import bearer_token_middleware
+from app.services import config_store
 
 from app.routes import (
     settings,
@@ -43,10 +46,43 @@ logger = logging.getLogger("fortress")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 
+# ---------------------------------------------------------------------------
+# IBKR auto-sync background task  (item A)
+# ---------------------------------------------------------------------------
+_auto_sync_task: asyncio.Task | None = None
+
+
+async def _ibkr_auto_sync_loop() -> None:
+    """Background task: sync IBKR every N minutes when auto-sync is enabled."""
+    while True:
+        interval_min = config_store.cfg("security.ibkr_auto_sync_interval_min", 15)
+        await asyncio.sleep(interval_min * 60)
+        if not config_store.cfg("security.ibkr_auto_sync_enabled", False):
+            continue  # feature toggled off — keep looping but skip sync
+        try:
+            from app.routes.ibkr import trigger_sync
+            logger.info("Auto-sync IBKR: firing scheduled sync (interval=%dm)", interval_min)
+            await trigger_sync()
+        except Exception as exc:
+            logger.warning("Auto-sync IBKR: sync failed — %s", exc)
+
+
+@asynccontextmanager
+async def lifespan(app_: FastAPI):
+    global _auto_sync_task
+    config_store.load()
+    _auto_sync_task = asyncio.create_task(_ibkr_auto_sync_loop())
+    logger.info("IBKR auto-sync background task started.")
+    yield
+    if _auto_sync_task:
+        _auto_sync_task.cancel()
+
+
 app = FastAPI(
     title="Fortress Dashboard",
     description="Trading dashboard per Build Spec v1.2 — the trader's portfolio strategy v3.4",
     version="1.2.0",
+    lifespan=lifespan,
 )
 
 # CORS — open for local network use. Lock down before exposing publicly.

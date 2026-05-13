@@ -166,6 +166,63 @@ def create_journal_entry(body: JournalEntryCreate):
     return new_entry
 
 
+@router.get("/journal/suggest")
+def suggest_journal_entry():
+    """
+    Auto-suggest journal entry fields from the most recent IBKR sync diff.
+    Returns the last position change detected (item G).
+    """
+    try:
+        positions_data = state.get_active_positions()
+    except state.StateError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    positions = positions_data.get("positions", [])
+    last_sync = positions_data.get("ibkr_last_sync") or positions_data.get("_last_updated")
+
+    # Find the most recently changed position (highest timestamp or last in list)
+    # IBKR sync writes positions in order — the last one is typically the most recent change
+    # We also look for positions with a "new" or "changed" flag if present
+    candidate = None
+    for p in reversed(positions):
+        if p.get("_new") or p.get("_changed"):
+            candidate = p
+            break
+
+    if not candidate and positions:
+        # Fall back to last position in list
+        candidate = positions[-1]
+
+    if not candidate:
+        return {
+            "suggestion": None,
+            "message": "No positions found — sync from IBKR first.",
+        }
+
+    ticker = (candidate.get("ticker") or "").upper()
+    strategy = candidate.get("strategy") or ""
+    action = "OPEN"  # default
+
+    # Infer action from position state
+    qty = candidate.get("qty") or candidate.get("position") or 0
+    if isinstance(qty, (int, float)):
+        if qty < 0:
+            action = "OPEN"   # short position opened
+        elif qty > 0:
+            action = "OPEN"   # long position opened
+
+    return {
+        "suggestion": {
+            "ticker": ticker,
+            "strategy": strategy,
+            "action": action,
+            "description": f"{action} {ticker} {strategy}".strip(),
+        },
+        "last_sync": last_sync,
+        "message": f"Suggested from last IBKR sync ({last_sync})",
+    }
+
+
 @router.delete("/journal/{entry_id}", status_code=204)
 def delete_journal_entry(entry_id: str):
     try:

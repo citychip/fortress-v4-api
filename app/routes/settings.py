@@ -192,9 +192,17 @@ SCHEMA: dict[str, list[dict]] = {
          "description": "Connect to IB Gateway for live positions, Greeks, and account values. When disabled, Greeks are estimated via Black-Scholes (yfinance) and positions are read from the last saved snapshot. NetLiq and account values will be stale."},
         {"key": "use_quantdata",       "label": "Enable QuantData",      "type": "boolean",
          "description": "Power IV rank scanning, dark pool alerts, whale flow, macro regime, and DP/GEX chart overlays via QuantData.us. When disabled, workflow scripts are blocked, the candidate scanner is empty, macro regime shows as unknown, and the price chart shows plain candlesticks only."},
+        # --- IBKR auto-sync ---
+        {"key": "ibkr_auto_sync_enabled", "label": "Auto-sync IBKR", "type": "boolean",
+         "description": "When enabled, the server automatically syncs positions from IBKR every N minutes regardless of browser activity. When disabled (default), sync is manual-only via the Sync button."},
+        {"key": "ibkr_auto_sync_interval_min", "label": "Auto-sync interval", "type": "select",
+         "options": [5, 15, 30, 60],
+         "description": "How often to auto-sync IBKR positions (minutes). Only applies when Auto-sync IBKR is enabled."},
         # --- Credentials ---
         {"key": "ibkr_account_id",      "label": "IBKR Account ID",        "type": "password", "description": "Your IBKR account number (e.g. U1234567). Stored locally, never sent externally."},
-        {"key": "quantdata_api_key",   "label": "QuantData API key",      "type": "password", "description": "Set here or via QUANTDATA_API_KEY env var. Env var takes precedence."},
+        {"key": "quantdata_auth_token", "label": "QuantData Auth Token",   "type": "password", "description": "JWT auth token from QuantData.us (Authorization header value, starts with 'Bearer '). Obtain from browser DevTools → Network → any /api/ request."},
+        {"key": "quantdata_instance_id","label": "QuantData Instance ID",  "type": "password", "description": "x-instance-id header value from QuantData.us requests."},
+        {"key": "quantdata_api_key",   "label": "QuantData API key (legacy)", "type": "password", "description": "Legacy key — unused. Kept for backward compatibility."},
         {"key": "api_token_hint",      "label": "Dashboard API token",    "type": "text",     "description": "Read-only. Real token is set via FORTRESS_API_TOKEN env var on the server."},
         {"key": "cp_gateway_url",      "label": "CP Gateway URL",         "type": "text",     "description": "voyz/ibeam endpoint, e.g. https://localhost:5000"},
         {"key": "cp_gateway_verify_ssl","label": "Verify CP Gateway SSL",  "type": "boolean"},
@@ -900,3 +908,88 @@ async def import_backup(file: UploadFile = File(...)):
         "skipped": skipped,
         "config": config_store.get_all(),
     }
+
+
+# ---------------------------------------------------------------------------
+# QuantData connection test  (item J)
+# ---------------------------------------------------------------------------
+
+@router.post("/settings/test_quantdata")
+def test_quantdata_connection():
+    """
+    Test the QuantData live API credentials stored in Settings > Security.
+    Calls qd_get_iv_rank("SPY") and returns ok/error.
+    """
+    import requests as _req
+
+    auth_token  = config_store.cfg("security.quantdata_auth_token", "")
+    instance_id = config_store.cfg("security.quantdata_instance_id", "")
+    base_url    = config_store.cfg("security.quantdata_api_base",
+                                   "https://core-lb-prod.quantdata.us/api")
+
+    if not auth_token or not instance_id:
+        return {
+            "ok": False,
+            "error": "credentials_missing",
+            "message": "QuantData Auth Token and Instance ID must both be set in Settings > Security.",
+        }
+
+    # Ensure the token has the Bearer prefix
+    if not auth_token.startswith("Bearer "):
+        auth_token = f"Bearer {auth_token}"
+
+    headers = {
+        "accept": "application/json",
+        "authorization": auth_token,
+        "x-instance-id": instance_id,
+        "x-qd-version": "3",
+        "origin": "https://v3.quantdata.us",
+    }
+
+    try:
+        resp = _req.get(
+            f"{base_url}/iv-rank",
+            headers=headers,
+            params={"ticker": "SPY"},
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            iv_rank = None
+            if isinstance(data, list) and data:
+                iv_rank = data[0].get("iv_rank") or data[0].get("ivRank")
+            elif isinstance(data, dict):
+                iv_rank = data.get("iv_rank") or data.get("ivRank")
+            return {
+                "ok": True,
+                "message": f"QuantData connection successful. SPY IV Rank: {iv_rank}",
+                "iv_rank": iv_rank,
+                "status_code": 200,
+            }
+        elif resp.status_code == 401:
+            return {
+                "ok": False,
+                "error": "unauthorized",
+                "message": "QuantData returned 401 — token expired or invalid. Refresh credentials from browser DevTools.",
+                "status_code": 401,
+            }
+        elif resp.status_code == 429:
+            return {
+                "ok": False,
+                "error": "rate_limited",
+                "message": "QuantData returned 429 — rate limited. Wait 60 seconds and try again.",
+                "status_code": 429,
+            }
+        else:
+            return {
+                "ok": False,
+                "error": f"http_{resp.status_code}",
+                "message": f"QuantData returned HTTP {resp.status_code}: {resp.text[:200]}",
+                "status_code": resp.status_code,
+            }
+    except _req.exceptions.Timeout:
+        return {"ok": False, "error": "timeout", "message": "QuantData API timed out after 10s."}
+    except _req.exceptions.ConnectionError as e:
+        return {"ok": False, "error": "connection_error", "message": f"Could not reach QuantData API: {e}"}
+    except Exception as e:
+        return {"ok": False, "error": "unknown", "message": str(e)}

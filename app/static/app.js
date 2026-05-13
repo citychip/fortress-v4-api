@@ -144,6 +144,10 @@ function navigateToTab(target) {
   if (target === "manage" && typeof window.initManage === "function") {
     window.initManage();
   }
+  // Initialise the Reports tab on first activation
+  if (target === "reports" && typeof window.initReports === "function") {
+    window.initReports();
+  }
 }
 document.querySelectorAll(".tab").forEach(tab => {
   tab.addEventListener("click", () => navigateToTab(tab.dataset.tab));
@@ -1414,7 +1418,7 @@ document.getElementById("refresh-btn")?.addEventListener("click", refreshAll);
 document.getElementById("auto-refresh-toggle")?.addEventListener("click", function () {
   autoRefreshEnabled = !autoRefreshEnabled;
   this.dataset.on = autoRefreshEnabled ? "true" : "false";
-  this.textContent = autoRefreshEnabled ? "Auto: ON" : "Auto: OFF";
+  this.textContent = autoRefreshEnabled ? "Live: ON" : "Live: OFF";
   startAutoRefresh();
 });
 

@@ -63,6 +63,11 @@ DEFAULTS: dict[str, Any] = {
         # Legacy API key (unused — kept for backward compat)
         "quantdata_api_key":        "",
 
+        # IBKR auto-sync — when enabled, the server triggers a sync every N minutes
+        # independently of browser activity. Default: off (manual-only).
+        "ibkr_auto_sync_enabled":   False,
+        "ibkr_auto_sync_interval_min": 15,
+
         # Dashboard Bearer token — display hint only; real value lives in FORTRESS_API_TOKEN env var
         "api_token_hint":           "(set via FORTRESS_API_TOKEN env var)",
 
