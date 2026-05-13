@@ -526,19 +526,21 @@ def aggregate_positions_by_ticker(positions_data: dict) -> list[dict]:
 
         delta_state = _normalize_delta_state(current_delta, strategy, "MIXED")
 
+        # Resolve display short leg once before building the record dict
+        _display_short = primary_short or primary_short_put
+
         rec = {
             "ticker": ticker,
             "strategy": strategy,
             "leg_count": len(legs),
             "net_market_value": round(net_mv, 2),
             "net_liq_pct": round(net_liq_pct, 2) if net_liq_pct is not None else None,
-            # Use the primary short leg (call preferred, then put) for display fields
-            "short_strike": _leg_strike(primary_short or primary_short_put),
-            "short_expiry": (primary_short or primary_short_put or {}).get("expiry"),
+            "short_strike": _leg_strike(_display_short) if _display_short else None,
+            "short_expiry": _display_short.get("expiry") if _display_short else None,
             "long_strike": _leg_strike(primary_long) if primary_long else None,
             "long_expiry": primary_long.get("expiry") if primary_long else None,
             "expiry": (
-                (primary_short or primary_short_put or {}).get("expiry")
+                (_display_short.get("expiry") if _display_short else None)
                 or (primary_long.get("expiry") if primary_long else None)
             ),
             "current_delta": current_delta,
