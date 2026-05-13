@@ -73,6 +73,7 @@ VPS: `srv1321374` (76.13.138.194), Ubuntu 26.04 LTS, account `ubuntu`.
 | **6 (new) — Manage/Trade Batch** | ✅ Live | Auto-run stop-loss/roll tables, pre-trade matrix, Positions colour coding. |
 | **| 7 (new) — Dashboard / Journal | ✅ Live | Live alerts banner from Position Monitor, Journal auto-populate from sync, time-of-day scripts. **Positions tab merged into Dashboard.** |
 | **8 (new) — Trade Reports Tab** | ✅ Live | New tab with new trade, roll, buy, sell evaluation reports. |
+| **9 (new) — Market Intelligence Skill** | ✅ Live | `/api/market-intelligence` endpoint aggregating live GEX, DP, and Net Drift for the MCP tool. |
 
 ---
 

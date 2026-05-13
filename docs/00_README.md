@@ -16,10 +16,11 @@ Read documents in the order below. Each builds on the previous.
 | 4 | `07_MCP_Workflow_and_Prompts_v1_1.md` | Claude Desktop MCP prompts and workflows. | When using the MCP server. |
 | 5 | `02_Trading_Dashboard_Build_Spec_v1_8.md` | Technical spec: API contract, schema, backend architecture. | When extending the dashboard. |
 | 6 | `04_VPS_Implementation_Guide_v1_5.md` | VPS setup, Docker, systemd, deployment. | When setting up a new environment. |
-| 7 | `operations/03_Quick_Start_and_Daily_Cheatsheet.md` | One-page quick reference. | Daily. |
-| 8 | `operations/04_Incident_Recovery_Playbook.md` | Recovery procedures for VPS down, gateway crash, data loss. | During incidents. |
-| 9 | `review/10_Strategy_Review_Template.md` | Quarterly strategy review template. | End of each quarter. |
-| 10 | `review/11_Todo_Backlog.md` | Prioritised backlog of pending work. | Before each build session. |
+| 7 | `08_Market_Intelligence_Skill_v1_0.md` | Agentic skill workflow combining GEX, Dark Pools, and portfolio constraints. | When using the Market Intelligence MCP tool. |
+| 8 | `operations/03_Quick_Start_and_Daily_Cheatsheet.md` | One-page quick reference. | Daily. |
+| 9 | `operations/04_Incident_Recovery_Playbook.md` | Recovery procedures for VPS down, gateway crash, data loss. | During incidents. |
+| 10 | `review/10_Strategy_Review_Template.md` | Quarterly strategy review template. | End of each quarter. |
+| 11 | `review/11_Todo_Backlog.md` | Prioritised backlog of pending work. | Before each build session. |
 
 ---
 
@@ -31,7 +32,7 @@ Files are in `/home/ubuntu/fortress_mcp/`:
 
 | File | Purpose |
 |---|---|
-| `fortress_mcp.py` | The MCP server — 28 tools (19 Tier 1 read-only, 9 Tier 2 write, env-gated) |
+| `fortress_mcp.py` | The MCP server — 29 tools (20 Tier 1 read-only including `get_market_intelligence`, 9 Tier 2 write) |
 | `README.md` | Installation instructions for Claude Desktop |
 | `claude_desktop_config_snippet.json` | Ready-to-paste config snippet with live token |
 
@@ -92,6 +93,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/ibkr/sy
 
 | Version | Date | Changes |
 |---|---|---|
+| 2.5 | 2026-05-13 | Added Market Intelligence Skill with `/api/market-intelligence` endpoint and `get_market_intelligence` MCP tool. Added `08_Market_Intelligence_Skill_v1_0.md`. |
 | 2.4 | 2026-05-13 | All UX/Automation improvements (A-M) deployed. Trade Reports tab added. Positions tab merged into Dashboard tab. Build Spec → v1.9.0. |
 | 2.3 | 2026-05-09 | Security section added to Settings tab. `use_ibkr_web_api` and `use_quantdata` toggles with amber banners and runtime guards across all dependent routes. Build Spec → v1.8.2, Workflow → v2.8.1, VPS Guide → v1.5.1. |
 | 2.2 | 2026-05-05 | MCP server built (28 tools). Bearer token live. Settings tab conflicts resolved. Deprecated docs deleted: MCP Proposal v1.1, IBKR Web API Migration Plan, all subfolder duplicates, archive folder. |

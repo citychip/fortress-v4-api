@@ -351,6 +351,7 @@ All return JSON. Errors use FastAPI defaults.
 | GET | `/api/run/scripts` | Whitelisted workflow scripts | 1 |
 | **GET** | **`/api/settings`** | **`{config: {...}}` (NEW v1.8)** | 4.5 |
 | **GET** | **`/api/settings/schema`** | **`{schema: {...}}` for the Settings UI (NEW v1.8)** | 4.5 |
+| **GET** | **`/api/market-intelligence`** | **Live GEX, DP, Net Drift + Portfolio Context (NEW v1.9)** | 9 |
 | GET | `/api/health` | Liveness + version | all |
 
 ### 4.2 Write endpoints
