@@ -34,6 +34,7 @@ from app.routes import (
     chart,
     journal,
     manage,
+    market_intelligence,
     playbook,
     positions,
     run,
@@ -112,6 +113,7 @@ app.include_router(playbook.router, prefix="/api")
 app.include_router(chart.router, prefix="/api")
 app.include_router(earnings_fetch.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
+app.include_router(market_intelligence.router, prefix="/api")
 
 
 
