@@ -174,14 +174,26 @@ async def preview_sync():
                 "net_liq": None,
             }
 
-        existing_positions = (state.get_active_positions() or {}).get("positions", [])
+        pos_data = state.get_active_positions() or {}
+        existing_positions = pos_data.get("positions", []) if isinstance(pos_data, dict) else []
 
         loop = asyncio.get_event_loop()
         synced = await loop.run_in_executor(
             None, ibkr_sync_web.sync_via_web_api, existing_positions, settings
         )
 
-        positions = synced.get("positions", [])
+        # synced is a dict with positions list and account fields
+        if isinstance(synced, dict):
+            positions = synced.get("positions", [])
+            net_liq = synced.get("net_liq")
+            excess_liq = synced.get("excess_liquidity")
+            avail_funds = synced.get("available_funds")
+            daily_pnl = synced.get("daily_pnl")
+            unrealized_pnl = synced.get("unrealized_pnl")
+        else:
+            positions = list(synced) if synced else []
+            net_liq = excess_liq = avail_funds = daily_pnl = unrealized_pnl = None
+
         # Summarise by strategy without saving
         from app.services.state import aggregate_positions_by_ticker
         aggregated = aggregate_positions_by_ticker(positions)
@@ -191,11 +203,11 @@ async def preview_sync():
             "dry_run": True,
             "positions_count": len(positions),
             "aggregated_count": len(aggregated),
-            "net_liq": synced.get("net_liq"),
-            "excess_liquidity": synced.get("excess_liquidity"),
-            "available_funds": synced.get("available_funds"),
-            "daily_pnl": synced.get("daily_pnl"),
-            "unrealized_pnl": synced.get("unrealized_pnl"),
+            "net_liq": net_liq,
+            "excess_liquidity": excess_liq,
+            "available_funds": avail_funds,
+            "daily_pnl": daily_pnl,
+            "unrealized_pnl": unrealized_pnl,
             "positions_preview": [
                 {
                     "ticker": p.get("ticker"),
