@@ -1,16 +1,12 @@
 """
 CP Gateway session management.
 
-Two endpoints matter for session lifecycle:
-  - POST /tickle             — keeps the session alive, returns session token
-  - GET  /iserver/auth/status — returns connected/authenticated/established/competing
+ibeam (voyz/ibeam) handles the initial IBKR browser login and runs its
+own internal tickle loop. We do NOT call /tickle ourselves — ibeam does it.
+POST /tickle on ibeam returns HTML (Bad Request), not JSON, so we use
+GET /iserver/auth/status for all session checks instead.
 
-When voyz/ibeam runs the gateway, IBeam handles the initial browser login
-and runs its own tickle loop internally. So our `tickle_once()` here is
-mostly used by the capability check to confirm the session is alive.
-
-`reauthenticate()` recovers from `authenticated=true, established=false`
-which can happen briefly mid-init or after a brokerage-session conflict.
+`reauthenticate()` recovers from authenticated=true, established=false.
 """
 
 from __future__ import annotations
@@ -21,11 +17,6 @@ from typing import Any, Optional
 from app.services.ibkr_web.client import WebApiClient, WebApiError, GatewayUnreachable
 
 logger = logging.getLogger("fortress.ibkr_web.session")
-
-
-def tickle_once(client: WebApiClient) -> dict:
-    """POST /tickle. Returns the response (includes session token + ssoExpires)."""
-    return client.post("/tickle")
 
 
 def auth_status(client: WebApiClient) -> dict:
@@ -75,14 +66,14 @@ def session_summary(client: WebApiClient) -> dict:
         "error": None,
     }
     try:
-        tk = tickle_once(client)
-        out["reachable"] = True
-        out["ssoExpires_ms"] = tk.get("ssoExpires")
         st = auth_status(client)
+        out["reachable"]      = True
         out["connected"]      = bool(st.get("connected"))
         out["authenticated"]  = bool(st.get("authenticated"))
         out["established"]    = bool(st.get("established"))
         out["competing"]      = bool(st.get("competing"))
+        if st.get("error"):
+            out["error"] = st["error"]
     except GatewayUnreachable as e:
         out["error"] = f"gateway_unreachable: {e}"
     except WebApiError as e:

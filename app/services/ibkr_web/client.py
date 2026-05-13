@@ -1,13 +1,9 @@
 """
-HTTP client wrapping the CP Gateway URL.
+HTTP client wrapping the CP Gateway (ibeam) URL.
 
-Per IBKR docs: "Authenticating with OAuth 1.0a and OAuth 2.0 requires
-client-side cookie management. A cookie with the Interactive Brokers
-Web API requires users make a request to the /tickle endpoint and
-capture the session token."
-
-We POST /tickle on first use, capture the `session` token, and include
-it as `Cookie: api={token}` on all subsequent requests.
+ibeam handles IBKR authentication internally — it maintains the session
+and proxies all requests without requiring a client-side session cookie.
+We simply send requests directly; no /tickle or cookie management needed.
 
 Pacing: IBKR enforces 10 req/sec global per username. We add a small
 local rate limiter (RPSLimiter) that sleeps between calls.
@@ -60,7 +56,6 @@ class WebApiClient:
         self.timeout = request_timeout_s
         self.limiter = RPSLimiter(max_per_second)
         self._client = None
-        self._session_token: Optional[str] = None
 
     def _ensure_client(self):
         if self._client is None:
@@ -84,44 +79,16 @@ class WebApiClient:
                 pass
             self._client = None
 
-    def _ensure_session_token(self):
-        """Tickle once to capture the session token. Idempotent."""
-        if self._session_token is not None:
-            return
-        import httpx
-        c = self._ensure_client()
-        try:
-            resp = c.request("POST", "/tickle")
-        except httpx.RequestError as e:
-            raise GatewayUnreachable("tickle failed: " + str(e))
-        if resp.status_code != 200:
-            raise WebApiError("tickle returned " + str(resp.status_code) + ": " + resp.text[:200])
-        try:
-            body = resp.json()
-        except Exception:
-            raise WebApiError("tickle response not JSON: " + resp.text[:200])
-        token = body.get("session")
-        if not token:
-            raise WebApiError("tickle response missing 'session' field: " + str(body)[:200])
-        self._session_token = token
-        logger.debug("Captured session token (%d chars)", len(token))
-
     def reset_session(self):
-        self._session_token = None
+        """No-op — ibeam manages the session internally."""
+        pass
 
     def _request(self, method: str, path: str, **kwargs) -> Any:
         import httpx
         self.limiter.wait()
         c = self._ensure_client()
 
-        if path != "/tickle":
-            self._ensure_session_token()
-
         headers = dict(kwargs.pop("headers", {}) or {})
-        if self._session_token:
-            existing = headers.get("Cookie", "")
-            cookie_val = "api=" + self._session_token
-            headers["Cookie"] = (existing + "; " + cookie_val) if existing else cookie_val
 
         try:
             resp = c.request(method, path, headers=headers, **kwargs)
@@ -133,8 +100,7 @@ class WebApiClient:
         if resp.status_code == 429:
             raise WebApiError("rate_limited (429) - penalty box risk; back off")
         if resp.status_code in (401, 403):
-            self._session_token = None
-            raise WebApiError("auth_failed (" + str(resp.status_code) + ") - session may have expired")
+            raise WebApiError("auth_failed (" + str(resp.status_code) + ") - ibeam session may need restart")
         if resp.status_code >= 500:
             raise GatewayUnreachable("CP Gateway 5xx: " + str(resp.status_code) + " " + resp.text[:200])
         if resp.status_code >= 400:
