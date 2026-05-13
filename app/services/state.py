@@ -455,6 +455,13 @@ def aggregate_positions_by_ticker(positions_data: dict) -> list[dict]:
         )
         primary_short = short_calls[0] if short_calls else None
 
+        # Primary short put: right=P, qty<0, nearest expiry (used for PCS delta monitoring)
+        short_puts = sorted(
+            [l for l in legs if l.get("right") == "P" and (l.get("qty") or 0) < 0 and l.get("expiry")],
+            key=lambda l: l["expiry"],
+        )
+        primary_short_put = short_puts[0] if short_puts else None
+
         # Primary long call: right=C, qty>0, longest expiry
         long_calls = sorted(
             [l for l in legs if l.get("right") == "C" and (l.get("qty") or 0) > 0 and l.get("expiry")],
@@ -463,16 +470,21 @@ def aggregate_positions_by_ticker(positions_data: dict) -> list[dict]:
         )
         primary_long = long_calls[0] if long_calls else None
 
-        # Delta source: use the SHORT call's delta only — that is what is monitored
-        # for gamma drift.  Do NOT fall back to the long LEAP call delta: a LEAP
-        # with delta ~0.80 is by design and must never trigger a critical_gamma alert.
+        # Delta source priority:
+        #  1. Short call delta (PMCC, CC, JADE_LIZARD — gamma drift monitoring)
+        #  2. Short put delta (PCS — delta breach monitoring on the short put)
+        #  3. Long call delta ONLY for display when there is no short leg at all (LEAPS)
+        #     — in that case gamma alert is suppressed below.
+        # NEVER use a long call's delta to trigger a stop-loss or roll alert.
         current_delta = (primary_short or {}).get("current_delta")
-        # Only fall back to the long call delta when there is genuinely no short leg
-        # (e.g. a standalone LEAP held without a short call overlay yet).
-        # In that case we still must not fire a gamma alert — the long LEAP is intentional.
-        _has_short_leg = primary_short is not None
+        _has_short_call_leg = primary_short is not None
+        if current_delta is None and primary_short_put is not None:
+            # PCS or PCS+LEAP combo: use the short put's delta for monitoring
+            current_delta = primary_short_put.get("current_delta")
+        _has_short_leg = _has_short_call_leg or (primary_short_put is not None)
         if current_delta is None and primary_long and not _has_short_leg:
-            # Store for display purposes only; gamma alert will be suppressed below.
+            # Standalone LEAP with no short overlay — store for display only;
+            # gamma alert will be suppressed below.
             current_delta = primary_long.get("current_delta")
 
         # Notes: take first non-empty
@@ -483,8 +495,9 @@ def aggregate_positions_by_ticker(positions_data: dict) -> list[dict]:
                 notes = n
                 break
 
-        # alert_state: take from the short call if available, else first leg
-        raw_alert = (primary_short or legs[0]).get("alert_state")
+        # alert_state: take from the primary short leg (call or put) if available, else first leg
+        _primary_short_any = primary_short or primary_short_put
+        raw_alert = (_primary_short_any or legs[0]).get("alert_state")
         alert_state = _normalize_alert_state(raw_alert, current_delta)
         # Promote critical_gamma from delta ONLY when there is an active short call leg.
         # A LEAP long call (qty > 0, right == 'C') with delta ~0.80 is by design —
@@ -519,16 +532,20 @@ def aggregate_positions_by_ticker(positions_data: dict) -> list[dict]:
             "leg_count": len(legs),
             "net_market_value": round(net_mv, 2),
             "net_liq_pct": round(net_liq_pct, 2) if net_liq_pct is not None else None,
-            "short_strike": _leg_strike(primary_short) if primary_short else None,
-            "short_expiry": primary_short.get("expiry") if primary_short else None,
+            # Use the primary short leg (call preferred, then put) for display fields
+            "short_strike": _leg_strike(primary_short or primary_short_put),
+            "short_expiry": (primary_short or primary_short_put or {}).get("expiry"),
             "long_strike": _leg_strike(primary_long) if primary_long else None,
             "long_expiry": primary_long.get("expiry") if primary_long else None,
-            "expiry": (primary_short.get("expiry") if primary_short else (primary_long.get("expiry") if primary_long else None)),
+            "expiry": (
+                (primary_short or primary_short_put or {}).get("expiry")
+                or (primary_long.get("expiry") if primary_long else None)
+            ),
             "current_delta": current_delta,
             "delta_state": delta_state,
             "alert_state": alert_state,
             "notes": notes,
-            "qty": abs(int(primary_short.get("qty") or 1)) if primary_short else 1,
+            "qty": abs(int((_primary_short_any or {}).get("qty") or 1)),
             "legs": [
                 {
                     "strike": _leg_strike(l),
