@@ -35,8 +35,13 @@ def compute_delta_state(pos: dict) -> str:
     if delta is None:
         return "normal"
 
-    # Skip hedges and pure long-call positions
+    # Skip hedges and pure long-call positions (LEAP long legs are by design high-delta)
     if strategy == "SPY_HEDGE" or leg_type == "LONG_CALL":
+        return "normal"
+
+    # Skip PMCC/DIAGONAL/LEAPS positions that are long-only (no short call overlay yet).
+    # These have high delta by design and must never fire a gamma alert.
+    if strategy in ("PMCC", "DIAGONAL", "LEAPS") and leg_type in ("LONG_CALL", "", None):
         return "normal"
 
     # Skip pure put credit spreads — their negative delta is by design

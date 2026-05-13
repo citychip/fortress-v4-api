@@ -459,9 +459,16 @@ def aggregate_positions_by_ticker(positions_data: dict) -> list[dict]:
         )
         primary_long = long_calls[0] if long_calls else None
 
-        # Delta source: prefer the short call's delta (what's monitored for drift)
+        # Delta source: use the SHORT call's delta only — that is what is monitored
+        # for gamma drift.  Do NOT fall back to the long LEAP call delta: a LEAP
+        # with delta ~0.80 is by design and must never trigger a critical_gamma alert.
         current_delta = (primary_short or {}).get("current_delta")
-        if current_delta is None and primary_long:
+        # Only fall back to the long call delta when there is genuinely no short leg
+        # (e.g. a standalone LEAP held without a short call overlay yet).
+        # In that case we still must not fire a gamma alert — the long LEAP is intentional.
+        _has_short_leg = primary_short is not None
+        if current_delta is None and primary_long and not _has_short_leg:
+            # Store for display purposes only; gamma alert will be suppressed below.
             current_delta = primary_long.get("current_delta")
 
         # Notes: take first non-empty
@@ -475,13 +482,23 @@ def aggregate_positions_by_ticker(positions_data: dict) -> list[dict]:
         # alert_state: take from the short call if available, else first leg
         raw_alert = (primary_short or legs[0]).get("alert_state")
         alert_state = _normalize_alert_state(raw_alert, current_delta)
-        # Promote critical_gamma from delta if applicable
+        # Promote critical_gamma from delta ONLY when there is an active short leg.
+        # A LEAP long call with delta ~0.80 is by design — never flag it as gamma risk.
+        _strat_upper = (strategy or "").upper()
+        _long_only_strategies = {"SPY_HEDGE", "STOCK"}
+        _gamma_check_eligible = (
+            _has_short_leg  # must have a short call in this position
+            and _strat_upper not in _long_only_strategies
+        )
         try:
             from app.services.config_store import cfg as _cfg2
             _crit = float(_cfg2("strategy.delta_critical_threshold") or 0.35)
         except Exception:
             _crit = 0.35
-        if current_delta is not None and abs(current_delta) > _crit and alert_state in ("safe", "watch", "unknown"):
+        if (_gamma_check_eligible
+                and current_delta is not None
+                and abs(current_delta) > _crit
+                and alert_state in ("safe", "watch", "unknown")):
             alert_state = "critical_gamma"
 
         delta_state = _normalize_delta_state(current_delta, strategy, "MIXED")

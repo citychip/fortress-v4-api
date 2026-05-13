@@ -921,6 +921,13 @@ def monitor_alerts():
         if not ticker or ticker in alerted_tickers:
             continue
 
+        # Skip LEAP/PMCC long-only positions — no short leg means no gamma risk to monitor.
+        # Stop-loss and roll checks only apply when there is an active short leg.
+        _strat = (pos.get("strategy") or "").upper()
+        _has_short = pos.get("short_strike") is not None
+        if _strat in ("PMCC", "DIAGONAL", "LEAPS") and not _has_short:
+            continue
+
         # Stop-loss check
         try:
             latest_price = chain_svc.get_spot(ticker)

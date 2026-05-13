@@ -170,13 +170,22 @@ def compute_actions(positions: dict, alerts: dict, candidates: dict, calendar: d
                 "cta": "Investigate"
             })
         elif state_ == "critical_gamma":
-            actions.append({
-                "priority": "HIGH",
-                "title": f"{ticker} Critical Gamma Risk",
-                "description": f"Delta > 0.40 (currently {pos.get('current_delta', '?')}). Roll within trading week per §5.",
-                "ticker": ticker,
-                "cta": "Roll"
-            })
+            # Only fire if there is an active short leg — LEAP long calls are high-delta by design.
+            _strat_b = (pos.get("strategy") or "").upper()
+            _has_short_b = pos.get("short_strike") is not None
+            if _strat_b in ("PMCC", "DIAGONAL", "LEAPS") and not _has_short_b:
+                pass  # Long LEAP, no short overlay yet — not a risk
+            else:
+                actions.append({
+                    "priority": "HIGH",
+                    "title": f"{ticker} Short-leg Gamma Risk",
+                    "description": (
+                        f"Short call delta > 0.40 (currently {pos.get('current_delta', '?')}). "
+                        f"Roll short leg within trading week per §5."
+                    ),
+                    "ticker": ticker,
+                    "cta": "Roll"
+                })
 
     # Held tickers entering earnings window
     held_tickers = {p.get("ticker") for p in positions.get("positions", []) if p.get("ticker")}
