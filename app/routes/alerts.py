@@ -106,6 +106,8 @@ def update_alert(alert_id: str, body: AlertUpdate):
         alert["message"] = body.message
     if body.snoozed is not None:
         alert["snoozed"] = body.snoozed
+        if body.snoozed:
+            alert["snoozed_at"] = datetime.now(timezone.utc).isoformat()
 
     alert["updated_at"] = datetime.now(timezone.utc).isoformat()
     alerts[idx] = alert

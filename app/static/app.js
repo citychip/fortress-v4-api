@@ -1260,13 +1260,49 @@ async function triggerIbkrSync() {
       refreshAll();
     } else {
       const detail = data.detail || data;
-      const hint = typeof detail === 'object' ? (detail.hint || detail.message || JSON.stringify(detail)) : detail;
-      if (result) result.innerHTML = `<div style="color:#ef4444;">✗ Sync failed: ${hint}</div>`;
+      if (res.status === 401 && typeof detail === 'object' && detail.error === 'session_expired') {
+        // IBKR Web API session has expired — show re-auth prompt with fallback option
+        const reauth = detail.reauth_url || 'https://localhost:5000';
+        if (result) result.innerHTML = `
+          <div style="color:#ef4444;font-weight:600;margin-bottom:8px;">✗ Session expired (401)</div>
+          <div style="font-size:12px;margin-bottom:10px;color:var(--color-text-secondary);">Your IBKR Web API session has expired. IBKR sessions expire every 24 hours and require manual re-authentication.</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <a href="${reauth}" target="_blank" style="display:inline-block;padding:6px 14px;border-radius:6px;background:var(--color-accent);color:#fff;font-size:12px;font-weight:600;text-decoration:none;">Re-authenticate in CP Gateway ↗</a>
+            <button onclick="triggerIbkrSync_fallback()" style="padding:6px 14px;border-radius:6px;border:1px solid var(--color-border-secondary);background:var(--color-bg-secondary);color:var(--color-text-primary);font-size:12px;cursor:pointer;">Use yfinance fallback instead</button>
+          </div>`;
+      } else {
+        const hint = typeof detail === 'object' ? (detail.hint || detail.message || JSON.stringify(detail)) : detail;
+        if (result) result.innerHTML = `<div style="color:#ef4444;">✗ Sync failed: ${hint}</div>`;
+      }
     }
   } catch (e) {
     if (result) result.innerHTML = `<div style="color:#ef4444;">✗ Error: ${e.message}</div>`;
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = '↺ Sync from IBKR'; }
+  }
+}
+
+async function triggerIbkrSync_fallback() {
+  // One-shot fallback to bs_yfinance when the Web API session has expired
+  const result = document.getElementById('ibkr-sync-result');
+  if (result) result.innerHTML = '<span class="muted">Syncing via yfinance fallback…</span>';
+  try {
+    const res = await authFetch('/api/ibkr/sync?backend=bs_yfinance', { method: 'POST' });
+    const data = await res.json();
+    if (res.ok) {
+      const fmtUsd = (v) => v != null ? `$${Math.round(v).toLocaleString('en-US')}` : '—';
+      if (result) result.innerHTML = `
+        <div style="color:#f59e0b;font-weight:600;margin-bottom:6px;">✓ Fallback sync complete (yfinance — no live Greeks)</div>
+        <div style="font-size:12px;">Positions: <strong>${data.positions_count}</strong> &nbsp; NetLiq: <strong>${fmtUsd(data.net_liq)}</strong></div>
+        <div style="font-size:11px;color:var(--color-text-secondary);margin-top:6px;">Re-authenticate CP Gateway to restore live OPRA Greeks.</div>`;
+      refreshAll();
+    } else {
+      const detail = data.detail || data;
+      const hint = typeof detail === 'object' ? (detail.message || JSON.stringify(detail)) : detail;
+      if (result) result.innerHTML = `<div style="color:#ef4444;">✗ Fallback sync failed: ${hint}</div>`;
+    }
+  } catch (e) {
+    if (result) result.innerHTML = `<div style="color:#ef4444;">✗ Error: ${e.message}</div>`;
   }
 }
 

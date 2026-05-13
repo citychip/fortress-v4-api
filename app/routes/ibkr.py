@@ -112,8 +112,21 @@ async def trigger_sync(backend: str | None = None):
             },
         )
     except Exception as e:
+        err_str = str(e)
         logger.error("IBKR sync failed: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        # Detect IBKR Web API session expiry and return a structured 401 with re-auth hint
+        if "auth_failed" in err_str or "401" in err_str or "403" in err_str:
+            raise HTTPException(
+                status_code=401,
+                detail={
+                    "error": "session_expired",
+                    "message": err_str,
+                    "hint": "Your IBKR Web API session has expired. Open the CP Gateway URL in your browser to re-authenticate, then sync again. Alternatively, switch to the yfinance fallback in Settings → Security.",
+                    "reauth_url": config_store.cfg("security.cp_gateway_url", "https://localhost:5000"),
+                    "fallback_available": True,
+                },
+            )
+        raise HTTPException(status_code=500, detail=err_str)
 
 
 

@@ -916,12 +916,32 @@ def monitor_alerts():
         existing_alerts = []
 
     # Build set of tickers that already have an active (non-snoozed) alert
-    alerted_tickers = {
-        a.get("ticker", "").upper()
-        for a in existing_alerts
-        if not a.get("snoozed", False)
-        and a.get("source") == "position_monitor"
-    }
+    # OR were dismissed within the last 4 hours (cooldown to prevent re-fire spam).
+    _now = datetime.now(timezone.utc)
+    _cooldown_hours = 4
+    alerted_tickers = set()
+    for a in existing_alerts:
+        if a.get("source") != "position_monitor":
+            continue
+        ticker_key = (a.get("ticker") or "").upper()
+        if not ticker_key:
+            continue
+        # Always suppress if currently active
+        if not a.get("snoozed", False):
+            alerted_tickers.add(ticker_key)
+            continue
+        # Suppress recently-dismissed alerts within cooldown window
+        dismissed_at_str = a.get("snoozed_at") or a.get("created_at") or ""
+        if dismissed_at_str:
+            try:
+                dismissed_at = datetime.fromisoformat(dismissed_at_str.replace("Z", "+00:00"))
+                if dismissed_at.tzinfo is None:
+                    dismissed_at = dismissed_at.replace(tzinfo=timezone.utc)
+                hours_ago = (_now - dismissed_at).total_seconds() / 3600
+                if hours_ago < _cooldown_hours:
+                    alerted_tickers.add(ticker_key)
+            except Exception:
+                pass
 
     new_alerts = []
 
