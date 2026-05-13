@@ -151,3 +151,76 @@ async def get_capability_endpoint(refresh: bool = False):
         "active_backend": active,
         "fallback_backend": "bs_yfinance",
     }
+
+
+@router.get("/ibkr/preview")
+async def preview_sync():
+    """Dry-run sync — fetch live positions and account data from IBKR without
+    writing anything to disk. Returns a summary of what a real sync would produce.
+    """
+    from app.services.ibkr_web import capability as cap_mod
+    from app.services import ibkr_sync_web
+
+    try:
+        settings = state.get_dashboard_settings()
+        cap = cap_mod.get_capability()
+        active = state.resolve_greeks_backend(settings, cap)
+
+        if active != "web_api":
+            return {
+                "backend": active,
+                "note": "Web API not active — preview uses yfinance data only.",
+                "positions_count": len((state.get_active_positions() or {}).get("positions", [])),
+                "net_liq": None,
+            }
+
+        existing_positions = (state.get_active_positions() or {}).get("positions", [])
+
+        loop = asyncio.get_event_loop()
+        synced = await loop.run_in_executor(
+            None, ibkr_sync_web.sync_via_web_api, existing_positions, settings
+        )
+
+        positions = synced.get("positions", [])
+        # Summarise by strategy without saving
+        from app.services.state import aggregate_positions_by_ticker
+        aggregated = aggregate_positions_by_ticker(positions)
+
+        return {
+            "backend": "web_api",
+            "dry_run": True,
+            "positions_count": len(positions),
+            "aggregated_count": len(aggregated),
+            "net_liq": synced.get("net_liq"),
+            "excess_liquidity": synced.get("excess_liquidity"),
+            "available_funds": synced.get("available_funds"),
+            "daily_pnl": synced.get("daily_pnl"),
+            "unrealized_pnl": synced.get("unrealized_pnl"),
+            "positions_preview": [
+                {
+                    "ticker": p.get("ticker"),
+                    "strategy": p.get("strategy"),
+                    "qty": p.get("qty"),
+                    "expiry": p.get("expiry"),
+                    "strike": p.get("strike") or p.get("short_strike"),
+                    "right": p.get("right"),
+                    "current_delta": p.get("current_delta"),
+                    "market_value": p.get("market_value"),
+                }
+                for p in positions[:30]  # cap at 30 rows for display
+            ],
+        }
+
+    except Exception as e:
+        err_str = str(e)
+        logger.error("IBKR preview failed: %s", e, exc_info=True)
+        if "auth_failed" in err_str or "401" in err_str:
+            raise HTTPException(
+                status_code=401,
+                detail={
+                    "error": "session_expired",
+                    "message": err_str,
+                    "hint": "IBKR session expired. Re-authenticate in CP Gateway.",
+                },
+            )
+        raise HTTPException(status_code=500, detail=err_str)
