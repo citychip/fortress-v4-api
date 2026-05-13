@@ -317,7 +317,6 @@
   <!-- Tab bar -->
   <div class="tabs">
     <button class="tab tab-active" data-tab="briefing">Dashboard</button>
-    <button class="tab" data-tab="positions">Positions</button>
     <button class="tab" data-tab="manage">Manage</button>
     <button class="tab" data-tab="trade">Trade</button>
     <button class="tab" data-tab="reports">&#128196; Reports</button>
@@ -334,26 +333,7 @@
     <div id="briefing-content"><div class="loading">Loading dashboard…</div></div>
   </div>
 
-  <!-- ================================================================
-       POSITIONS TAB
-       ================================================================ -->
-  <div class="tab-content" data-content="positions">
-    <div class="card">
-      <div class="card-header">
-        <div>
-          <h2>Active book</h2>
-          <p class="muted small" id="positions-meta">—</p>
-        </div>
-        <div class="header-buttons">
-          <button class="action-cta" onclick="navigateToTab('data')">Sync from IBKR ↗</button>
-        </div>
-      </div>
-      <div id="positions-content"><div class="loading">Loading positions…</div></div>
-    </div>
-
-    <!-- Active book summary row — rendered by JS when positions load -->
-    <div id="positions-summary-row"></div>
-  </div>
+  <!-- Positions tab removed — active book is now embedded in the Dashboard tab (renderBriefing) -->
 
   <!-- ================================================================
        MANAGE TAB  (Phase 4: stop-loss + roll + scripts)

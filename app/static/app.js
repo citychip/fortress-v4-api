@@ -242,6 +242,7 @@ function renderBriefing(data) {
     else if (data.macro_regime?.vix_state === "stress") briefingTab.classList.add("vix-stress");
   }
 
+  // ── 1. Account stats (Net Liq / Excess / Available / Cash) ──────────────
   if (data.has_account_data) {
     container.appendChild(renderAccountStats(data.account));
   } else {
@@ -253,10 +254,31 @@ function renderBriefing(data) {
     ));
   }
 
-  container.appendChild(renderActionsCard(data.actions || []));
+  // ── 2. Active book (merged from Positions tab) ────────────────────────────
+  const bookCard = el("div", { class: "card" },
+    el("div", { class: "card-header" },
+      el("div", {},
+        el("h2", {}, "Active book"),
+        el("p", { class: "muted small", id: "positions-meta" }, "—")
+      ),
+      el("div", { class: "header-buttons" },
+        el("button", { class: "action-cta", onclick: "navigateToTab('data')" }, "Sync from IBKR ↗")
+      )
+    ),
+    el("div", { id: "positions-content" }, el("div", { class: "loading" }, "Loading positions…"))
+  );
+  container.appendChild(bookCard);
+  // summary row rendered by JS after positions load
+  const summaryRow = el("div", { id: "positions-summary-row" });
+  container.appendChild(summaryRow);
+
+  // ── 3. Macro regime / Pacing / Concentration ──────────────────────────────
   container.appendChild(renderRegimeRow(data));
 
-  // PCS exposure card — only shown when there are active PCS positions
+  // ── 4. Today's actions ────────────────────────────────────────────────────
+  container.appendChild(renderActionsCard(data.actions || []));
+
+  // ── 5. PCS exposure card (conditional) ───────────────────────────────────
   const greeks = data.greeks || {};
   if (greeks.pcs_count > 0) {
     const pcsNotional = greeks.pcs_put_notional_usd != null
@@ -279,6 +301,7 @@ function renderBriefing(data) {
     container.appendChild(pcsCard);
   }
 
+  // ── 6. Candidate scanner ──────────────────────────────────────────────────
   const scannerCard = el("div", { class: "card", id: "scanner-card" },
     el("h2", {}, "Candidate scanner"),
     el("p", { class: "muted small" }, "Sorted by IV/HV spread. Earnings within 10 days are blocked per §4."),
@@ -286,7 +309,7 @@ function renderBriefing(data) {
   );
   container.appendChild(scannerCard);
 
-  // Alerts section moved to Strategy tab (see settings.js initStrategy)
+  // Alerts section lives on Strategy tab (see settings.js initStrategy)
 }
 
 function renderAccountStats(account) {
