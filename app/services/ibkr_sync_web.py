@@ -44,6 +44,14 @@ def _do_sync(client, account_id, existing_positions):
     resolved_account = account_id or (accounts[0].get("accountId") if accounts else None)
     if not resolved_account:
         raise WebApiError("No account available from /portfolio/accounts")
+    # If account_id was a placeholder or empty, persist the discovered ID so future syncs work
+    if not account_id or account_id in ("YOUR_IBKR_ACCOUNT_ID", ""):
+        try:
+            from app.services import state as _state
+            _state.save_dashboard_settings({"ibkr_account_id": resolved_account})
+            logger.info("Auto-saved discovered IBKR account ID: %s", resolved_account)
+        except Exception as _e:
+            logger.warning("Could not auto-save account ID: %s", _e)
 
     summary = web_portfolio.account_summary(client, resolved_account)
 
