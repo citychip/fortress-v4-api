@@ -1,6 +1,6 @@
 # Fortress Dashboard — Quick-Start & Daily Cheatsheet
 
-**Version 1.1 — May 5, 2026**
+**Version 1.2 — May 13, 2026**
 
 One-page operational reference for live sessions. This is the document to open first each morning. For full detail on any item, see the linked documents.
 
@@ -158,8 +158,7 @@ Pull the last 30 days of journal. What patterns do you see?
 
 | Tab | Primary use |
 |---|---|
-| **Briefing** | Morning account check, HIGH actions, Greeks bias, VIX state |
-| **Positions** | Raw per-leg IBKR data |
+| **Dashboard** | Unified view: Account limits, Active Book (positions + Greeks + stop-loss), macro regime, and candidate scanner |
 | **Manage** | Aggregated positions, stop-loss evaluator, roll evaluator, price chart with DP/GEX overlays |
 | **New Trade** | Pre-trade gate checker, Jade Lizard validator |
 | **Playbook** | Post-earnings matrix entry |

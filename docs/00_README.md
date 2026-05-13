@@ -1,6 +1,6 @@
 # Fortress Dashboard — Documentation
 
-**Version:** 2.3 | **Updated:** May 9, 2026 | **Strategy:** Portfolio Strategy v3.6
+**Version:** 2.4 | **Updated:** May 13, 2026 | **Strategy:** Portfolio Strategy v3.6
 
 ---
 
@@ -92,6 +92,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/ibkr/sy
 
 | Version | Date | Changes |
 |---|---|---|
+| 2.4 | 2026-05-13 | All UX/Automation improvements (A-M) deployed. Trade Reports tab added. Positions tab merged into Dashboard tab. Build Spec → v1.9.0. |
 | 2.3 | 2026-05-09 | Security section added to Settings tab. `use_ibkr_web_api` and `use_quantdata` toggles with amber banners and runtime guards across all dependent routes. Build Spec → v1.8.2, Workflow → v2.8.1, VPS Guide → v1.5.1. |
 | 2.2 | 2026-05-05 | MCP server built (28 tools). Bearer token live. Settings tab conflicts resolved. Deprecated docs deleted: MCP Proposal v1.1, IBKR Web API Migration Plan, all subfolder duplicates, archive folder. |
 | 2.1 | 2026-05-05 | Web API backend live. CP Gateway (voyz/ibeam) active. All four Greeks live on 25/26 positions. |

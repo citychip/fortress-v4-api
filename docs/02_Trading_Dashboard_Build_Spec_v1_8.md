@@ -1,6 +1,6 @@
 # Trading Dashboard — Build Specification
 
-**Version 1.9.0 — May 13, 2026**
+**Version 1.9.1 — May 13, 2026**
 
 End-to-end specification for the Fortress Dashboard. Covers architecture, data contracts, all UI features, the strategy logic engines, the upload pipeline, the IBKR Web API + CP Gateway integration, the chart widget, the schema-driven settings system, and the per-leg → aggregated position view.
 
@@ -47,7 +47,7 @@ QuantData pipeline produces 4–5 markdown reports per day plus state JSON. Cros
 | 4 | Live | Strategy logic engines — stop-loss, roll, post-earnings playbook, Jade Lizard validator, SPY hedge coverage, pre-trade gate, Portfolio Greeks |
 | **4.5 (new in v1.8)** | Live | Schema-driven Settings tab + `config_store`. Backend dispatcher selects greeks_backend per `cfg("technical.greeks_backend")`. |
 | **4.6 (new in v1.8.2)** | Live | Security section in `fortress_config.json`: `use_ibkr_web_api` and `use_quantdata` toggles with runtime guards across all dependent routes. |
-| **5/6/7 (new in v1.9)** | Live | UX & Automation improvements: Live alerts banner, Journal auto-populate, IBKR auto-sync, batch stop-loss/roll tables, pre-trade matrix, time-of-day scripts. |
+| **5/6/7 (new in v1.9)** | Live | UX & Automation improvements: Live alerts banner, Journal auto-populate, IBKR auto-sync, batch stop-loss/roll tables, pre-trade matrix, time-of-day scripts. Positions tab merged into Dashboard tab. |
 | **8 (new in v1.9)** | Live | Trade Reports Tab — comprehensive evaluation reports for new trades, rolls, buys, and sells. |
 
 ---

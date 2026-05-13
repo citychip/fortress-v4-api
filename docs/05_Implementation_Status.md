@@ -1,6 +1,6 @@
 # Fortress Dashboard — Implementation Status
 
-**As of 2026-05-13 — All UX/Automation improvements (A-M) and Trade Reports Tab deployed**
+**As of 2026-05-13 — All UX/Automation improvements (A-M), Trade Reports Tab, and Dashboard/Positions Tab Merge deployed**
 
 This document is the single source of truth for what's actually deployed on the VPS. It supersedes whatever the spec docs say when reality diverges. Replaces the 2026-05-09 version.
 
@@ -71,7 +71,7 @@ VPS: `srv1321374` (76.13.138.194), Ubuntu 26.04 LTS, account `ubuntu`.
 | **4.6 (new) — Security toggles + runtime guards** | ✅ Live | `security.use_ibkr_web_api` and `security.use_quantdata` in Settings → Security. Amber banners in UI. Runtime guards in `/api/ibkr/sync`, `/api/run/{script}`, `/api/chart/{ticker}`, `/api/manage/stop_loss/{id}`. |
 | **5 (new) — Header UI / Sync** | ✅ Live | Sync dot/text, auto-refresh rename to Live, IBKR auto-sync background task, QuantData test. |
 | **6 (new) — Manage/Trade Batch** | ✅ Live | Auto-run stop-loss/roll tables, pre-trade matrix, Positions colour coding. |
-| **7 (new) — Dashboard / Journal** | ✅ Live | Live alerts banner from Position Monitor, Journal auto-populate from sync, time-of-day scripts. |
+| **| 7 (new) — Dashboard / Journal | ✅ Live | Live alerts banner from Position Monitor, Journal auto-populate from sync, time-of-day scripts. **Positions tab merged into Dashboard.** |
 | **8 (new) — Trade Reports Tab** | ✅ Live | New tab with new trade, roll, buy, sell evaluation reports. |
 
 ---
@@ -132,6 +132,19 @@ Enabled in IBKR Account Management → Settings → API → Settings on May 5, 2
 The default `clientportal.gw/root/conf.yaml` only allowed `172.17.0.*` (Docker default bridge). Our compose creates a `172.18.*` network. Patched the `ips.allow` list to `[10.*, 172.*, 192.*, 127.0.0.1]` and mounted as `/srv/clientportal.gw/root/conf.yaml:ro`. Without this patch, all `/v1/api/*` calls from outside the container return "Access Denied".
 
 ---
+
+### UX Phase 2 — Dashboard and Positions tab merge (May 13, 2026)
+
+The standalone "Positions" tab was removed. Its content (the active book table) was moved into the **Dashboard** tab directly below the Account Stats row.
+The Dashboard tab now presents a unified view:
+1. Account stats (Net Liq, Excess, Available, Cash)
+2. Active book (full positions table)
+3. Macro regime / Pacing / Concentration cards
+4. Today's Actions
+5. PCS Exposure (if active)
+6. Candidate Scanner
+
+All DOM IDs (`#positions-content`, etc.) were preserved so existing Reports and Manage tab logic continues to work seamlessly. The navigation bar now has 8 tabs instead of 9.
 
 ### UX Phase 1 — sticky header + row actions + Uploads card cleanup (May 5, 2026 evening)
 
