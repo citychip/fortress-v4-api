@@ -1314,24 +1314,49 @@ async function previewIbkrSync() {
   try {
     const res = await authFetch('/api/ibkr/preview');
     const data = await res.json();
-    if (res.ok && data.data) {
-      const d = data.data;
-      const positions = d.positions || [];
-      const rows = positions.map(p =>
-        `<tr><td>${p.ticker}</td><td>${p.strategy}</td><td>${p.expiry || '—'}</td><td>${p.qty !== undefined ? p.qty : '—'}</td><td>${p.current_delta !== undefined ? p.current_delta : '—'}</td><td>${p.net_liq_pct !== undefined ? p.net_liq_pct + '%' : '—'}</td></tr>`
-      ).join('');
+    if (!res.ok) {
+      const detail = data.detail || data;
+      const hint = typeof detail === 'object' ? (detail.message || JSON.stringify(detail)) : String(detail);
+      if (result) result.innerHTML = `<div style="color:#ef4444;">✗ Preview failed: ${hint}</div>`;
+    } else {
+      // Response is flat: { backend, dry_run, positions_count, net_liq, positions_preview, ... }
+      const d = data.data || data;  // handle both wrapped and flat shapes
       const fmtUsd = (v) => v != null ? `$${Math.round(v).toLocaleString('en-US')}` : '—';
+      const fmtDelta = (v) => v != null ? (v >= 0 ? '+' : '') + v.toFixed(3) : '—';
+      const positions = d.positions_preview || d.positions || [];
+      const rows = positions.map(p => {
+        const delta = p.current_delta;
+        const dColor = delta == null ? '' : (delta < -0.40 || delta > 0.40) ? 'color:#f59e0b' : 'color:#22c55e';
+        return `<tr>
+          <td style="padding:3px 6px;font-weight:600">${p.ticker || '—'}</td>
+          <td style="padding:3px 6px;color:var(--text-muted)">${p.strategy || '—'}</td>
+          <td style="padding:3px 6px">${p.right || '—'} ${p.strike != null ? p.strike : ''}</td>
+          <td style="padding:3px 6px">${p.expiry || '—'}</td>
+          <td style="padding:3px 6px">${p.qty != null ? p.qty : '—'}</td>
+          <td style="padding:3px 6px;${dColor}">${fmtDelta(delta)}</td>
+          <td style="padding:3px 6px;color:var(--text-muted)">${p.market_value != null ? '$' + Math.round(p.market_value).toLocaleString() : '—'}</td>
+        </tr>`;
+      }).join('');
       if (result) result.innerHTML = `
-        <div style="color:#f59e0b; font-weight:600; margin-bottom:8px;">Preview only — not saved</div>
-        <div style="font-size:12px; margin-bottom:6px;">NetLiq: <strong>${fmtUsd(d.net_liq)}</strong> &nbsp; Excess: <strong>${fmtUsd(d.excess_liq)}</strong></div>
-        <table style="width:100%; font-size:12px; border-collapse:collapse;">
-          <thead><tr style="color:var(--text-muted); text-align:left;"><th>Ticker</th><th>Strategy</th><th>Expiry</th><th>Qty</th><th>Delta</th><th>NetLiq%</th></tr></thead>
+        <div style="color:#f59e0b;font-weight:600;margin-bottom:8px;">▶ Preview only — not saved to disk</div>
+        <div style="font-size:12px;margin-bottom:10px;display:flex;gap:24px;">
+          <span>Net Liq: <strong>${fmtUsd(d.net_liq)}</strong></span>
+          <span>Excess: <strong>${fmtUsd(d.excess_liquidity)}</strong></span>
+          <span>Available: <strong>${fmtUsd(d.available_funds)}</strong></span>
+          <span style="color:var(--text-muted)">${d.positions_count || 0} legs · ${d.aggregated_count || 0} positions · backend: ${d.backend || '—'}</span>
+        </div>
+        <table style="width:100%;font-size:12px;border-collapse:collapse;">
+          <thead><tr style="color:var(--text-muted);text-align:left;border-bottom:1px solid var(--border)">
+            <th style="padding:3px 6px">Ticker</th>
+            <th style="padding:3px 6px">Strategy</th>
+            <th style="padding:3px 6px">Right/Strike</th>
+            <th style="padding:3px 6px">Expiry</th>
+            <th style="padding:3px 6px">Qty</th>
+            <th style="padding:3px 6px">Delta</th>
+            <th style="padding:3px 6px">Mkt Val</th>
+          </tr></thead>
           <tbody>${rows}</tbody>
         </table>`;
-    } else {
-      const detail = data.detail || data;
-      const hint = typeof detail === 'object' ? (detail.message || JSON.stringify(detail)) : detail;
-      if (result) result.innerHTML = `<div style="color:#ef4444;">✗ Preview failed: ${hint}</div>`;
     }
   } catch (e) {
     if (result) result.innerHTML = `<div style="color:#ef4444;">✗ Error: ${e.message}</div>`;
