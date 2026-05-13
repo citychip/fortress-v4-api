@@ -921,11 +921,23 @@ def monitor_alerts():
         if not ticker or ticker in alerted_tickers:
             continue
 
-        # Skip LEAP/PMCC long-only positions — no short leg means no gamma risk to monitor.
-        # Stop-loss and roll checks only apply when there is an active short leg.
+        # Skip positions that have no real short call leg — LEAP long-only positions
+        # (qty > 0, right == 'C') have high delta by design and must not trigger alerts.
+        # We check the aggregated legs list; if there is no leg with qty < 0 and right C,
+        # there is nothing to roll or stop-loss.
+        _legs = pos.get("legs") or []
+        _has_real_short_call = any(
+            (l.get("right") or "") == "C" and (l.get("qty") or 0) < 0
+            for l in _legs
+        )
+        # For positions stored without legs (single-leg rows), fall back to qty sign
+        if not _legs:
+            _pos_qty = pos.get("qty") or 0
+            _pos_right = (pos.get("right") or "").upper()
+            _has_real_short_call = _pos_qty < 0 and _pos_right == "C"
         _strat = (pos.get("strategy") or "").upper()
-        _has_short = pos.get("short_strike") is not None
-        if _strat in ("PMCC", "DIAGONAL", "LEAPS") and not _has_short:
+        # PMCC/DIAGONAL/LEAPS without a short call overlay — skip entirely
+        if _strat in ("PMCC", "DIAGONAL", "LEAPS") and not _has_real_short_call:
             continue
 
         # Stop-loss check

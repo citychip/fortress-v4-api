@@ -482,12 +482,18 @@ def aggregate_positions_by_ticker(positions_data: dict) -> list[dict]:
         # alert_state: take from the short call if available, else first leg
         raw_alert = (primary_short or legs[0]).get("alert_state")
         alert_state = _normalize_alert_state(raw_alert, current_delta)
-        # Promote critical_gamma from delta ONLY when there is an active short leg.
-        # A LEAP long call with delta ~0.80 is by design — never flag it as gamma risk.
+        # Promote critical_gamma from delta ONLY when there is an active short call leg.
+        # A LEAP long call (qty > 0, right == 'C') with delta ~0.80 is by design —
+        # never flag it as gamma risk.
         _strat_upper = (strategy or "").upper()
         _long_only_strategies = {"SPY_HEDGE", "STOCK"}
+        # _has_short_leg is True only if there is a leg with qty < 0 and right == 'C'
+        _real_short_call = any(
+            l.get("right", "") == "C" and (l.get("qty") or 0) < 0
+            for l in legs
+        )
         _gamma_check_eligible = (
-            _has_short_leg  # must have a short call in this position
+            _real_short_call
             and _strat_upper not in _long_only_strategies
         )
         try:

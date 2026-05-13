@@ -18,38 +18,39 @@ def compute_delta_state(pos: dict) -> str:
     """
     Build Spec §5.5.3 delta drift visual states.
 
-    Applies when current_delta is explicit and the position represents short-side
-    gamma exposure. Covers:
-    - Explicit SHORT_CALL leg_type
-    - PMCC/DIAGONAL/JADE_LIZARD strategies (where current_delta represents the
-      short-leg or net position delta — what's being monitored for gamma drift)
-    - Excludes LONG_CALL/PUT_SPREAD (their delta isn't a drift signal)
-    - Excludes SPY_HEDGE (delta is by design, not a risk)
+    Only applies to SHORT legs (qty < 0, right == 'C') — i.e. short calls that
+    can drift into gamma risk territory.  Long calls (LEAP anchors, qty > 0) are
+    by design high-delta and must never fire a gamma alert.
 
-    Returns "normal" for other types or when delta isn't available.
+    Returns "normal" for long legs, hedges, or when delta isn't available.
     """
-    leg_type = (pos.get("leg_type") or "").upper()
     strategy = (pos.get("strategy") or "").upper()
     delta = pos.get("current_delta")
+    qty = pos.get("qty")          # positive = long, negative = short
+    right = (pos.get("right") or "").upper()  # 'C' or 'P'
+    leg_type = (pos.get("leg_type") or "").upper()
 
     if delta is None:
         return "normal"
 
-    # Skip hedges and pure long-call positions (LEAP long legs are by design high-delta)
-    if strategy == "SPY_HEDGE" or leg_type == "LONG_CALL":
+    # SPY hedges are always intentional
+    if strategy == "SPY_HEDGE":
         return "normal"
 
-    # Skip PMCC/DIAGONAL/LEAPS positions that are long-only (no short call overlay yet).
-    # These have high delta by design and must never fire a gamma alert.
-    if strategy in ("PMCC", "DIAGONAL", "LEAPS") and leg_type in ("LONG_CALL", "", None):
+    # Long calls (qty > 0, right == 'C') are LEAP anchors — high delta by design
+    if right == "C" and qty is not None and float(qty) > 0:
         return "normal"
 
-    # Skip pure put credit spreads — their negative delta is by design
-    if leg_type == "PUT_SPREAD" and strategy == "PCS":
+    # Explicit long-call leg_type (legacy field)
+    if leg_type == "LONG_CALL":
         return "normal"
 
-    # Short-call/short-side risk applies. Use abs(delta) since
-    # short calls report positive delta in IBKR convention here.
+    # Long puts (qty > 0, right == 'P') are protective — not a drift risk
+    if right == "P" and qty is not None and float(qty) > 0:
+        return "normal"
+
+    # Short calls (qty < 0, right == 'C') — this is what we monitor for gamma drift
+    # Also catches short puts and any leg without explicit right/qty metadata
     try:
         from app.services.config_store import cfg as _cfg
         crit = float(_cfg("strategy.delta_critical_threshold") or 0.35)
