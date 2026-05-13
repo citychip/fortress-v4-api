@@ -535,6 +535,16 @@ def update_section(section: str, body: SectionUpdate):
     if bad:
         raise HTTPException(status_code=400, detail=f"Unknown keys for section {section!r}: {bad}")
     config_store.update_section(section, body.values)
+    # Mirror ibkr_account_id to dashboard_settings.json so the sync picks it up immediately
+    if section == "security" and "ibkr_account_id" in body.values:
+        _new_id = body.values["ibkr_account_id"]
+        _PLACEHOLDER = "YOUR_IBKR_ACCOUNT_ID"
+        if _new_id and _new_id != _PLACEHOLDER:
+            try:
+                from app.services import state as _state
+                _state.save_dashboard_settings({"ibkr_account_id": _new_id})
+            except Exception:
+                pass
     return {
         "ok": True,
         "section": section,

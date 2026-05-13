@@ -621,10 +621,27 @@ VALID_GREEKS_BACKENDS = {"auto", "web_api", "bs_yfinance"}
 
 
 def get_dashboard_settings() -> dict:
-    """Return current settings, falling back to defaults for missing keys."""
+    """Return current settings, falling back to defaults for missing keys.
+
+    ibkr_account_id is resolved in priority order:
+      1. dashboard_settings.json (if not empty / not placeholder)
+      2. config_store security.ibkr_account_id
+      3. empty string (user must configure)
+    """
     data = read_json("dashboard_settings.json", {})
     # Deep-merge with defaults so missing keys get default values
     out = _deep_merge(DEFAULT_SETTINGS, data)
+    # Resolve ibkr_account_id — fall back to config_store if file has placeholder
+    _PLACEHOLDER = "YOUR_IBKR_ACCOUNT_ID"
+    file_account_id = out.get("ibkr_account_id", "")
+    if not file_account_id or file_account_id == _PLACEHOLDER:
+        try:
+            from app.services.config_store import cfg as _cfg
+            cfg_account_id = _cfg("security.ibkr_account_id", "")
+            if cfg_account_id and cfg_account_id != _PLACEHOLDER:
+                out["ibkr_account_id"] = cfg_account_id
+        except Exception:
+            pass
     return out
 
 
