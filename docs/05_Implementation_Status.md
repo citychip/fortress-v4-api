@@ -1,8 +1,8 @@
 # Fortress Dashboard — Implementation Status
 
-**As of 2026-05-09 — Mode 3 (Live Strategy Narrative) live, TWS decommissioned, Bearer token middleware active, Security toggles deployed**
+**As of 2026-05-13 — All UX/Automation improvements (A-M) and Trade Reports Tab deployed**
 
-This document is the single source of truth for what's actually deployed on the VPS. It supersedes whatever the spec docs say when reality diverges. Replaces the 2026-05-04 version (now archived in `_archive_amendments_2026-05-04/`).
+This document is the single source of truth for what's actually deployed on the VPS. It supersedes whatever the spec docs say when reality diverges. Replaces the 2026-05-09 version.
 
 ---
 
@@ -69,6 +69,10 @@ VPS: `srv1321374` (76.13.138.194), Ubuntu 26.04 LTS, account `ubuntu`.
 | **4.5 (new) — Backend dispatcher** | ✅ Live | `cfg("technical.greeks_backend")` ∈ {auto, web_api, bs_yfinance, tws_ibkr}. |
 | **4.5 (new) — Mode 3: Live Strategy Narrative** | ✅ Live | `GET /api/settings/narrative` → 4 paragraphs + observations + what-if. Rendered in Settings tab above the form. |
 | **4.6 (new) — Security toggles + runtime guards** | ✅ Live | `security.use_ibkr_web_api` and `security.use_quantdata` in Settings → Security. Amber banners in UI. Runtime guards in `/api/ibkr/sync`, `/api/run/{script}`, `/api/chart/{ticker}`, `/api/manage/stop_loss/{id}`. |
+| **5 (new) — Header UI / Sync** | ✅ Live | Sync dot/text, auto-refresh rename to Live, IBKR auto-sync background task, QuantData test. |
+| **6 (new) — Manage/Trade Batch** | ✅ Live | Auto-run stop-loss/roll tables, pre-trade matrix, Positions colour coding. |
+| **7 (new) — Dashboard / Journal** | ✅ Live | Live alerts banner from Position Monitor, Journal auto-populate from sync, time-of-day scripts. |
+| **8 (new) — Trade Reports Tab** | ✅ Live | New tab with new trade, roll, buy, sell evaluation reports. |
 
 ---
 
@@ -212,9 +216,19 @@ GET    /api/settings                      → {config: {security, strategy, tech
 GET    /api/settings/schema               → {schema: {section: [field, ...]}}
 PUT    /api/settings/{section}            → body {values: {key: value}}
 POST   /api/settings/reset               → factory defaults
+GET    /api/settings/test_quantdata       → tests QuantData live API connection
+
+# Phase 5/6/7/8 Batch & Reports (new)
+GET    /api/manage/stop_loss_all          → batch stop-loss for all positions
+GET    /api/manage/roll_all               → batch roll evaluator for all positions
+GET    /api/manage/pretrade_all           → batch pre-trade gate for all universe tickers
+GET    /api/manage/trade_report           → comprehensive evaluation report for a ticker
+GET    /api/manage/monitor_alerts         → checks active book and creates URGENT/ACT alerts
+GET    /api/journal/suggest               → auto-populates journal entry from last IBKR sync
+POST   /api/run/group/{group_name}        → time-of-day workflow script runner
 ```
 
-Total: 39 routes under `/api/*`.
+Total: 46 routes under `/api/*`.
 
 ---
 

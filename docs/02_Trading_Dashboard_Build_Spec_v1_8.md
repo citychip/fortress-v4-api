@@ -1,16 +1,14 @@
 # Trading Dashboard — Build Specification
 
-**Version 1.8.2 — May 9, 2026**
+**Version 1.9.0 — May 13, 2026**
 
 End-to-end specification for the Fortress Dashboard. Covers architecture, data contracts, all UI features, the strategy logic engines, the upload pipeline, the IBKR Web API + CP Gateway integration, the chart widget, the schema-driven settings system, and the per-leg → aggregated position view.
 
-v1.8 reflects three operational changes adopted from v1.7:
-1. Web API + CP Gateway is the primary broker integration (legacy TWS Gateway demoted to diagnostics).
-2. Schema-driven Settings tab + `config_store` replaces the flat `dashboard_settings.json`.
-3. Strategy v3.6 thresholds adopted: delta_critical = 0.35; account thresholds USD-native.
-
-v1.8.2 adds:
-4. **Security section** in `fortress_config.json` — `use_ibkr_web_api` and `use_quantdata` enable/disable toggles with runtime guards and amber warning banners in the Settings UI.
+v1.9.0 reflects the completion of the 13 UX/Automation improvements (A-M) and the addition of the Trade Reports tab:
+1. **Batch Endpoints & UI:** Auto-run stop-loss and roll tables, pre-trade matrix.
+2. **Automation:** Position monitor (live alerts banner), journal auto-populate from sync, time-of-day script runner, IBKR auto-sync background task.
+3. **Trade Reports Tab:** Comprehensive evaluation reports for new trades, rolls, buys, and sells.
+4. **UX Polish:** Sync dot/text, auto-refresh renamed to Live, QuantData test button, Positions colour coding.
 
 ---
 
@@ -49,6 +47,8 @@ QuantData pipeline produces 4–5 markdown reports per day plus state JSON. Cros
 | 4 | Live | Strategy logic engines — stop-loss, roll, post-earnings playbook, Jade Lizard validator, SPY hedge coverage, pre-trade gate, Portfolio Greeks |
 | **4.5 (new in v1.8)** | Live | Schema-driven Settings tab + `config_store`. Backend dispatcher selects greeks_backend per `cfg("technical.greeks_backend")`. |
 | **4.6 (new in v1.8.2)** | Live | Security section in `fortress_config.json`: `use_ibkr_web_api` and `use_quantdata` toggles with runtime guards across all dependent routes. |
+| **5/6/7 (new in v1.9)** | Live | UX & Automation improvements: Live alerts banner, Journal auto-populate, IBKR auto-sync, batch stop-loss/roll tables, pre-trade matrix, time-of-day scripts. |
+| **8 (new in v1.9)** | Live | Trade Reports Tab — comprehensive evaluation reports for new trades, rolls, buys, and sells. |
 
 ---
 

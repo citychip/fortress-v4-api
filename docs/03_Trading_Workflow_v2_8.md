@@ -1,11 +1,11 @@
 # Trading Workflow
 
-**Version 2.8.1 — May 9, 2026**
+**Version 2.9.0 — May 13, 2026**
 **Strategy:** Portfolio Strategy v3.6
 
 End-to-end automated trading workflow integrating QuantData market data, the Fortress Dashboard, and the IBKR Web API (CP Gateway) with Portfolio Strategy v3.6. Eight Python scripts run on schedule; the dashboard surfaces the outputs; the Phase 4 engines code-enforce the strategy's complex decision rules; live-tunable settings via Settings tab.
 
-v2.8.1 adds: `use_ibkr_web_api` and `use_quantdata` enable/disable toggles in Settings → Security, with runtime guards across all dependent routes.
+v2.9.0 adds: Full integration of the 13 UX/Automation improvements (A-M) and the new Trade Reports tab, allowing batch execution of workflow checks directly from the dashboard UI.
 
 Governing principle from Strategy §15.1:
 
@@ -73,7 +73,7 @@ All scripts in `/home/ubuntu/Fortress_Dashboard/quant/`. Triggered by `fortress_
 
 ### Phase 3 — Trade Entry Window (10:00–11:30 ET)
 
-**Step 3.0: Pre-Trade Gate.** Fortress Dashboard → New Trade tab → "Check gates" button.
+**Step 3.0: Pre-Trade Gate.** Fortress Dashboard → Reports tab → "Run pre-trade checks on all universe tickers" button. Or check a single ticker in the Trade tab.
 
 Four checks run in order, hard-fail on any:
 1. **Hard exclusion (§3.3)** — checks `ticker_universe.json` excluded list.
@@ -93,13 +93,13 @@ Four checks run in order, hard-fail on any:
 
 ### Phase 4 — Mid-Day Monitoring (11:00–15:45 ET)
 
-**Step 4.1: Position Monitor.** `workflow_03_position_monitor.py` (auto at 12:00 + 15:45 ET).
+**Step 4.1: Position Monitor.** `workflow_03_position_monitor.py` (auto at 12:00 + 15:45 ET) or Dashboard → Reports tab → "Check active book for alerts". Checks for stop-loss triggers and automatically creates `URGENT` or `ACT` alerts. The live alerts banner will appear at the top of the dashboard if any action is required.
 
 **Step 4.2: Dark Pool Alert Report.** `workflow_06_dark_pool_alert.py`.
 
-**Step 4.3: Stop-loss aggregator (on-demand).** Manage tab → "Evaluate stop-loss" for any position with `alert_state ∈ {watch, approaching, breaking, critical_gamma}`.
+**Step 4.3: Stop-loss aggregator (on-demand).** Manage tab → "Run stop-loss evaluator on all positions" button. The dashboard evaluates all positions against the 3-signal logic per Strategy §6 and displays a HIGH/MED/LOW priority verdict for each. You can also evaluate a single position using the `⋯` row action.
 
-**Step 4.4: Roll candidate evaluator (on-demand).** Manage tab → "Find roll candidates" for any short call approaching 14–21 DTE or with delta drifted into 0.30–0.35 (watch) or **>0.35 (critical gamma)**. Returns top 3 candidates ranked by framework match + net credit, plus an IBKR-format ticket text.
+**Step 4.4: Roll candidate evaluator (on-demand).** Manage tab → "Run roll evaluator on all positions" button. The dashboard evaluates all eligible positions, returns the top 3 candidates per Strategy §5, and generates the IBKR ticket text. You can also evaluate a single position using the `⋯` row action.
 
 ### Phase 5 — Pre-Close Review (15:00–16:00 ET)
 
@@ -109,7 +109,7 @@ Same as v2.7. Manual but informed by 15:45 outputs.
 
 **Step 6.1: End of Day Review.** `workflow_04_eod_review.py`. Same as v2.7.
 
-**Step 6.2: Journal entries.** Same as v2.7.
+**Step 6.2: Journal entries.** Open dashboard Journal tab. Click "Auto-suggest from IBKR" to pre-fill the form with the most recent sync change. Enter any missing trade details. Ensure `outside_universe_justification` is provided if trading outside the universe (Strategy §3.4.4).
 
 ---
 
