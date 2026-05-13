@@ -665,140 +665,227 @@
   </div>
 
   <!-- ================================================================
-       REPORTS TAB  (item 8 — trade evaluation reports)
+       REPORTS TAB  — action-oriented daily report
        ================================================================ -->
   <div class="tab-content" data-content="reports">
 
-    <!-- Batch pre-trade matrix (item C/K) -->
-    <div class="card">
-      <div class="card-header">
+    <!-- ── DAILY ACTION REPORT (pinned hero card) ─────────────────── -->
+    <div class="card" id="daily-report-card" style="border:1px solid var(--color-border-secondary);">
+      <div class="card-header" style="align-items:flex-start">
         <div>
-          <h2>Pre-trade matrix — all universe tickers</h2>
-          <p class="muted small">Run §8 gate checks across every ticker in your universe. Highlights PRIME_ENTRY and CONDITIONAL candidates.</p>
+          <h2 style="font-size:16px;font-weight:700;">Daily action report</h2>
+          <p class="muted small" style="margin-top:2px">One click — runs stop-loss scan, roll scan, pre-trade matrix, exit targets, and post-earnings playbook across your full book and universe. Tells you exactly what to do today.</p>
         </div>
-        <button class="action-cta action-cta-primary" id="pretrade-all-run">Run full matrix</button>
+        <button class="action-cta action-cta-primary" id="daily-report-run" style="white-space:nowrap;min-width:160px;">▶ Run daily report</button>
       </div>
-      <div id="pretrade-all-result" class="phase4-result"></div>
-    </div>
 
-    <!-- New trade evaluation report -->
-    <div class="card">
-      <h2>New trade evaluation</h2>
-      <p class="muted small">Deep-dive report for a single ticker: gates, IV rank, DP floors, GEX walls, earnings, concentration, and recommended structure.</p>
-      <div class="form-row" style="align-items:center;gap:14px;flex-wrap:wrap;">
-        <label style="flex-direction:column;gap:4px;font-size:12px;color:var(--color-text-secondary)">
-          Ticker
-          <div class="typeahead-wrap">
-            <input type="text" id="rpt-new-ticker" class="typeahead-input" placeholder="MSFT" maxlength="10" autocomplete="off">
-            <div class="typeahead-dropdown" id="rpt-new-ticker-dd"></div>
-          </div>
-        </label>
-        <label style="flex-direction:column;gap:4px;font-size:12px;color:var(--color-text-secondary)">
-          Strategy
-          <div class="btn-group" id="rpt-new-strategy-group" data-value="PMCC">
-            <button class="btn-group-item active" data-val="PMCC">PMCC</button>
-            <button class="btn-group-item" data-val="PCS">PCS</button>
-            <button class="btn-group-item" data-val="DIAGONAL">Diagonal</button>
-            <button class="btn-group-item" data-val="JADE_LIZARD">Jade Lizard</button>
-            <button class="btn-group-item" data-val="COVERED_CALL">CC</button>
-            <button class="btn-group-item" data-val="IRON_CONDOR">IC</button>
-          </div>
-          <input type="hidden" id="rpt-new-strategy" value="PMCC">
-        </label>
-        <label style="flex-direction:column;gap:4px;font-size:12px;color:var(--color-text-secondary)">Contracts
-          <input type="number" id="rpt-new-qty" value="1" min="1" max="100" style="width:70px">
-        </label>
-        <button class="action-cta action-cta-primary" id="rpt-new-run" style="align-self:flex-end">Generate report</button>
+      <!-- Summary badges — hidden until report runs -->
+      <div id="daily-report-summary" style="display:none;margin:12px 0 4px;">
+        <div id="daily-report-badges" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+        <div id="daily-report-macro" style="margin-top:8px;font-size:12px;color:var(--color-text-secondary);"></div>
       </div>
-      <div id="rpt-new-result" class="phase4-result"></div>
-    </div>
 
-    <!-- Roll evaluation report -->
-    <div class="card">
-      <h2>Roll evaluation report</h2>
-      <p class="muted small">Full roll analysis for a position: current Greeks, P&amp;L, DTE, and top 3 roll candidates with IBKR ticket text.</p>
-      <p class="muted small" style="margin-bottom:8px">Click a short position to analyse:</p>
-      <div class="pos-card-grid" id="rpt-roll-pos-grid"><div class="loading">Loading positions…</div></div>
-      <input type="hidden" id="rpt-roll-position">
-      <div class="form-row" style="margin-top:4px">
-        <label>DTE band
-          <input type="number" id="rpt-roll-dte-low" value="30" min="1" max="180" style="width:60px"> –
-          <input type="number" id="rpt-roll-dte-high" value="45" min="1" max="365" style="width:60px">
-        </label>
-        <label>Δ band
-          <input type="number" id="rpt-roll-delta-low" value="0.20" step="0.01" min="0.05" max="0.50" style="width:70px"> –
-          <input type="number" id="rpt-roll-delta-high" value="0.25" step="0.01" min="0.05" max="0.60" style="width:70px">
-        </label>
-        <button class="action-cta action-cta-primary" id="rpt-roll-run">Generate report</button>
-      </div>
-      <div id="rpt-roll-result" class="phase4-result"></div>
-    </div>
-
-    <!-- Buy evaluation report -->
-    <div class="card">
-      <h2>Buy / open position report</h2>
-      <p class="muted small">Evaluate opening a new long or credit position: entry quality, sizing, margin impact, and order checklist.</p>
-      <div class="form-row" style="align-items:center;gap:14px;flex-wrap:wrap;">
-        <label style="flex-direction:column;gap:4px;font-size:12px;color:var(--color-text-secondary)">
-          Ticker
-          <div class="typeahead-wrap">
-            <input type="text" id="rpt-buy-ticker" class="typeahead-input" placeholder="MSFT" maxlength="10" autocomplete="off">
-            <div class="typeahead-dropdown" id="rpt-buy-ticker-dd"></div>
-          </div>
-        </label>
-        <label style="flex-direction:column;gap:4px;font-size:12px;color:var(--color-text-secondary)">
-          Strategy
-          <div class="btn-group" id="rpt-buy-strategy-group" data-value="PMCC">
-            <button class="btn-group-item active" data-val="PMCC">PMCC</button>
-            <button class="btn-group-item" data-val="PCS">PCS</button>
-            <button class="btn-group-item" data-val="DIAGONAL">Diagonal</button>
-            <button class="btn-group-item" data-val="JADE_LIZARD">Jade Lizard</button>
-            <button class="btn-group-item" data-val="COVERED_CALL">CC</button>
-            <button class="btn-group-item" data-val="IRON_CONDOR">IC</button>
-          </div>
-          <input type="hidden" id="rpt-buy-strategy" value="PMCC">
-        </label>
-        <label style="flex-direction:column;gap:4px;font-size:12px;color:var(--color-text-secondary)">Target credit/debit ($/share)
-          <input type="number" id="rpt-buy-credit" step="0.01" placeholder="3.50">
-        </label>
-        <label style="flex-direction:column;gap:4px;font-size:12px;color:var(--color-text-secondary)">Contracts
-          <input type="number" id="rpt-buy-qty" value="1" min="1" max="100" style="width:70px">
-        </label>
-        <button class="action-cta action-cta-primary" id="rpt-buy-run" style="align-self:flex-end">Generate report</button>
-      </div>
-      <div id="rpt-buy-result" class="phase4-result"></div>
-    </div>
-
-    <!-- Sell / close position report -->
-    <div class="card">
-      <h2>Sell / close position report</h2>
-      <p class="muted small">Evaluate closing or reducing a position: P&amp;L realisation, tax lot impact, margin release, and post-close checklist.</p>
-      <p class="muted small" style="margin-bottom:8px">Click a position to evaluate closing it:</p>
-      <div class="pos-card-grid" id="rpt-sell-pos-grid"><div class="loading">Loading positions…</div></div>
-      <input type="hidden" id="rpt-sell-position">
-      <div class="form-row" style="margin-top:4px">
-        <label>Close price ($/share)
-          <input type="number" id="rpt-sell-price" step="0.01" placeholder="2.10">
-        </label>
-        <label>Qty to close
-          <input type="number" id="rpt-sell-qty" value="1" min="1" max="100" style="width:70px">
-        </label>
-        <button class="action-cta action-cta-primary" id="rpt-sell-run">Generate report</button>
-      </div>
-      <div id="rpt-sell-result" class="phase4-result"></div>
-    </div>
-
-    <!-- Full trade report (all positions) -->
-    <div class="card">
-      <div class="card-header">
-        <div>
-          <h2>Full book trade report</h2>
-          <p class="muted small">Comprehensive report across all positions: stop-loss status, roll candidates, pre-trade matrix, and action items.</p>
+      <!-- ── Section: Immediate actions (stop-loss ACT/ACT_IMMEDIATELY) -->
+      <div id="dr-section-stoploss" style="display:none;margin-top:16px;">
+        <div class="section-heading" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <span style="font-size:13px;font-weight:600;">Stop-loss alerts</span>
+          <span id="dr-stoploss-count" class="badge badge-red"></span>
         </div>
-        <button class="action-cta action-cta-primary" id="full-report-run">Generate full report</button>
+        <div id="dr-stoploss-table"></div>
       </div>
-      <div id="full-report-result" class="phase4-result"></div>
+
+      <!-- ── Section: Roll candidates -->
+      <div id="dr-section-roll" style="display:none;margin-top:16px;">
+        <div class="section-heading" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <span style="font-size:13px;font-weight:600;">Roll candidates</span>
+          <span id="dr-roll-count" class="badge badge-orange"></span>
+        </div>
+        <div id="dr-roll-table"></div>
+      </div>
+
+      <!-- ── Section: Exit / profit targets -->
+      <div id="dr-section-exit" style="display:none;margin-top:16px;">
+        <div class="section-heading" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <span style="font-size:13px;font-weight:600;">Exit / profit targets</span>
+          <span id="dr-exit-count" class="badge badge-green"></span>
+        </div>
+        <div id="dr-exit-table"></div>
+      </div>
+
+      <!-- ── Section: New entry candidates (pre-trade matrix) -->
+      <div id="dr-section-entry" style="display:none;margin-top:16px;">
+        <div class="section-heading" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <span style="font-size:13px;font-weight:600;">New entry candidates</span>
+          <span id="dr-entry-count" class="badge badge-blue"></span>
+          <span class="muted small" style="margin-left:4px;">sorted by IV rank</span>
+        </div>
+        <div id="dr-entry-table"></div>
+      </div>
+
+      <!-- ── Section: Post-earnings playbook -->
+      <div id="dr-section-postearnings" style="display:none;margin-top:16px;">
+        <div class="section-heading" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <span style="font-size:13px;font-weight:600;">Post-earnings playbook</span>
+          <span id="dr-postearnings-count" class="badge badge-purple"></span>
+        </div>
+        <div id="dr-postearnings-table"></div>
+      </div>
+
+      <!-- ── Section: All clear -->
+      <div id="dr-section-allclear" style="display:none;margin-top:16px;padding:14px 16px;border-radius:6px;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.2);">
+        <span style="font-size:13px;font-weight:600;color:#22c55e;">✓ All clear</span>
+        <span class="muted small" style="margin-left:8px;">No stop-loss alerts, no urgent rolls, no exits due. Check entry candidates above.</span>
+      </div>
+
+      <div id="daily-report-spinner" style="display:none;padding:20px 0;text-align:center;color:var(--color-text-secondary);font-size:13px;">Running report…</div>
     </div>
+
+    <!-- ── DEEP-DIVE SECTION HEADER ──────────────────────────────── -->
+    <div style="margin:20px 0 8px;padding:0 2px;">
+      <span style="font-size:12px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--color-text-secondary);">Deep-dive tools</span>
+      <span class="muted small" style="margin-left:8px;">Click a row in the daily report to jump here, or use manually.</span>
+    </div>
+
+    <!-- ── Pre-trade matrix (full universe) ─────────────────────── -->
+    <details class="report-section" id="rpt-pretrade-section">
+      <summary class="report-section-summary">
+        <span>Pre-trade matrix — all universe tickers</span>
+        <button class="action-cta action-cta-primary" id="pretrade-all-run" onclick="event.preventDefault();event.stopPropagation();window.runPretradeAll&&window.runPretradeAll()" style="margin-left:auto;">Run full matrix</button>
+      </summary>
+      <div class="report-section-body">
+        <p class="muted small" style="margin-bottom:10px;">§8 gate checks across every ticker in your universe. Highlights PRIME_ENTRY and CONDITIONAL candidates.</p>
+        <div id="pretrade-all-result" class="phase4-result"></div>
+      </div>
+    </details>
+
+    <!-- ── New trade evaluation ──────────────────────────────────── -->
+    <details class="report-section" id="rpt-new-section">
+      <summary class="report-section-summary">
+        <span>New trade evaluation</span>
+      </summary>
+      <div class="report-section-body">
+        <p class="muted small" style="margin-bottom:10px;">Deep-dive for a single ticker: gates, IV rank, DP floors, GEX walls, earnings, concentration, and recommended structure.</p>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <div>
+            <div class="muted small" style="margin-bottom:4px;">Ticker</div>
+            <div class="typeahead-wrap">
+              <input type="text" id="rpt-new-ticker" class="typeahead-input" placeholder="MSFT" maxlength="10" autocomplete="off" style="width:110px;">
+              <div class="typeahead-dropdown" id="rpt-new-ticker-dd"></div>
+            </div>
+            <div id="rpt-new-pills" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px;"></div>
+          </div>
+          <div>
+            <div class="muted small" style="margin-bottom:4px;">Strategy</div>
+            <div class="btn-group" id="rpt-new-strategy-group" data-value="PMCC">
+              <button class="btn-group-item active" data-val="PMCC">PMCC</button>
+              <button class="btn-group-item" data-val="PCS">PCS</button>
+              <button class="btn-group-item" data-val="DIAGONAL">Diagonal</button>
+              <button class="btn-group-item" data-val="JADE_LIZARD">Jade Lizard</button>
+              <button class="btn-group-item" data-val="COVERED_CALL">CC</button>
+              <button class="btn-group-item" data-val="IRON_CONDOR">IC</button>
+            </div>
+            <input type="hidden" id="rpt-new-strategy" value="PMCC">
+          </div>
+          <div>
+            <div class="muted small" style="margin-bottom:4px;">Contracts</div>
+            <input type="number" id="rpt-new-qty" value="1" min="1" max="100" style="width:70px;">
+          </div>
+          <button class="action-cta action-cta-primary" id="rpt-new-run" style="align-self:flex-end;">Generate report</button>
+        </div>
+        <div id="rpt-new-result" class="phase4-result" style="margin-top:12px;"></div>
+      </div>
+    </details>
+
+    <!-- ── Roll evaluation ───────────────────────────────────────── -->
+    <details class="report-section" id="rpt-roll-section">
+      <summary class="report-section-summary">
+        <span>Roll evaluation</span>
+      </summary>
+      <div class="report-section-body">
+        <p class="muted small" style="margin-bottom:8px;">Full roll analysis: current Greeks, P&amp;L, DTE, and top 3 roll candidates with IBKR ticket text. Click a short position:</p>
+        <div class="pos-card-grid" id="rpt-roll-pos-grid"><div class="loading">Loading positions…</div></div>
+        <input type="hidden" id="rpt-roll-position">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:8px;">
+          <label style="font-size:12px;color:var(--color-text-secondary);">DTE band
+            <span style="display:flex;align-items:center;gap:4px;margin-top:4px;">
+              <input type="number" id="rpt-roll-dte-low" value="30" min="1" max="180" style="width:55px;"> –
+              <input type="number" id="rpt-roll-dte-high" value="45" min="1" max="365" style="width:55px;">
+            </span>
+          </label>
+          <label style="font-size:12px;color:var(--color-text-secondary);">Δ band
+            <span style="display:flex;align-items:center;gap:4px;margin-top:4px;">
+              <input type="number" id="rpt-roll-delta-low" value="0.20" step="0.01" min="0.05" max="0.50" style="width:65px;"> –
+              <input type="number" id="rpt-roll-delta-high" value="0.25" step="0.01" min="0.05" max="0.60" style="width:65px;">
+            </span>
+          </label>
+          <button class="action-cta action-cta-primary" id="rpt-roll-run" style="align-self:flex-end;">Generate report</button>
+        </div>
+        <div id="rpt-roll-result" class="phase4-result" style="margin-top:12px;"></div>
+      </div>
+    </details>
+
+    <!-- ── Buy / open position ───────────────────────────────────── -->
+    <details class="report-section" id="rpt-buy-section">
+      <summary class="report-section-summary">
+        <span>Buy / open position report</span>
+      </summary>
+      <div class="report-section-body">
+        <p class="muted small" style="margin-bottom:10px;">Evaluate opening a new long or credit position: entry quality, sizing, margin impact, and order checklist.</p>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <div>
+            <div class="muted small" style="margin-bottom:4px;">Ticker</div>
+            <div class="typeahead-wrap">
+              <input type="text" id="rpt-buy-ticker" class="typeahead-input" placeholder="MSFT" maxlength="10" autocomplete="off" style="width:110px;">
+              <div class="typeahead-dropdown" id="rpt-buy-ticker-dd"></div>
+            </div>
+          </div>
+          <div>
+            <div class="muted small" style="margin-bottom:4px;">Strategy</div>
+            <div class="btn-group" id="rpt-buy-strategy-group" data-value="PMCC">
+              <button class="btn-group-item active" data-val="PMCC">PMCC</button>
+              <button class="btn-group-item" data-val="PCS">PCS</button>
+              <button class="btn-group-item" data-val="DIAGONAL">Diagonal</button>
+              <button class="btn-group-item" data-val="JADE_LIZARD">Jade Lizard</button>
+              <button class="btn-group-item" data-val="COVERED_CALL">CC</button>
+              <button class="btn-group-item" data-val="IRON_CONDOR">IC</button>
+            </div>
+            <input type="hidden" id="rpt-buy-strategy" value="PMCC">
+          </div>
+          <div>
+            <div class="muted small" style="margin-bottom:4px;">Target credit ($/share)</div>
+            <input type="number" id="rpt-buy-credit" step="0.01" placeholder="3.50" style="width:100px;">
+          </div>
+          <div>
+            <div class="muted small" style="margin-bottom:4px;">Contracts</div>
+            <input type="number" id="rpt-buy-qty" value="1" min="1" max="100" style="width:70px;">
+          </div>
+          <button class="action-cta action-cta-primary" id="rpt-buy-run" style="align-self:flex-end;">Generate report</button>
+        </div>
+        <div id="rpt-buy-result" class="phase4-result" style="margin-top:12px;"></div>
+      </div>
+    </details>
+
+    <!-- ── Sell / close position ─────────────────────────────────── -->
+    <details class="report-section" id="rpt-sell-section">
+      <summary class="report-section-summary">
+        <span>Sell / close position report</span>
+      </summary>
+      <div class="report-section-body">
+        <p class="muted small" style="margin-bottom:8px;">Evaluate closing or reducing a position: P&amp;L realisation, margin release, and post-close checklist. Click a position:</p>
+        <div class="pos-card-grid" id="rpt-sell-pos-grid"><div class="loading">Loading positions…</div></div>
+        <input type="hidden" id="rpt-sell-position">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:8px;">
+          <label style="font-size:12px;color:var(--color-text-secondary);">Close price ($/share)
+            <input type="number" id="rpt-sell-price" step="0.01" placeholder="2.10" style="display:block;margin-top:4px;width:100px;">
+          </label>
+          <label style="font-size:12px;color:var(--color-text-secondary);">Qty to close
+            <input type="number" id="rpt-sell-qty" value="1" min="1" max="100" style="display:block;margin-top:4px;width:70px;">
+          </label>
+          <button class="action-cta action-cta-primary" id="rpt-sell-run" style="align-self:flex-end;">Generate report</button>
+        </div>
+        <div id="rpt-sell-result" class="phase4-result" style="margin-top:12px;"></div>
+      </div>
+    </details>
 
   </div>
 

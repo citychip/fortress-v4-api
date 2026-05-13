@@ -359,3 +359,95 @@
 /* Inline kebab menu — expanded actions (Positions table) */
 .row-action-item.action-stop-loss { color: var(--color-text-danger); }
 .row-action-item.action-report { color: var(--color-text-info); }
+
+/* ── Reports tab: collapsible deep-dive sections ─────────────────────────── */
+.report-section {
+  background: var(--color-bg-secondary);
+  border: 0.5px solid var(--color-border-tertiary);
+  border-radius: 8px;
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+.report-section-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  list-style: none;
+  user-select: none;
+}
+.report-section-summary::-webkit-details-marker { display: none; }
+.report-section-summary::before {
+  content: '▶';
+  font-size: 10px;
+  color: var(--color-text-secondary);
+  transition: transform 0.15s;
+  flex-shrink: 0;
+}
+details[open] > .report-section-summary::before { transform: rotate(90deg); }
+.report-section-body {
+  padding: 4px 16px 16px;
+  border-top: 0.5px solid var(--color-border-tertiary);
+}
+
+/* ── Badge colours for daily report summary ──────────────────────────────── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+.badge-red    { background: rgba(239,68,68,0.18);  color: #ef4444; }
+.badge-orange { background: rgba(249,115,22,0.18); color: #f97316; }
+.badge-green  { background: rgba(34,197,94,0.18);  color: #22c55e; }
+.badge-blue   { background: rgba(59,130,246,0.18); color: #3b82f6; }
+.badge-purple { background: rgba(168,85,247,0.18); color: #a855f7; }
+.badge-gray   { background: rgba(148,163,184,0.12); color: var(--color-text-secondary); }
+
+/* ── Daily report action table ───────────────────────────────────────────── */
+.dr-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.dr-table th {
+  text-align: left;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+  border-bottom: 0.5px solid var(--color-border-tertiary);
+}
+.dr-table td {
+  padding: 8px 10px;
+  border-bottom: 0.5px solid var(--color-border-tertiary);
+  vertical-align: middle;
+}
+.dr-table tr:last-child td { border-bottom: none; }
+.dr-table tr:hover td { background: var(--color-bg-tertiary); }
+.dr-table .dr-action-btn {
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 4px;
+  border: 0.5px solid var(--color-border-secondary);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.dr-table .dr-action-btn:hover {
+  background: var(--color-accent);
+  color: #fff;
+  border-color: var(--color-accent);
+}

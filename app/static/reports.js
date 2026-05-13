@@ -824,6 +824,266 @@ document.getElementById("full-report-run")?.addEventListener("click", async () =
   }
 });
 
+// ─── Daily Action Report ─────────────────────────────────────────────────────────
+// Wires the hero "Run daily report" button to /api/manage/trade_report and
+// renders each section inline inside the hero card.
+(function() {
+  const btn = document.getElementById("daily-report-run");
+  if (!btn) return;
+
+  btn.addEventListener("click", async () => {
+    const spinner  = document.getElementById("daily-report-spinner");
+    const summary  = document.getElementById("daily-report-summary");
+    const badges   = document.getElementById("daily-report-badges");
+    const macro    = document.getElementById("daily-report-macro");
+    const sections = [
+      "dr-section-stoploss", "dr-section-roll", "dr-section-exit",
+      "dr-section-entry", "dr-section-postearnings", "dr-section-allclear"
+    ];
+
+    // Reset
+    sections.forEach(id => { const el2 = document.getElementById(id); if (el2) el2.style.display = "none"; });
+    if (summary) summary.style.display = "none";
+    if (spinner) spinner.style.display = "block";
+    btn.disabled = true;
+    btn.textContent = "Running…";
+
+    try {
+      const res = await authFetch("/api/manage/trade_report");
+      if (!res.ok) throw new Error(await res.text());
+      const d = await res.json();
+
+      // ── Summary badges
+      if (badges) {
+        badges.innerHTML = "";
+        const s = d.summary || {};
+        const defs = [
+          { label: "Stop-loss",  val: s.stop_loss_alerts_count,  cls: s.stop_loss_alerts_count  > 0 ? "badge-red"    : "badge-gray" },
+          { label: "Rolls",      val: s.roll_candidates_count,   cls: s.roll_candidates_count   > 0 ? "badge-orange" : "badge-gray" },
+          { label: "Exits",      val: s.exit_candidates_count,   cls: s.exit_candidates_count   > 0 ? "badge-green"  : "badge-gray" },
+          { label: "Entries",    val: s.entry_candidates_count,  cls: s.entry_candidates_count  > 0 ? "badge-blue"   : "badge-gray" },
+          { label: "Post-earn",  val: s.post_earnings_count,     cls: s.post_earnings_count     > 0 ? "badge-purple" : "badge-gray" },
+        ];
+        for (const def of defs) {
+          const wrap = document.createElement("span");
+          wrap.style.cssText = "display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--color-text-secondary);";
+          wrap.innerHTML = `${def.label} <span class="badge ${def.cls}">${def.val ?? 0}</span>`;
+          badges.appendChild(wrap);
+        }
+      }
+      if (macro && d.macro) {
+        const m = d.macro;
+        macro.textContent = `Macro: ${m.regime || "—"} · VIX ${m.vix != null ? m.vix.toFixed(1) : "—"} (${m.vix_state || "—"})`;
+      }
+      if (summary) summary.style.display = "block";
+
+      let hasAny = false;
+
+      // ── Stop-loss alerts
+      if (d.stop_loss_alerts && d.stop_loss_alerts.length) {
+        hasAny = true;
+        const sec = document.getElementById("dr-section-stoploss");
+        const cnt = document.getElementById("dr-stoploss-count");
+        const tbl = document.getElementById("dr-stoploss-table");
+        if (cnt) cnt.textContent = d.stop_loss_alerts.length;
+        if (tbl) {
+          tbl.innerHTML = "";
+          const t = document.createElement("table"); t.className = "dr-table";
+          t.innerHTML = `<thead><tr><th>Ticker</th><th>Strategy</th><th>Verdict</th><th>Signals</th><th></th></tr></thead>`;
+          const tb = document.createElement("tbody");
+          for (const r of d.stop_loss_alerts) {
+            const vCls = r.verdict === "ACT_IMMEDIATELY" ? "badge-red" : r.verdict === "ACT" ? "badge-orange" : "badge-gray";
+            const tr = document.createElement("tr");
+            tr.innerHTML = `
+              <td><span class="ticker">${r.ticker}</span></td>
+              <td>${r.strategy || "—"}</td>
+              <td><span class="badge ${vCls}">${r.verdict.replace(/_/g," ")}</span></td>
+              <td class="muted small">${(r.signals||[]).join(", ")||"—"}</td>
+              <td></td>`;
+            const btn2 = document.createElement("button");
+            btn2.className = "dr-action-btn";
+            btn2.textContent = r.verdict === "ACT_IMMEDIATELY" ? "Close report →" : "Stop-loss →";
+            btn2.onclick = () => {
+              const sec2 = document.getElementById("rpt-sell-section");
+              if (sec2) sec2.open = true;
+              if (window.selectPosCard) window.selectPosCard("rpt-sell-pos-grid", "rpt-sell-position", r.synthesized_id);
+              sec2?.scrollIntoView({ behavior: "smooth", block: "start" });
+            };
+            tr.lastElementChild.appendChild(btn2);
+            tb.appendChild(tr);
+          }
+          t.appendChild(tb); tbl.appendChild(t);
+        }
+        if (sec) sec.style.display = "block";
+      }
+
+      // ── Roll candidates
+      if (d.roll_candidates && d.roll_candidates.length) {
+        hasAny = true;
+        const sec = document.getElementById("dr-section-roll");
+        const cnt = document.getElementById("dr-roll-count");
+        const tbl = document.getElementById("dr-roll-table");
+        if (cnt) cnt.textContent = d.roll_candidates.length;
+        if (tbl) {
+          tbl.innerHTML = "";
+          const t = document.createElement("table"); t.className = "dr-table";
+          t.innerHTML = `<thead><tr><th>Ticker</th><th>Strategy</th><th>Expiry</th><th>DTE</th><th>Urgency</th><th>Reasons</th><th></th></tr></thead>`;
+          const tb = document.createElement("tbody");
+          for (const r of d.roll_candidates) {
+            const uCls = r.urgency === "URGENT" ? "badge-red" : r.urgency === "WARNING" ? "badge-orange" : "badge-gray";
+            const tr = document.createElement("tr");
+            tr.innerHTML = `
+              <td><span class="ticker">${r.ticker}</span></td>
+              <td>${r.strategy||"—"}</td>
+              <td>${rptShortExp(r.expiry)}</td>
+              <td>${r.current_dte!=null?r.current_dte+"d":"—"}</td>
+              <td><span class="badge ${uCls}">${r.urgency}</span></td>
+              <td class="muted small">${(r.reasons||[]).join("; ")||"—"}</td>
+              <td></td>`;
+            const btn2 = document.createElement("button");
+            btn2.className = "dr-action-btn";
+            btn2.textContent = "Roll report →";
+            btn2.onclick = () => {
+              const sec2 = document.getElementById("rpt-roll-section");
+              if (sec2) sec2.open = true;
+              if (window.selectPosCard) window.selectPosCard("rpt-roll-pos-grid", "rpt-roll-position", r.synthesized_id);
+              sec2?.scrollIntoView({ behavior: "smooth", block: "start" });
+            };
+            tr.lastElementChild.appendChild(btn2);
+            tb.appendChild(tr);
+          }
+          t.appendChild(tb); tbl.appendChild(t);
+        }
+        if (sec) sec.style.display = "block";
+      }
+
+      // ── Exit / profit targets
+      if (d.exit_candidates && d.exit_candidates.length) {
+        hasAny = true;
+        const sec = document.getElementById("dr-section-exit");
+        const cnt = document.getElementById("dr-exit-count");
+        const tbl = document.getElementById("dr-exit-table");
+        if (cnt) cnt.textContent = d.exit_candidates.length;
+        if (tbl) {
+          tbl.innerHTML = "";
+          const t = document.createElement("table"); t.className = "dr-table";
+          t.innerHTML = `<thead><tr><th>Ticker</th><th>Strategy</th><th>Expiry</th><th>Net MV</th><th>Note</th><th></th></tr></thead>`;
+          const tb = document.createElement("tbody");
+          for (const r of d.exit_candidates) {
+            const tr = document.createElement("tr");
+            tr.innerHTML = `
+              <td><span class="ticker">${r.ticker}</span></td>
+              <td>${r.strategy||"—"}</td>
+              <td>${rptShortExp(r.expiry)}</td>
+              <td>${r.net_market_value!=null?"$"+r.net_market_value.toFixed(0):"—"}</td>
+              <td class="muted small">${r.note||"—"}</td>
+              <td></td>`;
+            const btn2 = document.createElement("button");
+            btn2.className = "dr-action-btn";
+            btn2.textContent = "Close report →";
+            btn2.onclick = () => {
+              const sec2 = document.getElementById("rpt-sell-section");
+              if (sec2) sec2.open = true;
+              if (window.selectPosCard) window.selectPosCard("rpt-sell-pos-grid", "rpt-sell-position", r.synthesized_id);
+              sec2?.scrollIntoView({ behavior: "smooth", block: "start" });
+            };
+            tr.lastElementChild.appendChild(btn2);
+            tb.appendChild(tr);
+          }
+          t.appendChild(tb); tbl.appendChild(t);
+        }
+        if (sec) sec.style.display = "block";
+      }
+
+      // ── Entry candidates
+      if (d.entry_candidates && d.entry_candidates.length) {
+        hasAny = true;
+        const sec = document.getElementById("dr-section-entry");
+        const cnt = document.getElementById("dr-entry-count");
+        const tbl = document.getElementById("dr-entry-table");
+        if (cnt) cnt.textContent = d.entry_candidates.length;
+        if (tbl) {
+          tbl.innerHTML = "";
+          const t = document.createElement("table"); t.className = "dr-table";
+          t.innerHTML = `<thead><tr><th>Ticker</th><th>Action</th><th>IV Rank</th><th>Earnings</th><th>Conc %</th><th></th></tr></thead>`;
+          const tb = document.createElement("tbody");
+          for (const r of d.entry_candidates) {
+            const aCls = r.action === "NEW_ENTRY" ? "badge-blue" : "badge-gray";
+            const tr = document.createElement("tr");
+            tr.innerHTML = `
+              <td><span class="ticker">${r.ticker}</span></td>
+              <td><span class="badge ${aCls}">${(r.action||"—").replace(/_/g," ")}</span></td>
+              <td>${r.iv_rank!=null?r.iv_rank.toFixed(1)+"%":"—"}</td>
+              <td>${r.days_to_earnings!=null?r.days_to_earnings+"d":"—"}</td>
+              <td>${rptFmtPct(r.concentration_pct)}</td>
+              <td></td>`;
+            const btn2 = document.createElement("button");
+            btn2.className = "dr-action-btn";
+            btn2.textContent = "Trade report →";
+            btn2.onclick = () => {
+              const sec2 = document.getElementById("rpt-new-section");
+              if (sec2) sec2.open = true;
+              if (window.setTypeaheadTicker) window.setTypeaheadTicker("rpt-new-ticker", r.ticker);
+              sec2?.scrollIntoView({ behavior: "smooth", block: "start" });
+              setTimeout(() => document.getElementById("rpt-new-run")?.click(), 200);
+            };
+            tr.lastElementChild.appendChild(btn2);
+            tb.appendChild(tr);
+          }
+          t.appendChild(tb); tbl.appendChild(t);
+        }
+        if (sec) sec.style.display = "block";
+      }
+
+      // ── Post-earnings
+      if (d.post_earnings_candidates && d.post_earnings_candidates.length) {
+        hasAny = true;
+        const sec = document.getElementById("dr-section-postearnings");
+        const cnt = document.getElementById("dr-postearnings-count");
+        const tbl = document.getElementById("dr-postearnings-table");
+        if (cnt) cnt.textContent = d.post_earnings_candidates.length;
+        if (tbl) {
+          tbl.innerHTML = "";
+          const t = document.createElement("table"); t.className = "dr-table";
+          t.innerHTML = `<thead><tr><th>Ticker</th><th>Days since earnings</th><th>Price</th><th>Note</th></tr></thead>`;
+          const tb = document.createElement("tbody");
+          for (const r of d.post_earnings_candidates) {
+            const tr = document.createElement("tr");
+            tr.innerHTML = `
+              <td><span class="ticker">${r.ticker}</span></td>
+              <td>${r.days_since_earnings}d</td>
+              <td>${rptFmtPrice(r.current_price)}</td>
+              <td class="muted small">${r.note||"—"}</td>`;
+            tb.appendChild(tr);
+          }
+          t.appendChild(tb); tbl.appendChild(t);
+        }
+        if (sec) sec.style.display = "block";
+      }
+
+      // ── All clear
+      if (!hasAny) {
+        const sec = document.getElementById("dr-section-allclear");
+        if (sec) sec.style.display = "block";
+      }
+
+    } catch (e) {
+      const card = document.getElementById("daily-report-card");
+      if (card) {
+        const err = document.createElement("div");
+        err.className = "error-banner";
+        err.style.marginTop = "12px";
+        err.innerHTML = `<span>Daily report failed: ${escapeHtml(e.message)}</span>`;
+        card.appendChild(err);
+      }
+    } finally {
+      if (spinner) spinner.style.display = "none";
+      btn.disabled = false;
+      btn.textContent = "↺ Refresh report";
+    }
+  });
+})();
+
 // ─── Live alerts banner auto-check on refreshAll ───────────────────────────────
 // Hook into the global refreshAll cycle to silently check for critical alerts
 // and show/update the live-alerts banner (item D).
