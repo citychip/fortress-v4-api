@@ -195,8 +195,9 @@ async def preview_sync():
             net_liq = excess_liq = avail_funds = daily_pnl = unrealized_pnl = None
 
         # Summarise by strategy without saving
+        # aggregate_positions_by_ticker expects the full positions dict, not a bare list
         from app.services.state import aggregate_positions_by_ticker
-        aggregated = aggregate_positions_by_ticker(positions)
+        aggregated = aggregate_positions_by_ticker({"positions": positions})
 
         return {
             "backend": "web_api",
