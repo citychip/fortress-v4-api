@@ -807,72 +807,41 @@
        ================================================================ -->
   <div class="tab-content" data-content="data">
 
-    <!-- IBKR sync + TradingView upload -->
-    <div class="row row-2">
-      <div class="card">
-        <h2>Sync from IBKR</h2>
-        <p class="muted small">Pulls positions, account data, and OPRA Greeks via the active backend
-          (Client Portal Gateway / Web API by default; falls back to BS-yfinance if the Web API is
-          unavailable). Backend resolution is configurable in
-          <a href="#" onclick="navigateToTab('settings');return false;">Settings</a>.</p>
-        <div id="ibkr-gateway-status" style="margin:10px 0; padding:10px 12px; border-radius:6px; background:var(--color-bg-secondary); border:0.5px solid var(--color-border-tertiary); font-size:13px;">
-          <span class="dot dot-gray" id="gw-dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#888;margin-right:6px;vertical-align:middle;"></span>
-          <span id="gw-status-text">Checking backend…</span>
-        </div>
-        <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap;">
-          <button class="action-cta action-cta-primary" id="ibkr-sync-btn" onclick="triggerIbkrSync()">
-            ↺ Sync from IBKR
-          </button>
-          <button class="action-cta" id="ibkr-preview-btn" onclick="previewIbkrSync()">
-            Preview (dry run)
-          </button>
-          <button class="action-cta" id="ibkr-test-btn" onclick="testIbkrConnection()">
-            Test connection
-          </button>
-          <button class="action-cta" id="ibkr-refresh-cap-btn" onclick="refreshIbkrCapability()">
-            ↻ Refresh status
-          </button>
-        </div>
-        <div id="ibkr-sync-result" style="margin-top:12px; font-size:13px;"></div>
+    <!-- IBKR sync -->
+    <div class="card">
+      <h2>Sync from IBKR</h2>
+      <p class="muted small">Pulls positions, account data, and OPRA Greeks via the active backend
+        (Client Portal Gateway / Web API by default; falls back to BS-yfinance if the Web API is
+        unavailable). Backend resolution is configurable in
+        <a href="#" onclick="navigateToTab('settings');return false;">Settings</a>.
+        Chart overlays (DP floors, GEX walls, 200-SMA) are sourced live from QuantData and yfinance
+        — no manual chart uploads required.</p>
+      <div id="ibkr-gateway-status" style="margin:10px 0; padding:10px 12px; border-radius:6px; background:var(--color-bg-secondary); border:0.5px solid var(--color-border-tertiary); font-size:13px;">
+        <span class="dot dot-gray" id="gw-dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#888;margin-right:6px;vertical-align:middle;"></span>
+        <span id="gw-status-text">Checking backend…</span>
       </div>
-
-      <div class="card">
-        <h2>TradingView chart upload</h2>
-        <p class="muted small">Upload an annotated chart for a specific ticker and decision context.
-          PNG or JPEG, max 10 MB.</p>
-        <div class="form-row" style="align-items:center;gap:14px;flex-wrap:wrap;">
-          <label style="flex-direction:column;gap:4px;font-size:12px;color:var(--color-text-secondary)">
-            Ticker
-            <div class="typeahead-wrap">
-              <input type="text" id="chart-ticker" class="typeahead-input" placeholder="MSFT" maxlength="10" autocomplete="off">
-              <div class="typeahead-dropdown" id="chart-ticker-dd"></div>
-            </div>
-          </label>
-          <label style="flex-direction:column;gap:4px;font-size:12px;color:var(--color-text-secondary)">
-            Context
-            <div class="btn-group" id="chart-context-group" data-value="pre_trade_chart_confirmation">
-              <button class="btn-group-item active" data-val="pre_trade_chart_confirmation">Pre-trade</button>
-              <button class="btn-group-item" data-val="post_earnings_playbook">Post-earnings</button>
-              <button class="btn-group-item" data-val="roll_candidate_evaluation">Roll</button>
-              <button class="btn-group-item" data-val="position_monitoring">Monitor</button>
-              <button class="btn-group-item" data-val="stop_loss_signal_check">Stop-loss</button>
-            </div>
-            <input type="hidden" id="chart-context" value="pre_trade_chart_confirmation">
-          </label>
-        </div>
-        <div class="upload-zone" id="chart-upload-zone">
-          <p>Click to select or drag a PNG/JPEG here</p>
-          <input type="file" id="chart-file-input" accept="image/png,image/jpeg" style="display:none;">
-        </div>
-        <div id="chart-upload-result"></div>
+      <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap;">
+        <button class="action-cta action-cta-primary" id="ibkr-sync-btn" onclick="triggerIbkrSync()">
+          ↺ Sync from IBKR
+        </button>
+        <button class="action-cta" id="ibkr-preview-btn" onclick="previewIbkrSync()">
+          Preview (dry run)
+        </button>
+        <button class="action-cta" id="ibkr-test-btn" onclick="testIbkrConnection()">
+          Test connection
+        </button>
+        <button class="action-cta" id="ibkr-refresh-cap-btn" onclick="refreshIbkrCapability()">
+          ↻ Refresh status
+        </button>
       </div>
+      <div id="ibkr-sync-result" style="margin-top:12px; font-size:13px;"></div>
     </div>
 
-    <!-- Recent uploads -->
+    <!-- IBKR sync history -->
     <div class="card">
-      <h2>Recent uploads</h2>
-      <p class="muted small">Last 20 uploads — IBKR screenshots and TradingView charts.</p>
-      <div id="uploads-list"><div class="loading">Loading uploads…</div></div>
+      <h2>IBKR sync history</h2>
+      <p class="muted small">Last 20 IBKR syncs — timestamps, position counts, and account snapshots.</p>
+      <div id="uploads-list"><div class="loading">Loading sync history…</div></div>
     </div>
 
     <!-- Ticker universe + Earnings calendar -->

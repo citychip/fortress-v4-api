@@ -281,16 +281,9 @@
     // ── Typeahead: Order flow ticker ───────────────────────────────────────
     _makeTypeahead("of-ticker", "of-ticker-dd", tickers);
 
-    // ── Button group: Order flow side ──────────────────────────────────────
+      // ── Button group: Order flow side ──────────────────────────────
     _wireButtonGroup("of-side-group", "of-side");
 
-    // ── Typeahead: TradingView upload ticker ───────────────────────────────
-    _makeTypeahead("chart-ticker", "chart-ticker-dd", tickers);
-
-    // ── Button group: TradingView upload context ───────────────────────────
-    _wireButtonGroup("chart-context-group", "chart-context");
-
-    // ── Position card grids: Manage tab ───────────────────────────────────
     const shortPositions = positions.filter(p => p.short_strike != null && p.strategy !== "SPY_HEDGE");
 
     _renderPosGrid("stop-loss-pos-grid", "stop-loss-position", positions, null, (pos) => {

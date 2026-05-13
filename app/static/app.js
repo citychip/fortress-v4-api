@@ -1118,57 +1118,30 @@ setupUploadZone("ibkr-upload-zone", "ibkr-file-input", async (file) => {
   }
 });
 
-setupUploadZone("chart-upload-zone", "chart-file-input", async (file) => {
-  const ticker = (document.getElementById("chart-ticker")?.value || "").trim().toUpperCase();
-  const context = document.getElementById("chart-context")?.value || "";
-  const result = document.getElementById("chart-upload-result");
-  if (!ticker) {
-    if (result) result.innerHTML = '<div class="error-banner"><span>Select a ticker from the dropdown first</span></div>';
-    return;
-  }
-  if (result) result.innerHTML = '<div class="loading">Uploading…</div>';
-  const fd = new FormData();
-  fd.append("ticker", ticker);
-  fd.append("context", context);
-  fd.append("file", file);
-  try {
-    const res = await authFetch("/api/uploads/chart", { method: "POST", body: fd });
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
-    if (result) result.innerHTML = `<div class="upload-result"><p><strong>Chart uploaded for ${data.ticker}</strong> (${data.context})</p></div>`;
-    refreshUploadsList();
-  } catch (e) {
-    if (result) result.innerHTML = `<div class="error-banner"><span>Upload failed: ${e.message}</span></div>`;
-  }
-});
-
 async function refreshUploadsList() {
   const target = document.getElementById("uploads-list");
   if (!target) return;
   const data = await apiFetch("/api/uploads");
   if (!data) return showError(target, "uploads");
   target.innerHTML = "";
-  const all = [
-    ...(data.ibkr_uploads || []).map(u => ({ ...u, type: "IBKR" })),
-    ...(data.chart_annotations || []).map(c => ({ ...c, type: "Chart" })),
-  ].sort((a, b) => (b.timestamp || "").localeCompare(a.timestamp || ""));
-  if (all.length === 0) {
-    target.appendChild(el("div", { class: "empty-state" }, "No uploads yet."));
+  const syncs = (data.ibkr_uploads || []).sort((a, b) => (b.timestamp || "").localeCompare(a.timestamp || ""));
+  if (syncs.length === 0) {
+    target.appendChild(el("div", { class: "empty-state" }, "No IBKR syncs recorded yet."));
     return;
   }
   const table = el("table");
   table.appendChild(el("thead", {}, el("tr", {},
-    el("th", {}, "Type"), el("th", {}, "Ticker / context"), el("th", {}, "When"), el("th", {}, "Status")
+    el("th", {}, "When"), el("th", {}, "Backend"), el("th", {}, "Positions"), el("th", {}, "Status")
   )));
   const tbody = el("tbody");
-  for (const item of all.slice(0, 20)) {
-    const status = item.type === "IBKR"
-      ? (item.applied_to_positions ? "applied" : (item.ocr_status || "pending"))
-      : (item.read ? "annotated" : "uploaded");
+  for (const item of syncs.slice(0, 20)) {
+    const status = item.applied_to_positions ? "applied" : (item.ocr_status || "pending");
+    const backend = item.backend || item.source || "—";
+    const posCount = item.positions_count != null ? item.positions_count : (item.ocr_results ? item.ocr_results.length : "—");
     tbody.appendChild(el("tr", {},
-      el("td", {}, el("span", { class: "pill pill-mute" }, item.type)),
-      el("td", {}, item.ticker || item.context || "—"),
       el("td", { class: "muted small" }, fmt.shortDate(item.timestamp)),
+      el("td", {}, el("span", { class: "pill pill-mute" }, backend)),
+      el("td", {}, posCount),
       el("td", {}, el("span", { class: "pill pill-info" }, status))
     ));
   }
