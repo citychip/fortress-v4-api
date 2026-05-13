@@ -62,7 +62,15 @@ def evaluate_stop_loss(
     score = 0  # 0=safe, 1=watch, 2=act, 3=act_immediately
 
     # ── Signal 1: Delta breach ────────────────────────────────────────────
-    if current_delta is not None:
+    # Delta signals only apply to positions with an active SHORT leg that can
+    # drift against us.  Long-only positions (LEAPS, standalone long calls) and
+    # covered calls (CC) have high delta by design — never flag them.
+    _delta_eligible_strategies = {"PCS", "PMCC", "DIAGONAL", "JADE_LIZARD", "MIXED", "CC"}
+    # For CC we DO want to monitor the short call delta, but the position dict
+    # will have a real short call so current_delta will be the short call's delta.
+    # For LEAPS there is no short leg — skip entirely.
+    _skip_delta = strategy in ("LEAPS", "SPY_HEDGE", "STOCK")
+    if current_delta is not None and not _skip_delta:
         abs_delta = abs(float(current_delta))
         if abs_delta >= delta_critical:
             signals.append("delta_critical")

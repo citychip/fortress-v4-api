@@ -437,8 +437,12 @@ def aggregate_positions_by_ticker(positions_data: dict) -> list[dict]:
                 strategy = "PCS"
             elif has_short_call and has_long_put and not has_long_call:
                 strategy = "JADE_LIZARD"
-            elif has_short_call and not has_long_call and not has_short_put:
-                strategy = "PCS"
+            elif has_long_call and not has_short_call and not has_short_put and not has_long_put:
+                # Long call only — standalone LEAP or PMCC anchor without a short overlay yet
+                strategy = "LEAPS"
+            elif has_short_call and not has_long_call and not has_short_put and not has_long_put:
+                # Short call only — covered call (CC) or naked call
+                strategy = "CC"
             elif has_stock and not has_short_call and not has_long_call:
                 strategy = "STOCK"
             else:

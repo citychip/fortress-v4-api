@@ -173,6 +173,12 @@ def _map_position(p, existing):
     strategy = matched.get("strategy") if matched else None
     alert_state = matched.get("alert_state") if matched else None
 
+    # Determine leg direction from qty sign so downstream code never has to
+    # guess from field names.  qty < 0 → short (sold), qty > 0 → long (bought).
+    leg_direction = None
+    if qty is not None:
+        leg_direction = "short" if qty < 0 else "long"
+
     return {
         "ticker": ticker,
         "sec_type": sec_type,
@@ -180,8 +186,13 @@ def _map_position(p, existing):
         "qty": qty,
         "avg_cost": avg_cost,
         "expiry": expiry,
+        # Canonical strike — same value regardless of leg direction.
+        # 'short_strike' kept as alias for backward compat with downstream code
+        # that has not yet been migrated to use 'strike'.
+        "strike": strike,
         "short_strike": strike,
         "long_strike": None,
+        "leg_direction": leg_direction,
         "right": right,
         "multiplier": multiplier,
         "local_symbol": p.get("contractDesc"),

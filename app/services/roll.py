@@ -113,7 +113,11 @@ def evaluate_roll(
             urgency = "APPROACHING"
             reasons.append(f"DTE {current_dte} ≤ target DTE low {dte_low}")
 
-    if current_delta is not None:
+    # Delta roll signals only apply to positions with an active short leg.
+    # LEAPS (long call only) and STOCK positions have high delta by design.
+    _strategy = (position.get("strategy") or "").upper()
+    _skip_delta_roll = _strategy in ("LEAPS", "SPY_HEDGE", "STOCK")
+    if current_delta is not None and not _skip_delta_roll:
         abs_d = abs(float(current_delta))
         if abs_d > cfg("strategy.delta_critical_threshold", 0.40):
             roll_needed = True

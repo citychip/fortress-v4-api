@@ -183,6 +183,12 @@ def stop_loss_all():
         ticker = (pos.get("ticker") or "").upper()
         if not ticker:
             continue
+        _strat = (pos.get("strategy") or "").upper()
+        # LEAPS are intentional long-dated long calls — never stop-loss scan them.
+        # STOCK positions are evaluated on price/SMA only (no delta signal).
+        # SPY_HEDGE is a protective position — never close it on stop-loss signals.
+        if _strat in ("SPY_HEDGE",):
+            continue
         try:
             latest_price = chain_svc.get_spot(ticker)
             sma_200 = chain_svc.get_sma(ticker, 200)
@@ -299,11 +305,14 @@ def roll_all():
         if not ticker:
             continue
         strategy = (pos.get("strategy") or "").upper()
-        if strategy == "SPY_HEDGE":
+        if strategy in ("SPY_HEDGE", "STOCK"):
             continue  # not roll candidates
+        if strategy == "LEAPS":
+            continue  # LEAP long calls are intentionally long-dated; never roll-scan them
 
         roll_input = {
             "ticker": ticker,
+            "strategy": strategy,
             "short_strike": pos.get("short_strike"),
             "expiry": pos.get("short_expiry") or pos.get("expiry"),
             "qty": pos.get("qty") or 1,
@@ -921,10 +930,12 @@ def monitor_alerts():
         if not ticker or ticker in alerted_tickers:
             continue
 
-        # Skip positions that have no real short call leg — LEAP long-only positions
-        # (qty > 0, right == 'C') have high delta by design and must not trigger alerts.
-        # We check the aggregated legs list; if there is no leg with qty < 0 and right C,
-        # there is nothing to roll or stop-loss.
+        _strat = (pos.get("strategy") or "").upper()
+        # LEAPS, SPY_HEDGE, and STOCK are never stop-loss or roll candidates
+        # from the position monitor — they are intentional long-dated / protective positions.
+        if _strat in ("LEAPS", "SPY_HEDGE", "STOCK"):
+            continue
+        # For PMCC and DIAGONAL, only fire alerts when there is an active short call leg.
         _legs = pos.get("legs") or []
         _has_real_short_call = any(
             (l.get("right") or "") == "C" and (l.get("qty") or 0) < 0
@@ -935,9 +946,8 @@ def monitor_alerts():
             _pos_qty = pos.get("qty") or 0
             _pos_right = (pos.get("right") or "").upper()
             _has_real_short_call = _pos_qty < 0 and _pos_right == "C"
-        _strat = (pos.get("strategy") or "").upper()
-        # PMCC/DIAGONAL/LEAPS without a short call overlay — skip entirely
-        if _strat in ("PMCC", "DIAGONAL", "LEAPS") and not _has_real_short_call:
+        # PMCC/DIAGONAL without a short call overlay — skip entirely
+        if _strat in ("PMCC", "DIAGONAL") and not _has_real_short_call:
             continue
 
         # Stop-loss check
