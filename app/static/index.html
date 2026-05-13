@@ -365,10 +365,11 @@
       <h2>Stop-loss aggregator</h2>
       <p class="muted small">Strategy v3.5 §6 multi-signal logic — 2 of 3 signals fired = act.
         <em>Sources: yfinance (spot / 200-SMA), latest QuantData Daily Report (DP floors).</em></p>
-      <div class="form-row">
-        <label>Position
-          <select id="stop-loss-position"><option>Loading…</option></select>
-        </label>
+      <p class="muted small" style="margin-bottom:8px">Click a position to evaluate it:</p>
+      <div class="pos-card-grid" id="stop-loss-pos-grid"><div class="loading">Loading positions…</div></div>
+      <!-- hidden value holder keeps JS compatibility -->
+      <input type="hidden" id="stop-loss-position">
+      <div class="form-row" style="margin-top:4px">
         <label class="checkbox-label">
           <input type="checkbox" id="stop-loss-fundamental">
           <span>Fundamental break (§6 signal 3)</span>
@@ -379,7 +380,7 @@
         <label>Current MV (optional)
           <input type="number" id="stop-loss-current-mv" step="100" placeholder="—">
         </label>
-        <button class="action-cta action-cta-primary" id="stop-loss-run">Evaluate</button>
+        <button class="action-cta action-cta-primary" id="stop-loss-run">Evaluate selected</button>
       </div>
       <div id="stop-loss-result" class="phase4-result"></div>
     </div>
@@ -389,10 +390,11 @@
       <h2>Roll candidate evaluator</h2>
       <p class="muted small">Strategy §5 — short calls only. Default DTE 30–45, delta 0.20–0.25.
         Returns top 3 candidates with IBKR ticket text. <em>Source: yfinance option chain.</em></p>
-      <div class="form-row">
-        <label>Position
-          <select id="roll-position"><option>Loading…</option></select>
-        </label>
+      <p class="muted small" style="margin-bottom:8px">Click a short position to find roll candidates:</p>
+      <div class="pos-card-grid" id="roll-pos-grid"><div class="loading">Loading positions…</div></div>
+      <!-- hidden value holder keeps JS compatibility -->
+      <input type="hidden" id="roll-position">
+      <div class="form-row" style="margin-top:4px">
         <label>DTE band
           <input type="number" id="roll-dte-low"   value="30" min="1"   max="180" style="width:60px"> –
           <input type="number" id="roll-dte-high"  value="45" min="1"   max="365" style="width:60px">
@@ -466,21 +468,26 @@
       <p class="muted small">Walk through Strategy §8 before submitting an IBKR order.
         Hard gates: earnings blackout (§4), concentration (§7), VIX regime (§7).</p>
       <div id="pretrade-form">
-        <div class="form-row">
-          <label>Ticker
-            <select id="pt-ticker">
-              <option value="">— loading —</option>
-            </select>
+        <div class="form-row" style="align-items:center;gap:14px;">
+          <label style="flex-direction:column;gap:4px;font-size:12px;color:var(--color-text-secondary)">
+            Ticker
+            <div class="typeahead-wrap">
+              <input type="text" id="pt-ticker" class="typeahead-input" placeholder="MSFT" maxlength="10" autocomplete="off">
+              <div class="typeahead-dropdown" id="pt-ticker-dd"></div>
+            </div>
           </label>
-          <label>Strategy
-            <select id="pt-strategy" onchange="showJadeLizardGate()">
-              <option value="PMCC">PMCC (LEAP + short call)</option>
-              <option value="DIAGONAL">Diagonal</option>
-              <option value="PCS">Put credit spread</option>
-              <option value="JADE_LIZARD">Jade Lizard</option>
-              <option value="SPY_HEDGE">SPY hedge</option>
-            </select>
+          <label style="flex-direction:column;gap:4px;font-size:12px;color:var(--color-text-secondary)">
+            Strategy
+            <div class="btn-group" id="pt-strategy-group" data-value="PMCC">
+              <button class="btn-group-item active" data-val="PMCC">PMCC</button>
+              <button class="btn-group-item" data-val="DIAGONAL">Diagonal</button>
+              <button class="btn-group-item" data-val="PCS">PCS</button>
+              <button class="btn-group-item" data-val="JADE_LIZARD">Jade Lizard</button>
+              <button class="btn-group-item" data-val="SPY_HEDGE">SPY Hedge</button>
+            </div>
           </label>
+          <!-- hidden input keeps JS compatibility -->
+          <input type="hidden" id="pt-strategy" value="PMCC">
           <button class="action-cta action-cta-primary" id="pt-check">Check gates</button>
         </div>
       </div>
@@ -530,21 +537,22 @@
       <h2>Price chart — Dark Pool &amp; GEX overlays</h2>
       <p class="muted small">Candlestick chart with DP Hard Floors (red dashed) and GEX walls (green/orange dashed)
         sourced from the latest QuantData Daily Report.</p>
-      <div class="form-row" style="margin-bottom:10px;">
-        <label>Ticker
-          <select id="chart-ticker-select" onchange="renderChart(this.value, document.getElementById('chart-period-select').value)">
-            <option value="">— loading —</option>
-          </select>
-        </label>
-        <label>Period
-          <select id="chart-period-select" onchange="renderChart(document.getElementById('chart-ticker-select').value, this.value)">
-            <option value="1mo">1 month</option>
-            <option value="3mo" selected>3 months</option>
-            <option value="6mo">6 months</option>
-            <option value="1y">1 year</option>
-          </select>
-        </label>
-        <button class="action-cta" onclick="refreshChartLevels()" style="align-self:flex-end">Refresh levels</button>
+      <div style="margin-bottom:10px;">
+        <div class="ticker-pill-row" id="chart-ticker-pills"><span class="muted small">Loading tickers…</span></div>
+        <!-- hidden value holder keeps JS compatibility -->
+        <input type="hidden" id="chart-ticker-select">
+        <div style="display:flex;align-items:center;gap:10px;margin-top:6px;">
+          <span style="font-size:12px;color:var(--color-text-secondary)">Period</span>
+          <div class="btn-group" id="chart-period-group" data-value="3mo">
+            <button class="btn-group-item" data-val="1mo">1M</button>
+            <button class="btn-group-item active" data-val="3mo">3M</button>
+            <button class="btn-group-item" data-val="6mo">6M</button>
+            <button class="btn-group-item" data-val="1y">1Y</button>
+          </div>
+          <!-- hidden input keeps JS compatibility -->
+          <input type="hidden" id="chart-period-select" value="3mo">
+          <button class="action-cta" onclick="refreshChartLevels()" style="margin-left:auto">Refresh levels</button>
+        </div>
       </div>
       <div id="chart-container" style="height:420px;background:#161a1e;border-radius:6px;overflow:hidden;">
         <p class="muted small" style="padding:16px">Select a ticker above to load the chart.</p>
@@ -556,10 +564,12 @@
       <h2>Post-earnings playbook</h2>
       <p class="muted small">Strategy v3.5 §10 matrix + §7 concentration override + thesis-health gate.</p>
       <div class="form-row">
-        <label>Ticker
-          <select id="pb-ticker">
-            <option value="">— loading —</option>
-          </select>
+        <label style="flex-direction:column;gap:4px;font-size:12px;color:var(--color-text-secondary)">
+          Ticker
+          <div class="typeahead-wrap">
+            <input type="text" id="pb-ticker" class="typeahead-input" placeholder="MSFT" maxlength="10" autocomplete="off">
+            <div class="typeahead-dropdown" id="pb-ticker-dd"></div>
+          </div>
         </label>
         <label>Gap %
           <input type="number" id="pb-gap" step="0.1" placeholder="-5.2">
@@ -594,12 +604,13 @@
         before entering a new position (Strategy §4.1 Gate 6).
         Requires QuantData credentials in Settings &gt; Security.
       </p>
-      <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px">
+      <div style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px">
         <div class="form-group" style="margin:0">
           <label class="settings-label">Ticker</label>
-          <select id="of-ticker" class="settings-input" style="width:130px">
-            <option value="">— select —</option>
-          </select>
+          <div class="typeahead-wrap">
+            <input type="text" id="of-ticker" class="typeahead-input" placeholder="MSFT" maxlength="10" autocomplete="off">
+            <div class="typeahead-dropdown" id="of-ticker-dd"></div>
+          </div>
         </div>
         <div class="form-group" style="margin:0">
           <label class="settings-label">Min premium ($)</label>
@@ -607,11 +618,12 @@
         </div>
         <div class="form-group" style="margin:0">
           <label class="settings-label">Side</label>
-          <select id="of-side" class="settings-input" style="width:90px">
-            <option value="">Both</option>
-            <option value="CALL">Calls</option>
-            <option value="PUT">Puts</option>
-          </select>
+          <div class="btn-group" id="of-side-group" data-value="">
+            <button class="btn-group-item active" data-val="">Both</button>
+            <button class="btn-group-item" data-val="CALL">Calls</button>
+            <button class="btn-group-item" data-val="PUT">Puts</button>
+          </div>
+          <input type="hidden" id="of-side" value="">
         </div>
         <button class="action-cta action-cta-secondary" onclick="loadOrderFlow()" style="margin-bottom:1px">Load flow</button>
       </div>
@@ -673,27 +685,30 @@
     <div class="card">
       <h2>New trade evaluation</h2>
       <p class="muted small">Deep-dive report for a single ticker: gates, IV rank, DP floors, GEX walls, earnings, concentration, and recommended structure.</p>
-      <div class="form-row">
-        <label>Ticker
-          <select id="rpt-new-ticker"><option value="">— loading —</option></select>
+      <div class="form-row" style="align-items:center;gap:14px;flex-wrap:wrap;">
+        <label style="flex-direction:column;gap:4px;font-size:12px;color:var(--color-text-secondary)">
+          Ticker
+          <div class="typeahead-wrap">
+            <input type="text" id="rpt-new-ticker" class="typeahead-input" placeholder="MSFT" maxlength="10" autocomplete="off">
+            <div class="typeahead-dropdown" id="rpt-new-ticker-dd"></div>
+          </div>
         </label>
-        <label>Strategy
-          <select id="rpt-new-strategy">
-            <option value="PMCC">PMCC</option>
-            <option value="DIAGONAL">Diagonal</option>
-            <option value="PCS">Put credit spread</option>
-            <option value="JADE_LIZARD">Jade Lizard</option>
-            <option value="SPY_HEDGE">SPY hedge</option>
-            <option value="COVERED_CALL">Covered call</option>
-            <option value="IRON_CONDOR">Iron condor</option>
-            <option value="STRADDLE">Straddle</option>
-            <option value="STRANGLE">Strangle</option>
-          </select>
+        <label style="flex-direction:column;gap:4px;font-size:12px;color:var(--color-text-secondary)">
+          Strategy
+          <div class="btn-group" id="rpt-new-strategy-group" data-value="PMCC">
+            <button class="btn-group-item active" data-val="PMCC">PMCC</button>
+            <button class="btn-group-item" data-val="PCS">PCS</button>
+            <button class="btn-group-item" data-val="DIAGONAL">Diagonal</button>
+            <button class="btn-group-item" data-val="JADE_LIZARD">Jade Lizard</button>
+            <button class="btn-group-item" data-val="COVERED_CALL">CC</button>
+            <button class="btn-group-item" data-val="IRON_CONDOR">IC</button>
+          </div>
+          <input type="hidden" id="rpt-new-strategy" value="PMCC">
         </label>
-        <label>Contracts
+        <label style="flex-direction:column;gap:4px;font-size:12px;color:var(--color-text-secondary)">Contracts
           <input type="number" id="rpt-new-qty" value="1" min="1" max="100" style="width:70px">
         </label>
-        <button class="action-cta action-cta-primary" id="rpt-new-run">Generate report</button>
+        <button class="action-cta action-cta-primary" id="rpt-new-run" style="align-self:flex-end">Generate report</button>
       </div>
       <div id="rpt-new-result" class="phase4-result"></div>
     </div>
@@ -702,10 +717,10 @@
     <div class="card">
       <h2>Roll evaluation report</h2>
       <p class="muted small">Full roll analysis for a position: current Greeks, P&amp;L, DTE, and top 3 roll candidates with IBKR ticket text.</p>
-      <div class="form-row">
-        <label>Position
-          <select id="rpt-roll-position"><option>Loading…</option></select>
-        </label>
+      <p class="muted small" style="margin-bottom:8px">Click a short position to analyse:</p>
+      <div class="pos-card-grid" id="rpt-roll-pos-grid"><div class="loading">Loading positions…</div></div>
+      <input type="hidden" id="rpt-roll-position">
+      <div class="form-row" style="margin-top:4px">
         <label>DTE band
           <input type="number" id="rpt-roll-dte-low" value="30" min="1" max="180" style="width:60px"> –
           <input type="number" id="rpt-roll-dte-high" value="45" min="1" max="365" style="width:60px">
@@ -723,29 +738,33 @@
     <div class="card">
       <h2>Buy / open position report</h2>
       <p class="muted small">Evaluate opening a new long or credit position: entry quality, sizing, margin impact, and order checklist.</p>
-      <div class="form-row">
-        <label>Ticker
-          <select id="rpt-buy-ticker"><option value="">— loading —</option></select>
+      <div class="form-row" style="align-items:center;gap:14px;flex-wrap:wrap;">
+        <label style="flex-direction:column;gap:4px;font-size:12px;color:var(--color-text-secondary)">
+          Ticker
+          <div class="typeahead-wrap">
+            <input type="text" id="rpt-buy-ticker" class="typeahead-input" placeholder="MSFT" maxlength="10" autocomplete="off">
+            <div class="typeahead-dropdown" id="rpt-buy-ticker-dd"></div>
+          </div>
         </label>
-        <label>Strategy
-          <select id="rpt-buy-strategy">
-            <option value="PMCC">PMCC</option>
-            <option value="DIAGONAL">Diagonal</option>
-            <option value="PCS">Put credit spread</option>
-            <option value="JADE_LIZARD">Jade Lizard</option>
-            <option value="COVERED_CALL">Covered call</option>
-            <option value="IRON_CONDOR">Iron condor</option>
-            <option value="STRADDLE">Straddle</option>
-            <option value="STRANGLE">Strangle</option>
-          </select>
+        <label style="flex-direction:column;gap:4px;font-size:12px;color:var(--color-text-secondary)">
+          Strategy
+          <div class="btn-group" id="rpt-buy-strategy-group" data-value="PMCC">
+            <button class="btn-group-item active" data-val="PMCC">PMCC</button>
+            <button class="btn-group-item" data-val="PCS">PCS</button>
+            <button class="btn-group-item" data-val="DIAGONAL">Diagonal</button>
+            <button class="btn-group-item" data-val="JADE_LIZARD">Jade Lizard</button>
+            <button class="btn-group-item" data-val="COVERED_CALL">CC</button>
+            <button class="btn-group-item" data-val="IRON_CONDOR">IC</button>
+          </div>
+          <input type="hidden" id="rpt-buy-strategy" value="PMCC">
         </label>
-        <label>Target credit/debit ($/share)
+        <label style="flex-direction:column;gap:4px;font-size:12px;color:var(--color-text-secondary)">Target credit/debit ($/share)
           <input type="number" id="rpt-buy-credit" step="0.01" placeholder="3.50">
         </label>
-        <label>Contracts
+        <label style="flex-direction:column;gap:4px;font-size:12px;color:var(--color-text-secondary)">Contracts
           <input type="number" id="rpt-buy-qty" value="1" min="1" max="100" style="width:70px">
         </label>
-        <button class="action-cta action-cta-primary" id="rpt-buy-run">Generate report</button>
+        <button class="action-cta action-cta-primary" id="rpt-buy-run" style="align-self:flex-end">Generate report</button>
       </div>
       <div id="rpt-buy-result" class="phase4-result"></div>
     </div>
@@ -754,10 +773,10 @@
     <div class="card">
       <h2>Sell / close position report</h2>
       <p class="muted small">Evaluate closing or reducing a position: P&amp;L realisation, tax lot impact, margin release, and post-close checklist.</p>
-      <div class="form-row">
-        <label>Position
-          <select id="rpt-sell-position"><option>Loading…</option></select>
-        </label>
+      <p class="muted small" style="margin-bottom:8px">Click a position to evaluate closing it:</p>
+      <div class="pos-card-grid" id="rpt-sell-pos-grid"><div class="loading">Loading positions…</div></div>
+      <input type="hidden" id="rpt-sell-position">
+      <div class="form-row" style="margin-top:4px">
         <label>Close price ($/share)
           <input type="number" id="rpt-sell-price" step="0.01" placeholder="2.10">
         </label>
@@ -807,6 +826,12 @@
           <button class="action-cta" id="ibkr-preview-btn" onclick="previewIbkrSync()">
             Preview (dry run)
           </button>
+          <button class="action-cta" id="ibkr-test-btn" onclick="testIbkrConnection()">
+            Test connection
+          </button>
+          <button class="action-cta" id="ibkr-refresh-cap-btn" onclick="refreshIbkrCapability()">
+            ↻ Refresh status
+          </button>
         </div>
         <div id="ibkr-sync-result" style="margin-top:12px; font-size:13px;"></div>
       </div>
@@ -815,20 +840,24 @@
         <h2>TradingView chart upload</h2>
         <p class="muted small">Upload an annotated chart for a specific ticker and decision context.
           PNG or JPEG, max 10 MB.</p>
-        <div class="form-row">
-          <label>Ticker
-            <select id="chart-ticker">
-              <option value="">— loading —</option>
-            </select>
+        <div class="form-row" style="align-items:center;gap:14px;flex-wrap:wrap;">
+          <label style="flex-direction:column;gap:4px;font-size:12px;color:var(--color-text-secondary)">
+            Ticker
+            <div class="typeahead-wrap">
+              <input type="text" id="chart-ticker" class="typeahead-input" placeholder="MSFT" maxlength="10" autocomplete="off">
+              <div class="typeahead-dropdown" id="chart-ticker-dd"></div>
+            </div>
           </label>
-          <label>Context
-            <select id="chart-context">
-              <option value="pre_trade_chart_confirmation">Pre-trade confirmation</option>
-              <option value="post_earnings_playbook">Post-earnings playbook</option>
-              <option value="roll_candidate_evaluation">Roll candidate</option>
-              <option value="position_monitoring">Position monitoring</option>
-              <option value="stop_loss_signal_check">Stop-loss check</option>
-            </select>
+          <label style="flex-direction:column;gap:4px;font-size:12px;color:var(--color-text-secondary)">
+            Context
+            <div class="btn-group" id="chart-context-group" data-value="pre_trade_chart_confirmation">
+              <button class="btn-group-item active" data-val="pre_trade_chart_confirmation">Pre-trade</button>
+              <button class="btn-group-item" data-val="post_earnings_playbook">Post-earnings</button>
+              <button class="btn-group-item" data-val="roll_candidate_evaluation">Roll</button>
+              <button class="btn-group-item" data-val="position_monitoring">Monitor</button>
+              <button class="btn-group-item" data-val="stop_loss_signal_check">Stop-loss</button>
+            </div>
+            <input type="hidden" id="chart-context" value="pre_trade_chart_confirmation">
           </label>
         </div>
         <div class="upload-zone" id="chart-upload-zone">
@@ -900,6 +929,7 @@
 <script src="/static/settings.js?v=f1a2b3c"></script>
 <script src="/static/universe.js?v=f1a2b3c"></script>
 <script src="/static/reports.js?v=f1a2b3c"></script>
+<script src="/static/nodrops.js?v=f1a2b3c"></script>
 <script>
 /* ── Fortress Dashboard v3 — inline enhancements ──
    Extends app.js without replacing it.
