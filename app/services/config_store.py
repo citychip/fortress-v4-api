@@ -55,9 +55,13 @@ DEFAULTS: dict[str, Any] = {
         # IBKR account — stored locally, never transmitted externally
         "ibkr_account_id":          "",          # set to your IBKR account number, e.g. U1234567
 
-        # QuantData API (set here OR via QUANTDATA_API_KEY env var; env var takes precedence)
+        # QuantData live API — JWT credentials from browser DevTools (see docs/07_MCP_Workflow)
+        # Obtain: open v3.quantdata.us → DevTools → Network → any /api/ request → Request Headers
+        "quantdata_auth_token":     "",   # Authorization header value (JWT, starts with 'Bearer ')
+        "quantdata_instance_id":    "",   # x-instance-id header value
+        "quantdata_api_base":       "https://core-lb-prod.quantdata.us/api",
+        # Legacy API key (unused — kept for backward compat)
         "quantdata_api_key":        "",
-        "quantdata_api_base":       "https://api.quantdata.us",
 
         # Dashboard Bearer token — display hint only; real value lives in FORTRESS_API_TOKEN env var
         "api_token_hint":           "(set via FORTRESS_API_TOKEN env var)",

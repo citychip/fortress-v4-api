@@ -35,7 +35,10 @@ Once the Fortress MCP is installed in Claude Desktop, every prompt below should 
 **Tool name reference** (full spec in `06_Fortress_MCP_Proposal_v1_1.md` §2):
 
 Read tools (Tier 1):
-`get_briefing`, `get_positions`, `get_candidates`, `get_calendar`, `get_universe`, `get_journal`, `get_alerts`, `get_dp_floors_and_gex`, `get_chart_data`, `evaluate_stop_loss`, `evaluate_roll`, `evaluate_post_earnings`, `validate_jade_lizard`, `get_spy_hedge_coverage`, `pretrade_check`, `get_ibkr_status`, `get_capability` (v1.1), `get_settings` (v1.1), `get_quantdata_reports`
+`get_briefing`, `get_positions`, `get_candidates`, `get_calendar`, `get_universe`, `get_journal`, `get_alerts`, `get_chart_data`, `evaluate_stop_loss`, `evaluate_roll`, `evaluate_post_earnings`, `validate_jade_lizard`, `get_spy_hedge_coverage`, `pretrade_check`, `get_ibkr_status`, `get_capability`, `get_settings`, `get_quantdata_reports`
+
+QuantData Live API tools (Tier 1, requires credentials):
+`qd_get_order_flow`, `qd_get_net_drift`, `qd_get_dark_pool_levels`, `qd_get_max_pain`, `qd_get_iv_rank`, `qd_get_oi_change`
 
 Write tools (Tier 2, opt-in):
 `add_journal_entry`, `add_alert`, `update_alert` (v1.1), `delete_alert`, `update_calendar`, `add_excluded_ticker`, `add_universe_ticker` (v1.1), `update_settings_section` (v1.1), `trigger_ibkr_sync`
@@ -104,9 +107,9 @@ Write tools (Tier 2, opt-in):
 
 > **prompt:** *"I'm thinking AMD PMCC. Run the pre-trade gates."*
 >
-> **tools:** `pretrade_check("AMD", "PMCC")`
+> **tools:** `pretrade_check("AMD", "PMCC")` → `qd_get_order_flow("AMD", min_premium=50000)`
 >
-> **response:** All four gates with verdict + reason: §3.3 exclusion, §4 earnings blackout, §7 concentration, §7 VIX. If any FAIL, names the rule and the override path (or says "no override available"). If all PASS, says "all four gates clear — chart confirmation next."
+> **response:** All five gates with verdict + reason: §3.3 exclusion, §4 earnings blackout, §7 concentration, §7 VIX, and the new LEAP blackout gate. If all PASS, checks recent QuantData order flow for large sweeps/blocks confirming the directional thesis (Gate 6). If flow contradicts thesis, warns the trader.
 >
 > **notes:** Per Strategy §15.1, a failing gate doesn't block — but Claude should make the trader explicitly acknowledge any override.
 
@@ -114,9 +117,9 @@ Write tools (Tier 2, opt-in):
 
 > **prompt:** *"For AMD PMCC, where should I be looking for the short strike? Pull the structural levels."*
 >
-> **tools:** `get_chart_data("AMD", period="6mo")` → `get_dp_floors_and_gex("AMD")`
+> **tools:** `get_chart_data("AMD", period="6mo")` → `qd_get_dark_pool_levels("AMD")`
 >
-> **response:** Current spot, 50-day SMA, 200-day SMA. Top 3 dark pool floors. Top 3 GEX call walls (resistance) and put walls (support). Suggests strike zones per §5: 7–10% OTM for the short call, ideally aligned with a GEX call wall or first chart resistance above current price.
+> **response:** Current spot, 50-day SMA, 200-day SMA. Top 3 dark pool floors from live QuantData API. Top 3 GEX call walls (resistance) and put walls (support). Suggests strike zones per §5: 7–10% OTM for the short call, ideally aligned with a GEX call wall or first chart resistance above current price.
 >
 > **notes:** Reminder per §15.1: Claude can suggest, but the trader decides. Don't prescribe an exact strike — describe the band.
 
@@ -124,7 +127,7 @@ Write tools (Tier 2, opt-in):
 
 > **prompt:** *"AMD opened down 6%, IV crushed 35%. Walk me through the playbook."*
 >
-> **tools:** `evaluate_post_earnings(ticker="AMD", gap_pct=-6.0, iv_crush_pct=35, thesis={revenue_beat: true, guidance_maintained: true, no_leadership_or_regulatory_event: true, sector_context_normal: true})` → `pretrade_check("AMD", "PMCC")` → `get_dp_floors_and_gex("AMD")`
+> **tools:** `evaluate_post_earnings(ticker="AMD", gap_pct=-6.0, iv_crush_pct=35, thesis={revenue_beat: true, guidance_maintained: true, no_leadership_or_regulatory_event: true, sector_context_normal: true})` → `pretrade_check("AMD", "PMCC")` → `qd_get_dark_pool_levels("AMD")`
 >
 > **response:** Matrix verdict (PRIME_ENTRY for −6% with IV crush ≥ 25%), final action (PROCEED if all 4 thesis checks pass), size cap if any, overrides applied. Then runs the pre-trade gate. Then the structural levels for strike selection.
 >
@@ -229,7 +232,7 @@ Each strategy in §2 of Strategy v3.5 has a different entry workflow. These are 
 
 > **prompt:** *"It's the morning after AMD earnings. Gap −5%, IV crush 32%, fundamentals look fine. Walk me through the PMCC entry."*
 >
-> **tools:** `evaluate_post_earnings("AMD", -5, 32, thesis={...})` → `pretrade_check("AMD", "PMCC")` → `get_chart_data("AMD", "6mo")` → `get_dp_floors_and_gex("AMD")` → `get_briefing()` (for pacing budget)
+> **tools:** `evaluate_post_earnings("AMD", -5, 32, thesis={...})` → `pretrade_check("AMD", "PMCC")` → `get_chart_data("AMD", "6mo")` → `qd_get_dark_pool_levels("AMD")` → `get_briefing()` (for pacing budget)
 >
 > **response:** Matrix says PRIME_ENTRY → PROCEED. Gates clear. Chart structure: 200-SMA at $X, 50-SMA at $Y, key support/resistance. DP floor at $Z (which becomes the LEAP entry "do not break" reference). For the LEAP: 25–30% ITM target, ~640 DTE (Jan 2028). For the short call (T+1): 30–45 DTE, 7–10% OTM, delta 0.20–0.25, ideally aligned with first GEX call wall above spot. Pacing remaining: N/2.
 >
@@ -239,7 +242,7 @@ Each strategy in §2 of Strategy v3.5 has a different entry workflow. These are 
 
 > **prompt:** *"Looking at NVDA PCS for next month. IVR is 53. Where to set the strikes?"*
 >
-> **tools:** `get_candidates()` → `pretrade_check("NVDA", "PCS")` → `get_chart_data("NVDA", "3mo")` → `get_dp_floors_and_gex("NVDA")`
+> **tools:** `get_candidates()` → `pretrade_check("NVDA", "PCS")` → `get_chart_data("NVDA", "3mo")` → `qd_get_dark_pool_levels("NVDA")` → `qd_get_max_pain("NVDA")`
 >
 > **response:** Confirms NVDA is on the IV Crush list at IVR 53 (CRUSH flag). Pre-trade gates. Per §2.C: short put delta 0.15–0.20, 30–45 DTE, $10 width for $100–300 stocks ($15–20 for >$300). Suggests short strike alignment with DP floor or chart support. Notes: §6 exit rules — close at 50% profit, 200% loss cap.
 
@@ -275,7 +278,7 @@ Each strategy in §2 of Strategy v3.5 has a different entry workflow. These are 
 
 > **prompt:** *"Tell me everything about my MSFT position."*
 >
-> **tools:** `get_positions(aggregated=true)` (filter to MSFT) → `evaluate_stop_loss("MSFT")` → `evaluate_roll("MSFT")` → `get_dp_floors_and_gex("MSFT")` → `get_chart_data("MSFT", "6mo")`
+> **tools:** `get_positions(aggregated=true)` (filter to MSFT) → `evaluate_stop_loss("MSFT")` → `evaluate_roll("MSFT")` → `qd_get_dark_pool_levels("MSFT")` → `get_chart_data("MSFT", "6mo")`
 >
 > **response:** Aggregated MSFT row (6 legs, net MV, concentration %). Per-leg breakdown if asked. Stop-loss verdict. Roll candidates. Structural levels. Notes the position is at 70% concentration — §7 high-concentration override applies for any add consideration.
 

@@ -538,6 +538,42 @@
       <div id="pb-result" class="phase4-result"></div>
     </div>
 
+    <!-- Order flow — live QuantData sweeps/blocks -->
+    <div class="card" id="order-flow-card">
+      <h2>Order flow
+        <span style="font-size:12px;font-weight:400;color:var(--color-text-tertiary);margin-left:8px">Live QuantData sweeps &amp; blocks</span>
+      </h2>
+      <p class="muted small" style="margin:0 0 10px">
+        Smart-money confirmation signal. Large sweeps/blocks aligned with your directional thesis
+        before entering a new position (Strategy §4.1 Gate 6).
+        Requires QuantData credentials in Settings &gt; Security.
+      </p>
+      <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px">
+        <div class="form-group" style="margin:0">
+          <label class="settings-label">Ticker</label>
+          <select id="of-ticker" class="settings-input" style="width:130px">
+            <option value="">— select —</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin:0">
+          <label class="settings-label">Min premium ($)</label>
+          <input id="of-min-premium" type="number" class="settings-input" value="25000" style="width:100px">
+        </div>
+        <div class="form-group" style="margin:0">
+          <label class="settings-label">Side</label>
+          <select id="of-side" class="settings-input" style="width:90px">
+            <option value="">Both</option>
+            <option value="CALL">Calls</option>
+            <option value="PUT">Puts</option>
+          </select>
+        </div>
+        <button class="action-cta action-cta-secondary" onclick="loadOrderFlow()" style="margin-bottom:1px">Load flow</button>
+      </div>
+      <div id="of-result">
+        <p class="muted small">Select a ticker and click Load flow to fetch live order flow from QuantData.</p>
+      </div>
+    </div>
+
     <!-- Chart gallery — all universe tickers -->
     <div class="card" id="chart-gallery-card">
       <h2 style="cursor:pointer;user-select:none" onclick="toggleChartGallery()">
@@ -681,11 +717,11 @@
 </div><!-- .dash -->
 
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="/static/app.js?v=fde4c62"></script>
-<script src="/static/phase4.js?v=fde4c62"></script>
-<script src="/static/chart.js?v=fde4c62"></script>
-<script src="/static/settings.js?v=fde4c62"></script>
-<script src="/static/universe.js?v=fde4c62"></script>
+<script src="/static/app.js?v=e9d3782"></script>
+<script src="/static/phase4.js?v=e9d3782"></script>
+<script src="/static/chart.js?v=e9d3782"></script>
+<script src="/static/settings.js?v=e9d3782"></script>
+<script src="/static/universe.js?v=e9d3782"></script>
 <script>
 /* ── Fortress Dashboard v3 — inline enhancements ──
    Extends app.js without replacing it.
@@ -937,7 +973,7 @@ async function fetchEarningsDates() {
 async function populateChartTickers() {
   // Wait for the Bearer token to be ready before making authenticated API calls
   if (window._tokenReady) await window._tokenReady;
-  const selIds = ["chart-ticker-select", "pt-ticker", "pb-ticker", "chart-ticker"];
+  const selIds = ["chart-ticker-select", "pt-ticker", "pb-ticker", "chart-ticker", "of-ticker"];
   const sels = selIds.map(id => document.getElementById(id)).filter(Boolean);
   if (!sels.length) return;
   try {
@@ -1060,6 +1096,68 @@ async function renderChartGallery(tickers) {
     } catch(e) {
       chartDiv.innerHTML = `<p style="padding:8px;font-size:11px;color:#888">Error: ${e.message}</p>`;
     }
+  }
+}
+
+// ─── Order flow card ────────────────────────────────────────────────────────
+async function loadOrderFlow() {
+  const ticker     = document.getElementById("of-ticker")?.value;
+  const minPremium = document.getElementById("of-min-premium")?.value || 25000;
+  const side       = document.getElementById("of-side")?.value || "";
+  const resultDiv  = document.getElementById("of-result");
+  if (!resultDiv) return;
+  if (!ticker) {
+    resultDiv.innerHTML = '<p class="muted small">Please select a ticker first.</p>';
+    return;
+  }
+  resultDiv.innerHTML = '<p class="muted small">Loading order flow…</p>';
+  try {
+    const params = new URLSearchParams({ min_premium: minPremium });
+    if (side) params.append("side", side);
+    const data = await apiFetch(`/api/chart/${ticker}/order_flow?${params}`);
+    if (!data) throw new Error("No response");
+    if (!data.enabled) {
+      resultDiv.innerHTML = `<p class="muted small">${data.message || "QuantData disabled."}</p>`;
+      return;
+    }
+    if (!data.flow || data.flow.length === 0) {
+      resultDiv.innerHTML = `<p class="muted small">No order flow found for ${ticker} with the current filters. Try lowering the min premium.</p>`;
+      return;
+    }
+    // Render table
+    const rows = data.flow.map(r => {
+      const sweep = r.is_sweep ? '<span style="background:var(--color-bg-danger);color:var(--color-text-danger);font-size:10px;padding:1px 5px;border-radius:3px;margin-left:4px">SWEEP</span>' : '';
+      const block = r.is_block ? '<span style="background:var(--color-bg-warning);color:var(--color-text-warning);font-size:10px;padding:1px 5px;border-radius:3px;margin-left:4px">BLOCK</span>' : '';
+      const sideColor = (r.side||'').toUpperCase().startsWith('C') ? 'var(--color-text-success)' : 'var(--color-text-danger)';
+      const prem = r.premium ? `$${Number(r.premium).toLocaleString(undefined,{maximumFractionDigits:0})}` : '—';
+      return `<tr>
+        <td style="font-size:11px;color:var(--color-text-tertiary)">${r.time || '—'}</td>
+        <td style="font-weight:600;color:${sideColor}">${(r.side||'—').toUpperCase()}${sweep}${block}</td>
+        <td style="font-family:var(--font-mono)">${r.strike ?? '—'}</td>
+        <td style="font-family:var(--font-mono);font-size:11px">${r.expiry || '—'}</td>
+        <td style="font-weight:600;font-family:var(--font-mono)">${prem}</td>
+        <td style="font-family:var(--font-mono)">${r.size ?? '—'}</td>
+        <td style="font-size:11px;color:var(--color-text-secondary)">${r.sentiment || '—'}</td>
+      </tr>`;
+    }).join('');
+    resultDiv.innerHTML = `
+      <p class="muted small" style="margin:0 0 8px">Showing ${data.flow.length} flows for ${ticker} on ${data.session_date || 'today'} — source: QuantData live API</p>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr style="border-bottom:1px solid var(--color-border-tertiary);text-align:left">
+            <th style="padding:4px 8px;font-size:11px;color:var(--color-text-tertiary);font-weight:500">Time</th>
+            <th style="padding:4px 8px;font-size:11px;color:var(--color-text-tertiary);font-weight:500">Side</th>
+            <th style="padding:4px 8px;font-size:11px;color:var(--color-text-tertiary);font-weight:500">Strike</th>
+            <th style="padding:4px 8px;font-size:11px;color:var(--color-text-tertiary);font-weight:500">Expiry</th>
+            <th style="padding:4px 8px;font-size:11px;color:var(--color-text-tertiary);font-weight:500">Premium</th>
+            <th style="padding:4px 8px;font-size:11px;color:var(--color-text-tertiary);font-weight:500">Size</th>
+            <th style="padding:4px 8px;font-size:11px;color:var(--color-text-tertiary);font-weight:500">Sentiment</th>
+          </tr></thead>
+          <tbody style="font-family:var(--font-mono)">${rows}</tbody>
+        </table>
+      </div>`;
+  } catch (e) {
+    resultDiv.innerHTML = `<p class="muted small" style="color:var(--color-text-danger)">Error: ${e.message}</p>`;
   }
 }
 

@@ -43,18 +43,19 @@ The Web API toggle and fallback behaviour are configurable in **Settings → Sec
 
 ### QuantData.us (Optional but Highly Recommended)
 
-While the dashboard is fully functional without it, the **Run workflow scripts** feature (in the Manage tab) heavily depends on the [QuantData.us](https://quantdata.us) API.
+While the dashboard is fully functional without it, the **Run workflow scripts** feature (in the Manage tab) heavily depends on the [QuantData.us](https://quantdata.us) live API.
 
 QuantData provides the underlying market intelligence for:
-- Pre-market IV rank scanning
+- Pre-market IV rank scanning (configurable lookback)
 - IV Crush reporting (which populates the Dashboard candidate scanner)
 - Whale flow and dark pool alerts
 - Max pain and EOD reviews
 - Macro regime extraction and Dark Pool/GEX overlays on the price chart
+- Live order flow sweeps and blocks (Gate 6 confirmation)
 
-**If you do not use QuantData:** The dashboard will still manage your portfolio, evaluate stops/rolls, and run the strategy narrative. However, the candidate scanner will be empty, the macro regime will show as "unknown", and the workflow scripts will fail.
+**If you do not use QuantData:** The dashboard will still manage your portfolio, evaluate stops/rolls, and run the strategy narrative. However, the candidate scanner will be empty, the macro regime will show as "unknown", the chart overlays will be missing, and the workflow scripts will fail.
 
-You will need a QuantData API key configured in the **Settings > Security** tab to unlock these features. The QuantData integration can be disabled entirely via the `use_quantdata` toggle in Settings, which suppresses all dependent features gracefully rather than erroring.
+You will need a QuantData Auth Token and Instance ID configured in the **Settings > Security** tab to unlock these features. The QuantData integration can be disabled entirely via the `use_quantdata` toggle in Settings, which suppresses all dependent features gracefully rather than erroring. Daily CSV report uploads are still supported as a fallback if the live API is unavailable.
 
 ## Installation
 
