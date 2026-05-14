@@ -40,21 +40,52 @@ QD_USER_ID     = os.environ.get("QUANTDATA_USER_ID", "")
 QD_BASE_URL    = "https://core-lb-prod.quantdata.us/api"
 
 # Known widget IDs per ticker (SPY default; can be extended)
-# Discovered via GET /api/pages — these are stable widget UUIDs on the MCP Agentic Page
+# Discovered via GET /api/pages — these are stable widget UUIDs on the QuantData platform.
+# Last verified: 2026-05-14
+#
+# Widget type legend:
+#   gex       — OPTIONS_EXPOSURE_BY_STRIKE_CHART
+#   dp        — DARK_POOL_LEVELS_TABLE
+#   net_drift — OPTIONS_NET_DRIFT_CHART
+#   page_id   — The QuantData page that owns these widgets (used as x-instance-id header)
+#
+# System pages (ticker-agnostic, filterable to any ticker):
+#   DARK_POOL  page: 12f5f34d-6968-4eca-a687-d14566d2235f  dp widget: a2c2f3f9-0c34-486d-a25a-9b98b82b49c9
+#   EXPOSURE   page: e07c6cba-335b-42dc-942b-0f90a5144b4a  gex widget: 465c0bd0-149a-4fb9-8274-9f429ccecb29
+#   FLOW       page: a3500c30-51a5-42aa-af53-29a20d03b632  drift widget: de8c5cf5-7ba7-4343-98b9-399b76a96904
 _WIDGET_IDS: dict[str, dict[str, str]] = {
     "SPY": {
-        "gex":       "2e4d7ea4-ae92-4209-bca4-ccb2908ec9f6",  # OPTIONS_EXPOSURE_BY_STRIKE_CHART
-        "dp":        "0001c185-460d-43e5-b9e9-b1ede7943f6b",  # DARK_POOL_LEVELS_TABLE
-        "net_drift": "9fcb5310-970a-453e-a672-0f3b5ef22c78",  # OPTIONS_NET_DRIFT_CHART
-        "page_id":   "e22a6d88-9d75-42b3-af9d-ee583008fdad",  # SPY page
+        "gex":       "2e4d7ea4-ae92-4209-bca4-ccb2908ec9f6",  # OPTIONS_EXPOSURE_BY_STRIKE_CHART (SPY page)
+        "dp":        "0001c185-460d-43e5-b9e9-b1ede7943f6b",  # DARK_POOL_LEVELS_TABLE (SPY page)
+        "net_drift": "9fcb5310-970a-453e-a672-0f3b5ef22c78",  # OPTIONS_NET_DRIFT_CHART (SPY page)
+        "page_id":   "e22a6d88-9d75-42b3-af9d-ee583008fdad",  # SPY custom page
     },
     "SPX": {
-        "gex":       "444d17ce-e2f0-4d38-9acb-e51b09d6d4b6",  # SPX Dashboard
+        "gex":       "444d17ce-e2f0-4d38-9acb-e51b09d6d4b6",  # OPTIONS_EXPOSURE_BY_STRIKE_CHART (SPX Dashboard)
         "page_id":   "672ab496-da3e-4538-bc68-3d0925b9b122",
     },
     "QQQ": {
-        "gex":       "4b6d1f27-4131-44e1-a5f3-724d6f701d16",  # SPY Dashboard (QQQ widget)
+        "gex":       "4b6d1f27-4131-44e1-a5f3-724d6f701d16",  # OPTIONS_EXPOSURE_BY_STRIKE_CHART (SPY Dashboard)
         "page_id":   "9b3d47a2-92b0-49be-9a85-778c06300df0",
+    },
+    # ── Individual equities — dedicated pages ──────────────────────────────────
+    "NVDA": {
+        "gex":       "0dda93ba-d196-48bc-bacc-4b788f23369e",  # OPTIONS_EXPOSURE_BY_STRIKE_CHART (NVDA Dashboard)
+        "dp":        "7b2707f2-527b-484b-ab45-b6aa4df9dbc8",  # DARK_POOL_LEVELS_TABLE (NVDA Dashboard)
+        "net_drift": "cf9f3e83-875c-4d84-b912-2770a2f94688",  # OPTIONS_NET_DRIFT_CHART (NVDA Dashboard)
+        "page_id":   "52ca72cb-7456-4d64-8cc4-7c25265b0bb9",  # NVDA Dashboard custom page
+    },
+    # ── Individual equities — system pages (ticker-agnostic, filterable) ───────
+    # MSFT, TSLA, AMZN, AAPL, META, and any other ticker use the system pages.
+    # The global filter is set to the requested ticker before each fetch.
+    "_SYSTEM": {
+        "gex":       "465c0bd0-149a-4fb9-8274-9f429ccecb29",  # OPTIONS_EXPOSURE_BY_STRIKE_CHART (EXPOSURE system page)
+        "dp":        "a2c2f3f9-0c34-486d-a25a-9b98b82b49c9",  # DARK_POOL_LEVELS_TABLE (DARK_POOL system page)
+        "net_drift": "de8c5cf5-7ba7-4343-98b9-399b76a96904",  # OPTIONS_NET_DRIFT_CHART (FLOW_ANALYSIS system page)
+        "page_id":   "e07c6cba-335b-42dc-942b-0f90a5144b4a",  # EXPOSURE system page (primary)
+        # Note: dp and net_drift use different page_ids; handled in _fetch_* functions
+        "dp_page_id":    "12f5f34d-6968-4eca-a687-d14566d2235f",  # DARK_POOL system page
+        "drift_page_id": "a3500c30-51a5-42aa-af53-29a20d03b632",  # FLOW_ANALYSIS system page
     },
 }
 
@@ -574,18 +605,41 @@ def get_market_intelligence(ticker: str = "SPY", session_date: str | None = None
     qd_source  = "unavailable"
 
     if _qd_available():
-        widgets = _WIDGET_IDS.get(ticker, _WIDGET_IDS.get("SPY", {}))
+        # Use ticker-specific widgets if available; fall back to system pages for any ticker
+        widgets = _WIDGET_IDS.get(ticker)
+        if widgets is None:
+            widgets = _WIDGET_IDS["_SYSTEM"]
+            logger.info("No dedicated page for %s — using system pages", ticker)
+
         page_id = widgets.get("page_id", "")
         sess    = _qd_session(page_id)
 
+        # Set global filter to the requested ticker on all relevant pages
         _set_global_filter(sess, ticker, session_date)
 
+        # GEX — use primary page_id
         if widgets.get("gex"):
             gex_data = _fetch_gex(sess, widgets["gex"])
+
+        # DP — may use a different page_id (system pages only)
         if widgets.get("dp"):
-            dp_data = _fetch_dp(sess, widgets["dp"])
+            dp_page = widgets.get("dp_page_id", page_id)
+            if dp_page != page_id:
+                dp_sess = _qd_session(dp_page)
+                _set_global_filter(dp_sess, ticker, session_date)
+                dp_data = _fetch_dp(dp_sess, widgets["dp"])
+            else:
+                dp_data = _fetch_dp(sess, widgets["dp"])
+
+        # Net Drift — may use a different page_id (system pages only)
         if widgets.get("net_drift"):
-            drift_data = _fetch_net_drift(sess, widgets["net_drift"])
+            drift_page = widgets.get("drift_page_id", page_id)
+            if drift_page != page_id:
+                drift_sess = _qd_session(drift_page)
+                _set_global_filter(drift_sess, ticker, session_date)
+                drift_data = _fetch_net_drift(drift_sess, widgets["net_drift"])
+            else:
+                drift_data = _fetch_net_drift(sess, widgets["net_drift"])
 
         qd_source = "quantdata_live_api"
     else:
