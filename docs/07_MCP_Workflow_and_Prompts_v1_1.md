@@ -47,63 +47,92 @@ Write tools (Tier 2, opt-in):
 
 ## 2. Daily routine — phase-by-phase prompts
 
+> **CURRENT BOOK STATE (May 2026):** The portfolio is in a defensive posture. MSFT is heavily concentrated (>70% of NetLiq), SPY hedge is underbuilt, and delta bias is excessively long (+437) in a bearish macro regime. **The workflow prioritizes position management and de-risking over new entry hunting.**
+
 ### Phase 1 — Pre-Market (09:00–09:35 ET / 15:00–15:35 Amsterdam)
 
-#### 2.1 Sync and check status
+#### 2.1 Morning Preflight (The Triad)
 
-> **prompt:** *"Sync IBKR and tell me if it succeeded."*
+> **prompt:** *"Run my morning preflight: briefing, SPY hedge coverage, today's calendar, and any positions where evaluate_stop_loss returns 'act'. Flag concentration and delta-bias violations."*
 >
-> **tools:** `trigger_ibkr_sync()` → `get_ibkr_status()` → `get_briefing()`
+> **tools:** `get_briefing()` → `get_spy_hedge_coverage()` → `get_calendar()` → `evaluate_stop_loss()` (across positions)
 >
-> **response:** Confirms the sync ran (positions count, NetLiq, Excess, Avail), gateway connection state, and whether the Briefing tab's stale-data banner cleared. Flags any HIGH actions that surfaced.
+> **response:** Walks through the core risk triad. 
+> 1. Briefing: Account thresholds, concentration top-3 (especially MSFT), and portfolio delta vs target.
+> 2. Hedge: SPY hedge coverage vs $22k–$33k target band.
+> 3. Actions: Any stop-loss triggers in `ACT` state and earnings on major positions today.
 >
-> **notes:** Tier 2 (`trigger_ibkr_sync`). If writes are disabled, Claude should report "writes are disabled — please run `POST /api/ibkr/sync` manually" and fall back to read-only briefing.
-
-#### 2.2 Morning briefing read
-
-> **prompt:** *"What's actionable on the book today? Be specific."*
->
-> **tools:** `get_briefing()`
->
-> **response:** Walks through the briefing card by card. Header check: AvailFunds and ExcessLiq vs USD thresholds per Strategy v3.6 §7 (calls out any breach; EUR equivalent shown alongside as info). Concentration top-3 with status. Pacing budget remaining. Greeks bias. VIX state. Then iterates `actions[]` grouped by priority — HIGH items expanded with the strategy section referenced (§5 delta drift, §6 stop-loss, §4 earnings).
->
-> **notes:** Single tool call. The dashboard already aggregates everything Claude needs.
-
-#### 2.3 Pre-market scanner read (after `workflow_01` runs)
-
-> **prompt:** *"What hit the pre-market scanner this morning? Anything worth pre-planning?"*
->
-> **tools:** `get_candidates()` → `get_calendar(window_days=14)` → `get_universe()`
->
-> **response:** Top 3–5 IV crush rows with 🔥 PRIME CRUSH or ✅ GOOD SPREAD signals. Cross-references against earnings calendar — flags any in 10-day blackout. Cross-references against universe — flags any excluded (per §3.3). For each candidate not blocked, suggests strategy fit (PMCC if Tier 1 LEAP-eligible, PCS if IVR>40 and no earnings <10d, Jade Lizard if Tier 1 and consolidating).
->
-> **notes:** Pure read. No execution intent.
-
----
+> **notes:** Do NOT run `get_candidates` here. Entries are not decided pre-market. Looking at candidates first creates a bias to enter when the book requires de-risking. Pass criteria to move to Phase 2: no stop-loss in `act`, no earnings today on major positions, no hedge breach worse than already known.
 
 ### Phase 2 — Market Open (09:35–10:00 ET)
 
-#### 2.4 Macro regime check
+#### 2.2 Macro regime and flow validation (Only on entry days)
 
-> **prompt:** *"What's the macro regime saying? Should I be cautious today?"*
+> **prompt:** *"Show me get_market_intelligence for SPY. Then for any name from get_candidates with IVR > 50 and no earnings in the next 21 days, run get_market_intelligence for those tickers. Run pretrade_check on each."*
 >
-> **tools:** `get_briefing()` → `get_quantdata_reports("daily", "latest")` for AI summary
+> **tools:** `get_market_intelligence("SPY")` → `get_candidates()` → `get_market_intelligence(ticker)` → `pretrade_check(ticker)`
 >
-> **response:** Reports the regime call (bullish/bearish/neutral), VIX with state border, SPX net drift direction, order flow bias. If VIX >25 explicitly states "Pause new entries per §7." If regime is bearish, calls out. Pulls 2–3 bullets from the Daily Report's AI summary section.
-
-#### 2.5 IV crush + whale flow combined view
-
-> **prompt:** *"Give me today's premium-selling shortlist. IV crush plus whale flow."*
+> **response:** Establishes macro regime first (SPY flip zone, DP floors). Then filters premium-selling candidates. For each valid candidate, pulls structural levels (GEX walls, DP floors) to anchor short strikes. Finally, runs the pre-trade gate to catch size caps and concentration limits.
 >
-> **tools:** `get_candidates()` → `get_quantdata_reports("whale_flow", "latest")`
->
-> **response:** Top IVR ≥ 50 names from the IV Crush report, annotated with whale-flow bias (call-heavy/put-heavy/neutral) where the Whale Flow report has data. Notes: per §8 Data Quality, whale flow can never override the 10-day earnings blackout — flags any conflict.
+> **notes:** The `pretrade_check` is non-negotiable. With current concentration breaches, it will automatically catch the size cap. Use GEX walls to anchor short strikes (e.g., short call spread around GEX call wall).
 
 ---
 
-### Phase 3 — Trade Entry Window (10:00–11:30 ET)
+### Phase 3 — Intraday Triggers (Event-driven, not scheduled)
 
-#### 2.6 Pre-trade gate before any new entry
+#### 2.3 Intraday Alerting
+
+> **prompt:** *"Add stop-loss alerts at the act threshold for every position over 5% of NetLiq, and a delta-watch alert at 0.7 for any position with delta > 0.6."*
+>
+> **tools:** `add_alert()` (called iteratively)
+>
+> **response:** Confirms alerts have been set.
+>
+> **notes:** Set this up once, then react when they fire. The `evaluate_stop_loss` and `evaluate_roll` tools are decision support when they do.
+
+#### 2.4 Regime change on concentrated positions
+
+> **prompt:** *"Compare today's get_market_intelligence for MSFT against yesterday's get_market_intelligence for MSFT — has the dominant DP floor or GEX put wall migrated down?"*
+>
+> **tools:** `get_market_intelligence("MSFT")`
+>
+> **response:** Evaluates whether institutional support levels have dropped.
+>
+> **notes:** If yes, that's the day to tighten or roll the concentrated exposure, not the day to ride it out.
+
+---
+
+### Phase 4 — Post-Close (~16:00–16:30 ET)
+
+#### 2.5 EOD Review
+
+> **prompt:** *"Log today's trades to the journal with the strategy reasoning. Then evaluate any position where mark-to-market changed more than 50% today. Finally, update tomorrow's calendar from any earnings reschedules I should know about."*
+>
+> **tools:** `add_journal_entry()` → `evaluate_stop_loss()` / `evaluate_roll()` → `update_calendar()`
+>
+> **response:** Confirms journal entries. Evaluates movers. Updates calendar.
+>
+> **notes:** Journaling is the highest-ROI habit. Use `get_journal` in 6 weeks to find which entry templates actually worked.
+
+---
+
+### Phase 5 — Weekly Workflow (Sunday ~18:00 ET)
+
+#### 2.6 Full Portfolio Audit & De-risking
+
+> **prompt:** *"Run a full portfolio audit: briefing, all positions aggregated and non-aggregated, concentration breakdown, SPY hedge coverage, and current Greeks. Then for each position over 10% of NetLiq, run evaluate_roll and tell me three concrete options to reduce concentration: roll out, scale down, or convert to a debit spread. Show me get_market_intelligence for the underlying for context."*
+>
+> **tools:** `get_briefing()` → `get_positions()` → `get_spy_hedge_coverage()` → `evaluate_roll()` → `get_market_intelligence()`
+>
+> **response:** Comprehensive audit. Proposes specific structures to deload concentrated positions (e.g., MSFT) and specific SPY put structures to close the hedge gap.
+>
+> **notes:** This is where you make the decision to deload MSFT — not on a random Tuesday. Plan it on Sunday, execute on Monday, journal the reasoning.
+
+---
+
+### Phase 6 — Position-Event Workflows (When something fires)
+
+#### 2.7 Pre-trade gate before any new entry
 
 > **prompt:** *"I'm thinking AMD PMCC. Run the pre-trade gates."*
 >

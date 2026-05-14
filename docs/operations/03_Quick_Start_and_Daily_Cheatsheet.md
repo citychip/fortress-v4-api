@@ -21,25 +21,21 @@ One-page operational reference for live sessions. This is the document to open f
 
 ## Morning Startup Sequence (5 minutes)
 
-Run through this in order before placing any trade.
+Run through this in order before placing any trade. **Current book state requires de-risking over new entries.**
 
-**1. Check system health** — MCP: *"Is everything working? Sync, gateway, data freshness?"*
+**1. Check system health & sync** — MCP: *"Sync IBKR and tell me if it succeeded."*
 - Gateway connected? Data fresh (<24h)?
 - If gateway disconnected: `docker compose restart ib-gateway` on VPS, wait 90s.
 
-**2. Trigger IBKR sync** — MCP: *"Sync IBKR and tell me if it succeeded."*
-- Or: Dashboard header → refresh button → wait ~30–60s for stale banner to clear.
+**2. Morning Preflight (The Triad)** — MCP: *"Run my morning preflight: briefing, SPY hedge coverage, today's calendar, and any positions where evaluate_stop_loss returns 'act'. Flag concentration and delta-bias violations."*
+- **Briefing:** Account thresholds, concentration top-3 (especially MSFT), and portfolio delta vs target.
+- **Hedge:** SPY hedge coverage vs $22k–$33k target band.
+- **Actions:** Any stop-loss triggers in `ACT` state and earnings on major positions today.
+- *Do not look at candidates until the triad is clear.*
 
-**3. Morning briefing** — MCP: *"What's actionable on the book today? Be specific."*
-- Check account thresholds (see table below).
-- Check HIGH actions — resolve before trading.
-- Check VIX state — if >25, pause new entries.
-
-**4. Pre-market scanner** (after 09:00 ET) — MCP: *"What hit the pre-market scanner this morning?"*
-- Top IV crush candidates with earnings cross-check.
-
-**5. Macro regime** (after 09:35 ET) — MCP: *"What's the macro regime saying?"*
-- Bullish / Bearish / Neutral for the session.
+**3. Macro regime & flow validation (Entry days only)** — MCP: *"Show me get_market_intelligence for SPY. Then for any name from get_candidates with IVR > 50 and no earnings in the next 21 days, run get_market_intelligence for those tickers. Run pretrade_check on each."*
+- SPY flip zone and DP floors set the day's bias.
+- Pre-trade check is mandatory to catch size caps on concentrated positions.
 
 ---
 
@@ -77,28 +73,34 @@ Run through this for every new position. Do not skip steps under time pressure.
 
 ## Key MCP Prompts (copy-paste ready)
 
-### Morning
+### Morning Preflight (The Triad)
 
 ```
-Sync IBKR and tell me if it succeeded.
+Run my morning preflight: briefing, SPY hedge coverage, today's calendar, and any positions where evaluate_stop_loss returns 'act'. Flag concentration and delta-bias violations.
 ```
+
+### Market Open (Entry Days Only)
+
 ```
-What's actionable on the book today? Be specific.
+Show me get_market_intelligence for SPY. Then for any name from get_candidates with IVR > 50 and no earnings in the next 21 days, run get_market_intelligence for those tickers. Run pretrade_check on each.
 ```
+
+### Intraday Alerts
+
 ```
-What hit the pre-market scanner this morning? Anything worth pre-planning?
+Add stop-loss alerts at the act threshold for every position over 5% of NetLiq, and a delta-watch alert at 0.7 for any position with delta > 0.6.
 ```
+
+### Regime Change Check
+
 ```
-What's the macro regime saying? Should I be cautious today?
+Compare today's get_market_intelligence for MSFT against yesterday's get_market_intelligence for MSFT — has the dominant DP floor or GEX put wall migrated down?
 ```
 
 ### Pre-Trade
 
 ```
 I'm thinking [TICKER] [STRATEGY]. Run the pre-trade gates.
-```
-```
-For [TICKER], where should I be looking for the short strike? Pull the structural levels.
 ```
 ```
 Run the entry scorer on [TICKER].
@@ -140,13 +142,10 @@ What's the EOD regime signal? What's the next-day bias?
 Log: [OPEN/CLOSE/ROLL] on [TICKER] [description]. Reasoning: [reasoning]. Framework rules: [§X].
 ```
 
-### Weekly
+### Weekly (Sunday ~18:00 ET)
 
 ```
-Run my Sunday planning checklist.
-```
-```
-Friday close — what's the week look like in review, and what's flagged for next week?
+Run a full portfolio audit: briefing, all positions aggregated and non-aggregated, concentration breakdown, SPY hedge coverage, and current Greeks. Then for each position over 10% of NetLiq, run evaluate_roll and tell me three concrete options to reduce concentration: roll out, scale down, or convert to a debit spread. Show me get_market_intelligence for the underlying for context.
 ```
 ```
 Pull the last 30 days of journal. What patterns do you see?
