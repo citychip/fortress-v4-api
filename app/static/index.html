@@ -1189,7 +1189,7 @@ async function fetchEarningsDates() {
   if (btn) { btn.disabled = true; btn.textContent = "Fetching…"; }
   resultDiv.style.display = "none";
   try {
-    const res = await fetch("/api/calendar/fetch-earnings", { method: "POST" });
+    const res = await apiFetch("/api/calendar/fetch-earnings", { method: "POST" });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || "Fetch failed");
     const added   = (data.added   || []).map(x => `${x.ticker} → ${x.date}`).join(", ") || "none";

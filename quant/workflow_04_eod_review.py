@@ -1,3 +1,4 @@
+import os
 """
 Workflow 04: End of Day Review
 Focus: Summarizes the day's macro regime and net drift to inform the next day's bias.

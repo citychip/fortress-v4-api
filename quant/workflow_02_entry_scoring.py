@@ -1,3 +1,4 @@
+import os
 """
 Workflow 02: Trade Entry Scoring Engine (v2 — Earnings & Concentration Enforced)
 Focus: Evaluates the structural safety of potential put spread entries.

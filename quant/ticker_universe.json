@@ -10,7 +10,13 @@
     "AMZN",
     "AMD",
     "MSTR",
-    "UNH"
+    "UNH",
+    "APP",
+    "LLY",
+    "TSM",
+    "V",
+    "MU",
+    "GEV"
   ],
   "tier2": [
     "META",
@@ -44,5 +50,5 @@
       "note": "Strategy §3.3 — ignored entirely. Display in book, never recommend."
     }
   ],
-  "_last_updated": "2026-05-06"
+  "_last_updated": "2026-05-15"
 }

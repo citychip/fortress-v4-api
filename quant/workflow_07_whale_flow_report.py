@@ -1,3 +1,4 @@
+import os
 """
 Workflow 07: Whale Flow Report
 Focus: Confirmation tool for new entries. Evaluates institutional order flow sweeps.

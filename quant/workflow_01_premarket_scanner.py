@@ -1,3 +1,4 @@
+import os
 """
 Workflow 01: Pre-Market Scanner
 Focus: Identifies the best premium selling opportunities before the market opens.

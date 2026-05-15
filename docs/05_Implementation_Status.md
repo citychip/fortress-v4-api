@@ -387,3 +387,63 @@ Each is recoverable with `cp <file>.pre-*-bak <file>` + service restart.
 | README.md | ✅ Complete | Full installation and configuration guide |
 | GitHub repository | ✅ Published | https://github.com/citychip/options-portfolio-strategy-dashboard-2026 |
 
+---
+
+## Mode 6 — v2 Dashboard + Analysis Enhancements (2026-05-15)
+
+### Backend fixes (v3.6 patch)
+
+| Change | File | Notes |
+|---|---|---|
+| `fetchEarningsDates()` now uses `apiFetch()` | `app/static/index.html` | Was calling bare `fetch()` without the Authorization header — caused `invalid_token` on the auto-fetch button in the Earnings calendar |
+| SPY hedge classifier broadened | `app/routes/manage.py` | Now counts any untagged SPY put as a hedge leg in addition to positions explicitly tagged `SPY_HEDGE`, covering bear-put-spread legs that arrive without a strategy tag |
+
+### New MCP scripts
+
+| Script | Purpose |
+|---|---|
+| `scripts/mcp_briefing.py` | Morning briefing via MCP — calls `/api/briefing` and formats output for Claude Desktop |
+| `scripts/mcp_full_analysis.py` | Full ticker analysis via MCP |
+| `scripts/mcp_gex2.py` | GEX level extraction via MCP |
+| `scripts/mcp_position_analysis2.py` | Per-position analysis via MCP |
+
+### v2 Dashboard (fortress-v2) — features shipped
+
+The React/TypeScript v2 dashboard (served at port 3000 via nginx) received the following additions:
+
+**DashboardPage — Trade Report panel**
+
+- Post-earnings candidates section: renders tickers where earnings occurred within the last 3 days. Shows a days-since badge (TODAY / 1D AGO / 2D AGO), IVR post-earnings chip (amber if IVR >= 50, green if 25–49, dim if crushed), current price, PLAYBOOK action chip, and the API note. Section is hidden when count is zero.
+- Summary count grid expanded from 5 to 6 columns, adding a Post-Earnings chip alongside Entry / Stop-Loss / Exit / Roll / Urgent.
+- Roll candidates DTE ring: the same SVG countdown ring used on exit candidates is now also shown on roll candidates, using `current_dte`, cyan ring colour, and urgency badge (URGENT / THIS_WEEK / WATCH). EXPIRING pulse fires at <= 7 DTE.
+- Null-safety hardening: all `.toFixed()` calls on nullable fields guarded — `iv_rank`, `concentration_pct`, `net_liq_pct`, `hedge_pct_of_netliq` — prevents a runtime crash when IBKR is not synced or IV data is unavailable.
+
+**AnalysisPage**
+
+- Greeks Summary panel: 6-cell grid showing Net Delta, Net Gamma, Net Theta, Net Vega, Avg IV, and Leg count, all aggregated from live position data (greek x qty x multiplier). Color-coded green/red/amber by sign and magnitude. Only renders when OPT positions exist for the selected ticker.
+- Earnings overlay: amber vertical dashed ReferenceLine at the `next_earnings` date from `/api/calendar`, snapped to the nearest candle. Added to the chart legend.
+- Deep-link navigation: roll candidate and post-earnings rows on DashboardPage are now clickable (cursor-pointer, hover highlight). Clicking sets `fortress_analysis_ticker` in sessionStorage and navigates to `/analysis`, which reads and clears it on mount to pre-select the ticker.
+
+**SettingsPage**
+
+- Settings sync indicator: `SyncBadge` component in the page header shows "Saving…" (pulsing dot), "Saved ✓" (green), or "Sync failed" (red) based on `prefsSaveStatus` exposed from `ConfigContext`.
+- Connection Health panel: two manual-trigger test cards placed after the API Connection section. IBKR Web API card hits `/api/ibkr/capability?refresh=1` and shows session status, active backend, account ID, OPRA subscription, latency, and checked-at timestamp. QuantData API card hits `/api/settings/test_quantdata` and shows status, SPY IV Rank (live probe), result message, latency, and checked-at timestamp. Both cards have animated status dots (grey = untested, amber pulse = in-flight, green/red = result).
+
+### IBKR Web API — option chain capability confirmed
+
+The IB Gateway Web API (running at `localhost:5000`) supports full option chain access with no additional configuration:
+
+| Capability | Endpoint |
+|---|---|
+| Available expirations per ticker | `GET /v1/api/iserver/secdef/search?symbol=X&secType=STK` |
+| Strikes per expiry | `GET /v1/api/iserver/secdef/strikes?conid=X&sectype=OPT&month=MMMYY` |
+| Option conids (call and put per strike) | `GET /v1/api/iserver/secdef/info?conid=X&sectype=OPT&month=MMMYY&right=C&strike=Y` |
+| Live market snapshot (bid, ask, last, mark, delta, gamma, theta, vega, IV%) | `GET /v1/api/iserver/marketdata/snapshot?conids=X,Y,Z&fields=84,86,7308,7309,7310,7311,7633` |
+
+Batch snapshot supports up to ~100 conids per call. The snapshot endpoint requires a 2-second warm-up on first call per conid as IBKR starts a market data subscription in the background. Subsequent calls return instantly.
+
+This capability unlocks a live option chain viewer, pre-trade strike suggester, and IV surface heatmap as planned future features.
+
+---
+
+*— End of document —*

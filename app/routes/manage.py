@@ -1073,7 +1073,13 @@ def spy_hedge_coverage():
     hedge_mv = 0.0
     legs = 0
     for p in data.get("positions", []):
-        if (p.get("strategy") or "").upper() == "SPY_HEDGE":
+        _strat  = (p.get("strategy") or "").upper()
+        _ticker = (p.get("ticker") or "").upper()
+        _right  = (p.get("right") or "").upper()
+        # Classify as hedge if explicitly tagged OR is an untagged SPY put
+        # (covers bear-put-spread legs that arrive without a strategy tag)
+        _is_hedge = (_strat == "SPY_HEDGE") or (_ticker == "SPY" and _right == "P")
+        if _is_hedge:
             hedge_mv += (p.get("market_value") or 0)
             legs += 1
     net_liq = data.get("net_liq") or 0

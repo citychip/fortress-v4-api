@@ -1,7 +1,7 @@
 {
   "_comment": "Earnings blackout calendar for Portfolio Strategy v3.2. Update before each earnings season.",
   "_rule": "No new entries (PCS, Jade Lizard, PMCC short call) within 10 days of earnings date.",
-  "_last_updated": "2026-05-08",
+  "_last_updated": "2026-05-15",
   "_instructions": "Set 'next_earnings' to the expected earnings date (YYYY-MM-DD). Set 'confirmed' to true once date is confirmed by the company. Update immediately after earnings pass.",
   "tickers": {
     "MSFT": {
@@ -24,10 +24,10 @@
       "_source": "yfinance_auto"
     },
     "VST": {
-      "next_earnings": "2026-05-07",
+      "next_earnings": "2026-08-06",
       "confirmed": false,
       "notes": "Q2 2026 expected early August",
-      "_updated_at": "2026-05-04T15:23:57.322646+00:00",
+      "_updated_at": "2026-05-15T17:34:13.556211+00:00",
       "_source": "yfinance_auto"
     },
     "GOOGL": {
@@ -89,7 +89,49 @@
       "next_earnings": null,
       "confirmed": true,
       "notes": "ETF — no earnings"
+    },
+    "APP": {
+      "next_earnings": "2026-08-05",
+      "confirmed": false,
+      "notes": "",
+      "_updated_at": "2026-05-15T17:34:13.556211+00:00",
+      "_source": "yfinance_auto"
+    },
+    "GEV": {
+      "next_earnings": "2026-07-29",
+      "confirmed": false,
+      "notes": "",
+      "_updated_at": "2026-05-15T17:34:13.556211+00:00",
+      "_source": "yfinance_auto"
+    },
+    "LLY": {
+      "next_earnings": "2026-08-05",
+      "confirmed": false,
+      "notes": "",
+      "_updated_at": "2026-05-15T17:34:13.556211+00:00",
+      "_source": "yfinance_auto"
+    },
+    "MU": {
+      "next_earnings": "2026-06-24",
+      "confirmed": false,
+      "notes": "",
+      "_updated_at": "2026-05-15T17:34:13.556211+00:00",
+      "_source": "yfinance_auto"
+    },
+    "TSM": {
+      "next_earnings": "2026-07-16",
+      "confirmed": false,
+      "notes": "",
+      "_updated_at": "2026-05-15T17:34:13.556211+00:00",
+      "_source": "yfinance_auto"
+    },
+    "V": {
+      "next_earnings": "2026-07-28",
+      "confirmed": false,
+      "notes": "",
+      "_updated_at": "2026-05-15T17:34:13.556211+00:00",
+      "_source": "yfinance_auto"
     }
   },
-  "_last_auto_fetch": "2026-05-08T08:56:04.146130+00:00"
+  "_last_auto_fetch": "2026-05-15T17:37:23.344733+00:00"
 }

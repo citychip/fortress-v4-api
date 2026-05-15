@@ -1,3 +1,4 @@
+import os
 """
 Workflow 05: IV Crush Opportunity Report (v2 — Real HV)
 Focus: Finds the richest premium-selling opportunities by comparing current IV to
@@ -277,7 +278,7 @@ def main():
     print("  ❌ POOR SPREAD  = IVR < 25 — below strategy threshold, skip")
 
     # Save report
-    out_dir = pathlib.Path.home() / "quantdata_reports"
+    out_dir = pathlib.Path(os.environ.get("FORTRESS_DATA_DIR", str(pathlib.Path.home() / "Fortress_Dashboard/quant")))
     out_dir.mkdir(exist_ok=True)
     out_path = out_dir / f"Workflow_05_IV_Crush_{today_str}.md"
     with open(out_path, "w") as f:
