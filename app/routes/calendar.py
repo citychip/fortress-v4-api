@@ -151,3 +151,69 @@ def delete_calendar_entry(ticker: str):
         state.save_earnings_blocklist(data)
     except state.StateError as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Earnings history endpoint — returns past + upcoming earnings dates from yfinance
+# ---------------------------------------------------------------------------
+
+@router.get("/calendar/{ticker}/history", status_code=200)
+def get_earnings_history(ticker: str, limit: int = 12):
+    """
+    Return up to `limit` historical and upcoming earnings dates for a ticker.
+    Uses yfinance.Ticker.earnings_dates which requires lxml.
+    
+    Response shape:
+    {
+      "ticker": "MSFT",
+      "dates": [
+        {
+          "date": "2026-07-29",
+          "type": "upcoming",        // "past" | "upcoming"
+          "eps_estimate": 4.25,
+          "reported_eps": null,
+          "surprise_pct": null
+        },
+        ...
+      ]
+    }
+    """
+    import yfinance as yf
+    from datetime import date
+
+    ticker = ticker.upper()
+    try:
+        t = yf.Ticker(ticker)
+        df = t.earnings_dates
+        if df is None or df.empty:
+            return {"ticker": ticker, "dates": []}
+        
+        # Limit to most recent N entries (yfinance returns newest first)
+        df = df.head(limit)
+        
+        today = date.today()
+        results = []
+        for ts, row in df.iterrows():
+            try:
+                dt = ts.date()
+                date_str = dt.isoformat()
+                entry_type = "upcoming" if dt >= today else "past"
+                
+                eps_est = row.get("EPS Estimate")
+                reported = row.get("Reported EPS")
+                surprise = row.get("Surprise(%)")
+                
+                results.append({
+                    "date": date_str,
+                    "type": entry_type,
+                    "eps_estimate": None if (eps_est is None or (hasattr(eps_est, "__class__") and str(eps_est) == "nan")) else float(eps_est),
+                    "reported_eps": None if (reported is None or (hasattr(reported, "__class__") and str(reported) == "nan")) else float(reported),
+                    "surprise_pct": None if (surprise is None or (hasattr(surprise, "__class__") and str(surprise) == "nan")) else float(surprise),
+                })
+            except Exception:
+                continue
+        
+        return {"ticker": ticker, "dates": results}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch earnings history for {ticker}: {str(e)}")
