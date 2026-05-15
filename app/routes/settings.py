@@ -927,79 +927,120 @@ async def import_backup(file: UploadFile = File(...)):
 @router.post("/settings/test_quantdata")
 def test_quantdata_connection():
     """
-    Test the QuantData live API credentials stored in Settings > Security.
-    Calls qd_get_iv_rank("SPY") and returns ok/error.
+    Test the QuantData live API credentials.
+    Reads credentials from ~/.quantdata-mcp/config.json (same source as quantdata_daily.py).
+    Uses curl_cffi to impersonate Chrome (required by QuantData CDN protection).
     """
-    import requests as _req
+    import json as _json
+    import pathlib as _pathlib
+    from datetime import datetime as _datetime, timezone as _timezone
 
-    auth_token  = config_store.cfg("security.quantdata_auth_token", "")
-    instance_id = config_store.cfg("security.quantdata_instance_id", "")
-    base_url    = config_store.cfg("security.quantdata_api_base",
-                                   "https://core-lb-prod.quantdata.us/api")
-
-    if not auth_token or not instance_id:
+    # Read credentials from the MCP config file
+    mcp_config_path = _pathlib.Path.home() / ".quantdata-mcp" / "config.json"
+    if not mcp_config_path.exists():
         return {
             "ok": False,
             "error": "credentials_missing",
-            "message": "QuantData Auth Token and Instance ID must both be set in Settings > Security.",
+            "message": "QuantData MCP config not found at ~/.quantdata-mcp/config.json",
+        }
+    try:
+        mcp_cfg = _json.loads(mcp_config_path.read_text())
+    except Exception as e:
+        return {
+            "ok": False,
+            "error": "credentials_missing",
+            "message": f"Could not read QuantData MCP config: {e}",
         }
 
-    # Ensure the token has the Bearer prefix
-    if not auth_token.startswith("Bearer "):
-        auth_token = f"Bearer {auth_token}"
+    token = mcp_cfg.get("auth_token", "")
+    cookie = mcp_cfg.get("cookie", "")
+    tools = mcp_cfg.get("tools", {})
+    iv_rank_tool_id = tools.get("iv_rank", "")
 
+    if not token or not iv_rank_tool_id:
+        return {
+            "ok": False,
+            "error": "credentials_missing",
+            "message": "QuantData auth_token or iv_rank tool ID missing from ~/.quantdata-mcp/config.json",
+        }
+
+    BASE_URL = "https://core-lb-prod.quantdata.us/api"
     headers = {
         "accept": "application/json",
-        "authorization": auth_token,
-        "x-instance-id": instance_id,
-        "x-qd-version": "3",
+        "authorization": token,
+        "cookie": cookie,
         "origin": "https://v3.quantdata.us",
+        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "content-type": "application/json",
     }
 
     try:
+        from curl_cffi import requests as _cffi_req
+        sess = _cffi_req.Session(impersonate="chrome110")
+        sess.headers.update(headers)
+        resp = sess.get(f"{BASE_URL}/options/iv-rank/{iv_rank_tool_id}", timeout=15)
+    except ImportError:
+        # Fallback to plain requests if curl_cffi not available
+        import requests as _req
         resp = _req.get(
-            f"{base_url}/iv-rank",
+            f"{BASE_URL}/options/iv-rank/{iv_rank_tool_id}",
             headers=headers,
-            params={"ticker": "SPY"},
-            timeout=10,
+            timeout=15,
         )
-        if resp.status_code == 200:
-            data = resp.json()
-            iv_rank = None
-            if isinstance(data, list) and data:
-                iv_rank = data[0].get("iv_rank") or data[0].get("ivRank")
-            elif isinstance(data, dict):
-                iv_rank = data.get("iv_rank") or data.get("ivRank")
-            return {
-                "ok": True,
-                "message": f"QuantData connection successful. SPY IV Rank: {iv_rank}",
-                "iv_rank": iv_rank,
-                "status_code": 200,
-            }
-        elif resp.status_code == 401:
-            return {
-                "ok": False,
-                "error": "unauthorized",
-                "message": "QuantData returned 401 — token expired or invalid. Refresh credentials from browser DevTools.",
-                "status_code": 401,
-            }
-        elif resp.status_code == 429:
-            return {
-                "ok": False,
-                "error": "rate_limited",
-                "message": "QuantData returned 429 — rate limited. Wait 60 seconds and try again.",
-                "status_code": 429,
-            }
-        else:
-            return {
-                "ok": False,
-                "error": f"http_{resp.status_code}",
-                "message": f"QuantData returned HTTP {resp.status_code}: {resp.text[:200]}",
-                "status_code": resp.status_code,
-            }
-    except _req.exceptions.Timeout:
-        return {"ok": False, "error": "timeout", "message": "QuantData API timed out after 10s."}
-    except _req.exceptions.ConnectionError as e:
-        return {"ok": False, "error": "connection_error", "message": f"Could not reach QuantData API: {e}"}
-    except Exception as e:
-        return {"ok": False, "error": "unknown", "message": str(e)}
+
+    if resp.status_code == 200:
+        data = resp.json().get("response", {})
+        ivr_map = data.get("sessionDateToIVRankData", {})
+        iv_rank = None
+        ticker_in_tool = None
+
+        # Get ticker from tool metadata
+        tool_dto = data.get("toolDTO", {})
+        if tool_dto:
+            filt = tool_dto.get("metadata", {}).get("filter", {})
+            ticker_in_tool = filt.get("ticker", {}).get("value", "?")
+
+        if ivr_map:
+            latest_date = sorted(ivr_map.keys())[-1]
+            today_data = ivr_map.get(latest_date, {})
+            ct_data = today_data.get("contractTypeToIVData", {})
+            # Prefer CALL data; fall back to PUT
+            iv_data = ct_data.get("CALL") or ct_data.get("PUT") or {}
+            last_iv = iv_data.get("lastIV")
+            min_iv = iv_data.get("windowMinIV")
+            max_iv = iv_data.get("windowMaxIV")
+            if last_iv is not None and min_iv is not None and max_iv is not None:
+                iv_range = max_iv - min_iv
+                if iv_range > 0:
+                    iv_rank = round((last_iv - min_iv) / iv_range * 100, 1)
+                else:
+                    iv_rank = 0.0
+
+        ticker_label = ticker_in_tool or "last-used ticker"
+        return {
+            "ok": True,
+            "message": f"QuantData connection successful. {ticker_label} IV Rank: {iv_rank}",
+            "iv_rank": iv_rank,
+            "status_code": 200,
+        }
+    elif resp.status_code == 401:
+        return {
+            "ok": False,
+            "error": "unauthorized",
+            "message": "QuantData returned 401 — token or cookie expired. Re-run qd_setup.py to refresh credentials.",
+            "status_code": 401,
+        }
+    elif resp.status_code == 429:
+        return {
+            "ok": False,
+            "error": "rate_limited",
+            "message": "QuantData returned 429 — rate limited. Wait 60 seconds and try again.",
+            "status_code": 429,
+        }
+    else:
+        return {
+            "ok": False,
+            "error": "api_error",
+            "message": f"QuantData returned HTTP {resp.status_code}: {resp.text[:200]}",
+            "status_code": resp.status_code,
+        }
