@@ -12,18 +12,17 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from app.middleware import bearer_token_middleware
 from app.services import config_store
 
 from app.routes import (
+    options,
+    orders,
     settings,
     earnings_fetch,
     ibkr,
@@ -114,6 +113,8 @@ app.include_router(chart.router, prefix="/api")
 app.include_router(earnings_fetch.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(market_intelligence.router, prefix="/api")
+app.include_router(options.router, prefix="/api")
+app.include_router(orders.router, prefix="/api")
 
 
 
@@ -129,12 +130,5 @@ def health():
     return {"status": "ok", "version": app.version}
 
 
-# Static files — the dashboard frontend lives in app/static/
-STATIC_DIR = Path(__file__).parent / "static"
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-
-
-@app.get("/")
-def index():
-    """Serve the dashboard at root."""
-    return FileResponse(STATIC_DIR / "index.html")
+# Frontend is served by nginx from /var/www/fortress-v2/ (port 3000).
+# FastAPI only handles /api/* routes.
