@@ -16,6 +16,18 @@ Fortress is not an auto-trader; it is a **strategy management layer** that reads
 - **Security First:** No internet exposure required (designed to run behind Tailscale/VPN). API keys and passwords stay on your VPS.
 - **Backup & Restore:** Easily export and import all dashboard settings and configurations as JSON.
 
+
+## MCP Server (Claude Integration)
+
+The  directory contains the MCP server that exposes Fortress data and actions to Claude Desktop.
+
+**40 tools across 3 tiers:**
+- **Tier 1 — Read (25 tools):** , , , , , , , , and more
+- **Tier 1b — QuantData live (6 tools):** , , , , , 
+- **Tier 2 — Write / gated (9 tools):** , , , , , , and more (require )
+
+**Setup:** Copy  into your  and set  to .
+
 ## Dashboard Tabs Overview
 
 The dashboard is organized into 8 functional tabs:
