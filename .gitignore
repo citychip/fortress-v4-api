@@ -60,3 +60,14 @@ fortress_vps
 
 # ── Node (if any frontend tooling is added) ───────────────────────────────────
 node_modules/
+
+# Backup files
+*.bak
+
+# Deployed frontend static assets (managed by CI/deploy, not source)
+app/static/assets/
+app/static/__manus__/
+app/static/index.html
+
+# Quant workflow outputs
+quant/*.md
