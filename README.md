@@ -1,126 +1,210 @@
-# Fortress Dashboard 2026
+# Fortress Dashboard — API Backend
 
-An autonomous options portfolio strategy dashboard designed to bridge the gap between algorithmic trade execution and human strategic oversight.
+> A FastAPI backend for systematic options portfolio management. Connects to Interactive Brokers via the IBKR Web API, scrapes live market intelligence from QuantData, and exposes a structured REST API consumed by the [Fortress React frontend](https://github.com/citychip/fortress-app) and the [Fortress MCP server](https://github.com/citychip/fortress-mcp).
 
-Fortress is not an auto-trader; it is a **strategy management layer** that reads your live Interactive Brokers portfolio, evaluates it against your chosen trader persona rules (e.g. Income Seeker, Volatility Trader), and generates plain-English narratives, alerts, and execution candidates.
+![Dashboard Preview](docs/assets/dashboard_preview.webp)
 
-![Dashboard Preview — Trade tab](docs/assets/dashboard_preview.webp)
+---
 
-## Core Features
+## What It Does
 
-- **Trader Personas:** Switch between 5 predefined profiles (Income Seeker, Speculator, Volatility Trader, Hedger, PMCC) to instantly reconfigure risk tolerances and strategy rules.
-- **Live Strategy Narrative:** A generative plain-English briefing of your portfolio's state, macro regime, and concentration risks.
-- **Automatic Strategy Inference:** Automatically classifies raw IBKR positions into 24 distinct options strategies (Iron Condors, PMCCs, Collars, etc.) based on leg structure.
-- **Pre-trade Gate Checks:** Validates intended trades against earnings blackouts, concentration limits, and VIX regime rules.
-- **Chart Gallery:** 3-month candlestick charts with Dark Pool floor and GEX wall overlays for every universe ticker, rendered directly in the Trade tab.
-- **Security First:** No internet exposure required (designed to run behind Tailscale/VPN). API keys and passwords stay on your VPS.
-- **Backup & Restore:** Easily export and import all dashboard settings and configurations as JSON.
+Fortress is a personal trading operations platform built for options sellers who run systematic, rules-based strategies. The backend handles everything that requires server-side logic: portfolio state management, Greeks calculation, stop-loss and roll evaluation, workflow script execution, and live market intelligence hydration.
 
+The system is designed around a single-user, self-hosted model. It runs as a `systemd` service on a Linux VPS, sits behind an nginx reverse proxy, and authenticates all requests with a bearer token stored in the frontend's `localStorage`.
 
-## MCP Server (Claude Integration)
+---
 
-The  directory contains the MCP server that exposes Fortress data and actions to Claude Desktop.
+## Architecture
 
-**40 tools across 3 tiers:**
-- **Tier 1 — Read (25 tools):** , , , , , , , , and more
-- **Tier 1b — QuantData live (6 tools):** , , , , , 
-- **Tier 2 — Write / gated (9 tools):** , , , , , , and more (require )
+```
+Browser (React SPA)
+    │  HTTP/JSON  (port 3000 via nginx)
+    ▼
+nginx reverse proxy
+    ├── /          → /var/www/fortress-v2  (static React build)
+    └── /api/      → 127.0.0.1:8080        (FastAPI, localhost only)
+                            │
+                ┌───────────┼───────────────┐
+                ▼           ▼               ▼
+          IBKR Web API   QuantData.us   quant/*.json
+          (port 5055)    (live scrape)  (file-based state)
+```
 
-**Setup:** Copy  into your  and set  to .
+The backend is intentionally stateless at the HTTP layer — all persistent state lives in JSON files under `quant/`. This makes the system trivially portable and eliminates the need for a database.
 
-## Dashboard Tabs Overview
+---
 
-The dashboard is organized into 8 functional tabs:
+## Key Features
 
-| Tab | Function |
+| Category | What is included |
 |---|---|
-| **Dashboard** | High-level overview: NetLiq, available funds, pacing, macro regime, concentration limits, portfolio Greeks, and the IV Crush candidate scanner. |
-| **Positions** | Live view of all active positions synced from Interactive Brokers, with automatically inferred strategy labels. |
-| **Manage** | Stop-loss evaluator, roll candidate evaluator, and manual triggers for workflow scripts. |
-| **Trade** | Pre-trade gate check, §8 order checklist, TradingView price chart with DP/GEX overlays, post-earnings playbook matrix, and chart gallery for all universe tickers. |
-| **Data** | Manage the active ticker universe, view the earnings calendar, sync from IBKR, and manage file uploads. |
-| **Journal** | Trade logging and history. |
-| **Strategy** | Select your Trader Persona, read the live Strategy Narrative, configure 24 different strategy parameters, and manage alerts/thresholds. |
-| **Settings** | Configure technical infrastructure, security keys, UI preferences, and Backup/Restore functionality. |
+| **Portfolio** | Positions sync from IBKR, Greeks aggregation (delta/gamma/theta/vega), P&L tracking (realized + unrealized), beta-weighted delta, hedge coverage ratio |
+| **Risk** | Multi-signal stop-loss evaluation (§6), roll candidate ranking (§5), post-earnings decision matrix (§10), pre-trade gate (§3.3 → §4 → §7) |
+| **Market Intelligence** | GEX call/put walls, dark pool floors/ceilings, net drift, order flow sweeps, IV rank/percentile, max pain — all sourced from QuantData |
+| **Workflow Scripts** | 8 Python workflow scripts (pre-market scanner, IV crush report, whale flow, dark pool alert, max pain, EOD review, entry scoring, position monitor) — executable from the dashboard UI |
+| **Strategy** | Trader Persona cards (5 profiles), Volatility Regime Playbook matrix (IV × GEX), 24 configurable strategy parameters, signal mode (Strict / Advisory / Sandbox) |
+| **Cockpits** | Action Center (per-ticker pre-trade cockpit), Build Center (leg construction + IBKR whatif), Portfolio Center (aggregate view), Approvals (human-in-the-loop order queue) |
+| **Data** | Ticker universe management, earnings calendar, IBKR sync, file uploads, chart annotations |
+| **Journal** | Trade logging with strategy tags and outcome tracking |
+
+---
 
 ## External Data Dependencies
 
-### Interactive Brokers (Required)
+### Interactive Brokers (Required for live Greeks)
 
-The core portfolio management, positions syncing, and strategy inference rely entirely on Interactive Brokers via the **IBKR Web API** (the modern REST-based API introduced in TWS 10.19+). No IB Gateway or ibeam Docker container is required.
+The portfolio sync and live Greeks rely on the **IBKR Web API** (REST-based, introduced in TWS 10.19+). Enable it in TWS under **Edit → Global Configuration → API → Settings**. The backend connects to `localhost:5055` by default.
 
-The IBKR Web API is enabled directly in Trader Workstation (TWS) under **Edit → Global Configuration → API → Settings**. The dashboard connects to it on `localhost:5055` by default. If the Web API is unavailable, the backend automatically falls back to BS-yfinance for price data.
+If the IBKR Web API session is not established, the backend automatically falls back to Black-Scholes Greeks computed from yfinance prices. The active backend is reported in the `greeks_backend_used` field of every sync response.
 
-The Web API toggle and fallback behaviour are configurable in **Settings → Security**.
+### QuantData.us (Optional but strongly recommended)
 
-### QuantData.us (Optional but Highly Recommended)
+The workflow scripts, candidate scanner, macro regime extraction, and chart overlays all depend on [QuantData.us](https://quantdata.us). Without it, the dashboard manages your portfolio and evaluates stops/rolls correctly, but the candidate scanner will be empty, the macro regime will show as "unknown", and the chart overlays will be missing.
 
-While the dashboard is fully functional without it, the **Run workflow scripts** feature (in the Manage tab) heavily depends on the [QuantData.us](https://quantdata.us) live API.
+Configure your QuantData Auth Token and Instance ID in **Settings → Security**. The `use_quantdata` toggle suppresses all dependent features gracefully when disabled.
 
-QuantData provides the underlying market intelligence for:
-- Pre-market IV rank scanning (configurable lookback)
-- IV Crush reporting (which populates the Dashboard candidate scanner)
-- Whale flow and dark pool alerts
-- Max pain and EOD reviews
-- Macro regime extraction and Dark Pool/GEX overlays on the price chart
-- Live order flow sweeps and blocks (Gate 6 confirmation)
-
-**If you do not use QuantData:** The dashboard will still manage your portfolio, evaluate stops/rolls, and run the strategy narrative. However, the candidate scanner will be empty, the macro regime will show as "unknown", the chart overlays will be missing, and the workflow scripts will fail.
-
-You will need a QuantData Auth Token and Instance ID configured in the **Settings > Security** tab to unlock these features. The QuantData integration can be disabled entirely via the `use_quantdata` toggle in Settings, which suppresses all dependent features gracefully rather than erroring. Daily CSV report uploads are still supported as a fallback if the live API is unavailable.
+---
 
 ## Installation
 
 ### Prerequisites
-- A Linux VPS (Ubuntu 22.04/24.04 recommended)
-- **Interactive Brokers account** with TWS running and the IBKR Web API enabled
-- *(Optional)* **QuantData.us API Key** (required for workflow scripts and market intelligence)
 
-### 1-Click Install
+- Ubuntu 22.04 or 24.04 VPS
+- Python 3.10+
+- Interactive Brokers account with TWS running and the IBKR Web API enabled on `localhost:5055`
+- *(Optional)* QuantData.us API credentials
 
-Clone the repository and run the install script:
+### Quick Start
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/options-portfolio-strategy-dashboard-2026.git
-cd options-portfolio-strategy-dashboard-2026
+git clone https://github.com/citychip/fortress-api.git
+cd fortress-api
 ./install.sh
 ```
 
-The script will:
-1. Install Python dependencies and create a virtual environment.
-2. Generate a secure `FORTRESS_API_TOKEN`.
-3. Set up and start the `fortress-dashboard` systemd service.
-4. Copy the example configuration to the runtime data directory.
+The install script creates a Python virtual environment, generates a secure `FORTRESS_API_TOKEN`, installs the `fortress-dashboard` systemd service, and copies the example config. The API will be available at `http://localhost:8080`.
 
-The dashboard will be available at `http://<your-vps-ip>:8080`.
+To serve the React frontend, deploy the [fortress-app](https://github.com/citychip/fortress-app) build to `/var/www/fortress-v2` and configure nginx to proxy `/api/` to port 8080. A reference nginx config is included in `docs/04_VPS_Implementation_Guide_v1_5.md`.
 
 ### Configuration
-1. Open the dashboard in your browser.
-2. Navigate to the **Settings** tab.
-3. Under the **Security** section, enter your IBKR Account ID, enable the IBKR Web API toggle, and add your QuantData API key if applicable.
-4. Save the settings.
+
+After installation, open the dashboard in your browser and navigate to **Settings**. Under **Security**, enter your IBKR Account ID, enable the IBKR Web API toggle, and add your QuantData credentials if applicable. All configuration is stored in `quant/dashboard_settings.json` and can be exported/imported via the Settings backup feature.
+
+---
+
+## Project Structure
+
+```
+app/
+  main.py              ← FastAPI app, router registration, CORS
+  middleware.py        ← Bearer token auth (exempts health + hydration endpoints)
+  routes/
+    briefing.py        ← Portfolio briefing endpoint
+    candidates.py      ← IV crush candidate scanner
+    chart.py           ← OHLCV candles + overlay levels
+    ibkr.py            ← IBKR sync, session management, whatif preview
+    manage.py          ← Universe, settings, script runner, hydration cache
+    market_intelligence.py  ← QuantData scrape (GEX, DP, drift, order flow)
+    options.py         ← Black-Scholes Greeks, option chain
+    orders.py          ← Pending orders (Approvals queue)
+    pnl.py             ← P&L summary (realized + unrealized)
+    positions.py       ← Positions read/write
+    run.py             ← Workflow script execution + result persistence
+    ... (alerts, calendar, earnings, journal, playbook, settings, uploads)
+  services/
+    state.py           ← JSON file I/O helpers, pending orders persistence
+    ibkr_sync_web.py   ← IBKR Web API sync (positions, Greeks, P&L)
+    ibkr_sync_synthetic.py  ← BS-yfinance fallback Greeks
+    chain.py           ← Option chain fetcher
+    bs_fallback.py     ← Black-Scholes implementation
+    roll.py            ← Roll candidate evaluation
+    stop_loss.py       ← Multi-signal stop-loss evaluation
+    config_store.py    ← Settings read/write
+    ... (fx, ocr, playbook)
+quant/
+  dashboard_settings.json   ← Runtime configuration (gitignored)
+  active_positions.json     ← Live portfolio state (gitignored)
+  ticker_universe.json      ← Trading universe
+  workflow_*.py             ← 8 workflow scripts
+  master_orchestrator.py    ← Cron-driven workflow runner
+scripts/                    ← Standalone analysis scripts
+docs/                       ← Architecture and workflow documentation
+cp-gateway/                 ← ibeam IBKR Client Portal gateway (Docker, optional)
+```
+
+---
+
+## API Reference
+
+All endpoints require `Authorization: Bearer <token>` except `/api/health`, `/api/token`, `/api/manage/hydrate-asset`, and `/api/manage/hydrated-assets`.
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/health` | Health check — returns `{"status": "ok", "version": "..."}` |
+| `GET` | `/api/briefing` | Full portfolio briefing (positions, Greeks, regime, candidates) |
+| `GET` | `/api/positions` | Current option book with Greeks |
+| `POST` | `/api/ibkr/sync` | Trigger IBKR positions sync |
+| `GET` | `/api/market-intelligence/{ticker}` | GEX, DP, drift, order flow for a ticker |
+| `GET` | `/api/candidates` | IV crush candidate scanner results |
+| `GET` | `/api/pnl` | P&L summary (realized + unrealized) |
+| `GET` | `/api/options/greeks` | Black-Scholes Greeks for a given contract |
+| `GET` | `/api/options/chain/{ticker}` | Option chain for a ticker |
+| `POST` | `/api/run/{script_key}` | Execute a workflow script |
+| `GET` | `/api/manage/settings` | Read all settings |
+| `POST` | `/api/manage/settings` | Update a settings section |
+| `POST` | `/api/manage/hydrate-asset` | Write script-computed GEX/DP values to in-memory cache |
+| `GET` | `/api/manage/hydrated-assets` | Read cached GEX/DP values (no auth required) |
+| `GET` | `/api/orders/pending` | Pending order approval queue |
+| `POST` | `/api/orders/pending` | Add an order to the approval queue |
+| `PATCH` | `/api/orders/pending/{id}` | Approve or decline a pending order |
+
+Full request/response schemas are documented in `docs/02_Trading_Dashboard_Build_Spec_v1_8.md`.
+
+---
 
 ## Documentation
 
-Full documentation is available in the `docs/` folder:
-- [Portfolio Strategy v3.6](docs/01_Portfolio_Strategy_v3_6.md) — The core trading logic and rules engine.
-- [Dashboard Build Spec v1.8](docs/02_Trading_Dashboard_Build_Spec_v1_8.md) — Architecture and API design.
-- [Trading Workflow v2.8](docs/03_Trading_Workflow_v2_8.md) — Step-by-step trade execution workflow.
-- [VPS Implementation Guide v1.5](docs/04_VPS_Implementation_Guide_v1_5.md) — Deployment, IBKR Web API setup, and security hardening.
-- [Implementation Status](docs/05_Implementation_Status.md) — Current feature completion and known gaps.
+| Document | Description |
+|---|---|
+| [Portfolio Strategy v3.6](docs/01_Portfolio_Strategy_v3_6.md) | Core trading logic, rules engine, and strategy parameters |
+| [Dashboard Build Spec v1.8](docs/02_Trading_Dashboard_Build_Spec_v1_8.md) | Architecture, API design, and data flow |
+| [Trading Workflow v2.8](docs/03_Trading_Workflow_v2_8.md) | Step-by-step trade execution workflow |
+| [VPS Implementation Guide v1.5](docs/04_VPS_Implementation_Guide_v1_5.md) | Deployment, IBKR Web API setup, nginx config, security hardening |
+| [Implementation Status](docs/05_Implementation_Status.md) | Current feature completion and known gaps |
+| [MCP Workflow and Prompts v1.1](docs/07_MCP_Workflow_and_Prompts_v1_1.md) | How to use the MCP server with Claude Desktop |
+| [Market Intelligence Skill v1.0](docs/08_Market_Intelligence_Skill_v1_0.md) | QuantData integration details |
 
-## CI/CD Deployment
+---
 
-This repository includes a GitHub Actions workflow for automatic deployment.
-To enable auto-deploy on push to `main`:
+## Changelog
 
-1. Go to your repository **Settings > Secrets and variables > Actions**.
-2. Add the following secrets:
-   - `VPS_HOST`: Your VPS IP address
-   - `VPS_USER`: Your SSH username (e.g., `ubuntu`)
-   - `VPS_SSH_KEY`: Your private SSH key (without passphrase)
-   - `VPS_APP_PATH`: The absolute path to the app (e.g., `/home/ubuntu/options-portfolio-strategy-dashboard-2026`)
-   - `SERVICE_NAME`: `fortress-dashboard`
+| Version | Date | Summary |
+|---|---|---|
+| v3.9 | 2026-05-18 | VIX 30d sparkline + Macro Regime Gauge on Morning Brief; mini sparklines in Dashboard trade report rows |
+| v3.8 | 2026-05-17 | MACD crossover marker dots on Analysis page; Roll→ deep-link to Trade Builder; ticker gallery on Trade Builder load |
+| v3.7.2 | 2026-05-16 | Action Center, Build Center, Portfolio Center, Approvals cockpits; pending orders persistence; hydration cache endpoints; QuantData race condition fix; script result persistence |
+| v3.7.1 | 2026-05-16 | Strategy Sandbox: DTE/Delta sliders, Recharts payoff diagram with GEX/DP reference lines, 6-metric panel, Export to Trade Builder; 23 vitest unit tests |
+| v3.7 | 2026-05-15 | Strategy Workspace: Trader Persona cards, Volatility Regime Playbook matrix, 24 strategy parameters, signal mode, backup/restore |
+| v3.6 | 2026-05-15 | Hydration pipeline: Python scripts POST GEX/DP/drift after execution; Market Intel overlays cached values with "Cached" badge |
+| v3.5 | 2026-05-15 | Portfolio view: theta sign fix, alert badge counts, Auto-Roll. Orders: JSON copy on URGENT rows. Script Runner: terminal output, exit code, duration |
+| v3.4 | 2026-05-14 | Analysis: Net Drift NaN fix, GEX Call Wall blank fix, Order Flow empty-state, per-ticker Position Risk Context panel |
+| v3.3 | 2026-05-14 | Trade Builder: asset regime label, GEX/DP hydration, pre-trade advisory banner, expiry dates |
+| v3.2 | 2026-05-14 | Dashboard: Macro Regime Gate hydration, concentration-locked entry rows, Send Briefing notification |
+| v3.1 | 2026-05-14 | Morning Brief: IV heatmap fallback, enriched trade report rows, regime strip, beta-weighted delta, theta efficiency |
+| v3.0 | 2026-05-14 | Fortress v3 rebuild: tRPC + Drizzle ORM + Manus OAuth; persistent status bar; collapsed sidebar; Morning Brief landing page |
+| v2.x | 2026-05-10–14 | Initial builds: Dashboard, Positions, Market Intel, Orders, Analysis, Candidates, P&L, Settings, Trade Builder, Strategy |
+
+---
+
+## Related Repositories
+
+| Repository | Description |
+|---|---|
+| [citychip/fortress-app](https://github.com/citychip/fortress-app) | React 19 + tRPC frontend — the dashboard UI |
+| [citychip/fortress-mcp](https://github.com/citychip/fortress-mcp) | MCP server — connects Claude Desktop to the Fortress API with 40 tools |
+
+---
 
 ## Disclaimer
+
 This software is for informational and educational purposes only. It is not financial advice. Trading options involves significant risk. Always verify data and candidates before executing trades in your brokerage account.
