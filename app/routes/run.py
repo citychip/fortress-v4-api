@@ -128,7 +128,7 @@ def run_script(script_key: str):
     stdout_lines = result.stdout.splitlines()
     stderr_lines = result.stderr.splitlines()
 
-    return {
+    run_result = {
         "script": script_key,
         "filename": WORKFLOW_SCRIPTS[script_key],
         "exit_code": result.returncode,
@@ -138,7 +138,15 @@ def run_script(script_key: str):
         "stdout": "\n".join(stdout_lines[-100:]),
         "stderr": "\n".join(stderr_lines[-50:]) if stderr_lines else "",
     }
-
+    # Cache-write hook: persist last run result so dashboard panels hydrate immediately
+    try:
+        existing = state.read_json("script_results.json", default={})
+        existing[script_key] = run_result
+        existing["_last_updated"] = finished.isoformat()
+        state.write_json("script_results.json", existing)
+    except Exception:
+        pass  # Non-fatal: dashboard will fall back to live API
+    return run_result
 
 # ---------------------------------------------------------------------------
 # Time-of-day auto-run endpoint  (item F)

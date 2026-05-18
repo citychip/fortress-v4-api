@@ -1144,3 +1144,59 @@ def validate_jade_lizard(body: JadeLizardValidationRequest):
             else f"FAIL: total credit ${total_credit:.2f} is ${abs(margin):.2f} below the call spread width ${call_spread_width:.2f}. Strategy §2.E requires credit > width."
         ),
     }
+
+
+# ─── Dashboard hydration cache (written by Python scripts post-execution) ────
+
+from typing import Dict, Any
+import threading
+
+_hydration_cache: Dict[str, Dict[str, Any]] = {}
+_hydration_lock = threading.Lock()
+
+
+class HydrateAssetRequest(BaseModel):
+    ticker: str
+    gex_call_wall: Optional[float] = None
+    gex_put_wall: Optional[float] = None
+    dp_floor: Optional[float] = None
+    net_drift: Optional[float] = None
+    gamma_flip: Optional[float] = None
+    timestamp: Optional[str] = None
+
+
+@router.post("/manage/hydrate-asset")
+def hydrate_asset(payload: HydrateAssetRequest):
+    """
+    Called by Python scripts (max_pain.py, whale_flow.py) after execution.
+    Stores GEX/DP/drift values in an in-memory cache so the frontend can
+    overlay them when live QuantData fields are blank.
+    No auth required — only callable from localhost (middleware exempted).
+    """
+    from datetime import datetime, timezone
+    ticker = payload.ticker.upper()
+    entry = {
+        "ticker": ticker,
+        "gex_call_wall": payload.gex_call_wall,
+        "gex_put_wall": payload.gex_put_wall,
+        "dp_floor": payload.dp_floor,
+        "net_drift": payload.net_drift,
+        "gamma_flip": payload.gamma_flip,
+        "timestamp": payload.timestamp or datetime.now(timezone.utc).isoformat(),
+        "received_at": datetime.now(timezone.utc).isoformat(),
+    }
+    with _hydration_lock:
+        _hydration_cache[ticker] = entry
+    return {"success": True, "message": f"Cache hydrated for {ticker}"}
+
+
+@router.get("/manage/hydrated-assets")
+def get_hydrated_assets():
+    """
+    Returns all currently cached hydrated asset entries.
+    Frontend polls this to overlay cached values when QuantData fields are blank.
+    No auth required — served via nginx proxy to the browser.
+    """
+    with _hydration_lock:
+        assets = list(_hydration_cache.values())
+    return {"assets": assets}

@@ -21,6 +21,7 @@ from app.middleware import bearer_token_middleware
 from app.services import config_store
 
 from app.routes import (
+    pnl,
     options,
     orders,
     settings,
@@ -115,6 +116,7 @@ app.include_router(settings.router, prefix="/api")
 app.include_router(market_intelligence.router, prefix="/api")
 app.include_router(options.router, prefix="/api")
 app.include_router(orders.router, prefix="/api")
+app.include_router(pnl.router, prefix="/api")
 
 
 

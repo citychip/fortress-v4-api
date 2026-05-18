@@ -21,6 +21,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+import threading
 from collections import defaultdict
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -90,6 +91,8 @@ _WIDGET_IDS: dict[str, dict[str, str]] = {
 }
 
 _QD_SESS: requests.Session | None = None
+# Serializes concurrent system-page requests to prevent global-filter race condition
+_QD_SYSTEM_LOCK = threading.Lock()
 
 
 def _qd_session(page_id: str) -> requests.Session:
@@ -607,39 +610,45 @@ def get_market_intelligence(ticker: str = "SPY", session_date: str | None = None
     if _qd_available():
         # Use ticker-specific widgets if available; fall back to system pages for any ticker
         widgets = _WIDGET_IDS.get(ticker)
-        if widgets is None:
+        is_system_page = widgets is None
+        if is_system_page:
             widgets = _WIDGET_IDS["_SYSTEM"]
-            logger.info("No dedicated page for %s — using system pages", ticker)
+            logger.info("No dedicated page for %s — using system pages (serialized)", ticker)
 
         page_id = widgets.get("page_id", "")
-        sess    = _qd_session(page_id)
 
-        # Set global filter to the requested ticker on all relevant pages
-        _set_global_filter(sess, ticker, session_date)
+        # System-page tickers share the same QuantData global filter — serialize to prevent race conditions
+        import contextlib
+        lock_ctx = _QD_SYSTEM_LOCK if is_system_page else contextlib.nullcontext()
+        with lock_ctx:
+            sess = _qd_session(page_id)
 
-        # GEX — use primary page_id
-        if widgets.get("gex"):
-            gex_data = _fetch_gex(sess, widgets["gex"])
+            # Set global filter to the requested ticker on all relevant pages
+            _set_global_filter(sess, ticker, session_date)
 
-        # DP — may use a different page_id (system pages only)
-        if widgets.get("dp"):
-            dp_page = widgets.get("dp_page_id", page_id)
-            if dp_page != page_id:
-                dp_sess = _qd_session(dp_page)
-                _set_global_filter(dp_sess, ticker, session_date)
-                dp_data = _fetch_dp(dp_sess, widgets["dp"])
-            else:
-                dp_data = _fetch_dp(sess, widgets["dp"])
+            # GEX — use primary page_id
+            if widgets.get("gex"):
+                gex_data = _fetch_gex(sess, widgets["gex"])
 
-        # Net Drift — may use a different page_id (system pages only)
-        if widgets.get("net_drift"):
-            drift_page = widgets.get("drift_page_id", page_id)
-            if drift_page != page_id:
-                drift_sess = _qd_session(drift_page)
-                _set_global_filter(drift_sess, ticker, session_date)
-                drift_data = _fetch_net_drift(drift_sess, widgets["net_drift"])
-            else:
-                drift_data = _fetch_net_drift(sess, widgets["net_drift"])
+            # DP — may use a different page_id (system pages only)
+            if widgets.get("dp"):
+                dp_page = widgets.get("dp_page_id", page_id)
+                if dp_page != page_id:
+                    dp_sess = _qd_session(dp_page)
+                    _set_global_filter(dp_sess, ticker, session_date)
+                    dp_data = _fetch_dp(dp_sess, widgets["dp"])
+                else:
+                    dp_data = _fetch_dp(sess, widgets["dp"])
+
+            # Net Drift — may use a different page_id (system pages only)
+            if widgets.get("net_drift"):
+                drift_page = widgets.get("drift_page_id", page_id)
+                if drift_page != page_id:
+                    drift_sess = _qd_session(drift_page)
+                    _set_global_filter(drift_sess, ticker, session_date)
+                    drift_data = _fetch_net_drift(drift_sess, widgets["net_drift"])
+                else:
+                    drift_data = _fetch_net_drift(sess, widgets["net_drift"])
 
         qd_source = "quantdata_live_api"
     else:

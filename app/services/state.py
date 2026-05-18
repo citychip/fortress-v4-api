@@ -700,3 +700,17 @@ def resolve_greeks_backend(settings: dict, capability: dict) -> str:
     if requested == "web_api":
         return "web_api" if web_ok else "bs_yfinance"
     return requested
+
+# ---------------------------------------------------------------------------
+# Pending Orders (approval queue — v3.7.2)
+# ---------------------------------------------------------------------------
+
+DEFAULT_PENDING_ORDERS = {'_last_updated': None, 'orders': []}
+
+
+def get_pending_orders() -> dict:
+    return read_json('pending_orders.json', DEFAULT_PENDING_ORDERS)
+
+
+def save_pending_orders(data: dict) -> None:
+    write_json('pending_orders.json', data)
