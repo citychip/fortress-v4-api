@@ -19,7 +19,7 @@ logger = logging.getLogger("fortress.auth")
 
 EXPECTED_TOKEN = os.environ.get("FORTRESS_API_TOKEN", "")
 
-EXEMPT_PREFIXES = ("/static", "/api/health", "/")
+EXEMPT_PREFIXES = ("/static", "/api/health", "/", "/api/manage/hydrate-asset", "/api/manage/hydrated-assets")
 
 
 async def bearer_token_middleware(request: Request, call_next):
@@ -27,7 +27,7 @@ async def bearer_token_middleware(request: Request, call_next):
     path = request.url.path
 
     # Exempt: static files, health check, and root index
-    if path == "/" or path.startswith("/static") or path in ("/api/health", "/api/token"):
+    if path == "/" or path.startswith("/static") or path in ("/api/health", "/api/token", "/api/manage/hydrate-asset", "/api/manage/hydrated-assets"):
         return await call_next(request)
 
     # All other /api/* routes require a valid token
