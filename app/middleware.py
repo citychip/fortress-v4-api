@@ -27,7 +27,7 @@ async def bearer_token_middleware(request: Request, call_next):
     path = request.url.path
 
     # Exempt: static files, health check, and root index
-    if path == "/" or path.startswith("/static") or path in ("/api/health", "/api/token", "/api/manage/hydrate-asset", "/api/manage/hydrated-assets"):
+    if path == "/" or path.startswith("/static") or path in ("/api/health", "/api/token", "/api/manage/hydrate-asset", "/api/manage/hydrated-assets") or path == "/api/stream":
         return await call_next(request)
 
     # All other /api/* routes require a valid token
