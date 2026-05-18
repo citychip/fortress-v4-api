@@ -121,3 +121,132 @@ def calculate_greeks(req: GreeksRequest):
         pos_theta= pos_theta,
         pos_vega = pos_vega,
     )
+
+
+# ---------------------------------------------------------------------------
+# Vol Analytics — IV Skew, Term Structure, ATM IV Ladder
+# ---------------------------------------------------------------------------
+from app.services import chain as chain_svc
+from datetime import datetime, timezone
+
+@router.get("/options/vol-analytics")
+def get_vol_analytics(ticker: str):
+    """
+    Returns three volatility analytics views for a given ticker:
+    - skew: IV vs strike (moneyness) for the nearest expiry with sufficient data
+    - term_structure: ATM IV vs DTE across all available expiries
+    - atm_iv_ladder: table of ATM IV per expiry with call/put spread
+
+    Data source: yfinance option chain (cached 5 min).
+    """
+    ticker = ticker.upper()
+    data = chain_svc.get_chain(ticker, max_expiries=12)
+
+    if data.get("error"):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=502, detail=data["error"])
+
+    spot = data.get("spot") or 0
+    expirations = data.get("expirations") or {}
+    today = datetime.now(timezone.utc)
+
+    def dte(exp_str: str) -> int:
+        try:
+            exp_dt = datetime.strptime(exp_str[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            return max(int((exp_dt - today).days), 0)
+        except Exception:
+            return 0
+
+    def moneyness(strike: float) -> float:
+        """Strike / spot — 1.0 = ATM."""
+        if not spot:
+            return 0.0
+        return round(strike / spot, 4)
+
+    def atm_iv(calls: list, puts: list) -> float | None:
+        """IV of the call and put closest to ATM, averaged."""
+        if not spot:
+            return None
+        best_call = min(calls, key=lambda r: abs(r["strike"] - spot), default=None)
+        best_put = min(puts, key=lambda r: abs(r["strike"] - spot), default=None)
+        ivs = [r["iv"] for r in [best_call, best_put] if r and r.get("iv") and r["iv"] > 0]
+        return round(sum(ivs) / len(ivs), 4) if ivs else None
+
+    # ── Skew: IV vs moneyness for nearest expiry ──────────────────────────
+    skew = []
+    skew_expiry = None
+    sorted_exps = sorted(expirations.keys())
+    for exp in sorted_exps:
+        exp_dte = dte(exp)
+        if exp_dte < 7:
+            continue  # skip weeklies with < 7 DTE (noisy IV)
+        calls = expirations[exp].get("calls", [])
+        puts = expirations[exp].get("puts", [])
+        # Build skew: for each strike, use call IV above ATM, put IV below ATM
+        strikes = sorted(set(r["strike"] for r in calls + puts))
+        for s in strikes:
+            m = moneyness(s)
+            if m < 0.7 or m > 1.3:
+                continue  # only show ±30% moneyness
+            if m >= 1.0:
+                row = next((r for r in calls if r["strike"] == s and r.get("iv") and r["iv"] > 0), None)
+            else:
+                row = next((r for r in puts if r["strike"] == s and r.get("iv") and r["iv"] > 0), None)
+            if row:
+                skew.append({
+                    "strike": s,
+                    "moneyness": m,
+                    "iv": round(row["iv"] * 100, 2),  # as percentage
+                    "type": "call" if m >= 1.0 else "put",
+                })
+        if skew:
+            skew_expiry = exp
+            break
+
+    # ── Term Structure: ATM IV vs DTE ─────────────────────────────────────
+    term_structure = []
+    for exp in sorted_exps:
+        exp_dte = dte(exp)
+        calls = expirations[exp].get("calls", [])
+        puts = expirations[exp].get("puts", [])
+        iv = atm_iv(calls, puts)
+        if iv is not None and exp_dte >= 0:
+            term_structure.append({
+                "expiry": exp,
+                "dte": exp_dte,
+                "atm_iv": round(iv * 100, 2),  # as percentage
+            })
+
+    # ── ATM IV Ladder: table per expiry ───────────────────────────────────
+    atm_ladder = []
+    for exp in sorted_exps:
+        exp_dte = dte(exp)
+        calls = expirations[exp].get("calls", [])
+        puts = expirations[exp].get("puts", [])
+        if not spot:
+            continue
+        best_call = min(calls, key=lambda r: abs(r["strike"] - spot), default=None)
+        best_put = min(puts, key=lambda r: abs(r["strike"] - spot), default=None)
+        call_iv = round(best_call["iv"] * 100, 2) if best_call and best_call.get("iv") and best_call["iv"] > 0 else None
+        put_iv = round(best_put["iv"] * 100, 2) if best_put and best_put.get("iv") and best_put["iv"] > 0 else None
+        avg_iv = round((call_iv + put_iv) / 2, 2) if call_iv and put_iv else (call_iv or put_iv)
+        iv_spread = round(abs(call_iv - put_iv), 2) if call_iv and put_iv else None
+        atm_ladder.append({
+            "expiry": exp,
+            "dte": exp_dte,
+            "atm_strike": round(spot),
+            "call_iv": call_iv,
+            "put_iv": put_iv,
+            "avg_iv": avg_iv,
+            "iv_spread": iv_spread,
+        })
+
+    return {
+        "ticker": ticker,
+        "spot": spot,
+        "as_of": today.isoformat(),
+        "skew": skew,
+        "skew_expiry": skew_expiry,
+        "term_structure": term_structure,
+        "atm_ladder": atm_ladder,
+    }

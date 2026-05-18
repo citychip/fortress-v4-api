@@ -1144,3 +1144,117 @@ def validate_jade_lizard(body: JadeLizardValidationRequest):
             else f"FAIL: total credit ${total_credit:.2f} is ${abs(margin):.2f} below the call spread width ${call_spread_width:.2f}. Strategy §2.E requires credit > width."
         ),
     }
+
+
+# ─── Dashboard hydration cache (written by Python scripts post-execution) ────
+
+from typing import Dict, Any
+import threading
+
+_hydration_cache: Dict[str, Dict[str, Any]] = {}
+_hydration_lock = threading.Lock()
+
+
+class HydrateAssetRequest(BaseModel):
+    ticker: str
+    gex_call_wall: Optional[float] = None
+    gex_put_wall: Optional[float] = None
+    dp_floor: Optional[float] = None
+    net_drift: Optional[float] = None
+    gamma_flip: Optional[float] = None
+    timestamp: Optional[str] = None
+
+
+@router.post("/manage/hydrate-asset")
+def hydrate_asset(payload: HydrateAssetRequest):
+    """
+    Called by Python scripts (max_pain.py, whale_flow.py) after execution.
+    Stores GEX/DP/drift values in an in-memory cache so the frontend can
+    overlay them when live QuantData fields are blank.
+    No auth required — only callable from localhost (middleware exempted).
+    """
+    from datetime import datetime, timezone
+    ticker = payload.ticker.upper()
+    entry = {
+        "ticker": ticker,
+        "gex_call_wall": payload.gex_call_wall,
+        "gex_put_wall": payload.gex_put_wall,
+        "dp_floor": payload.dp_floor,
+        "net_drift": payload.net_drift,
+        "gamma_flip": payload.gamma_flip,
+        "timestamp": payload.timestamp or datetime.now(timezone.utc).isoformat(),
+        "received_at": datetime.now(timezone.utc).isoformat(),
+    }
+    with _hydration_lock:
+        _hydration_cache[ticker] = entry
+    return {"success": True, "message": f"Cache hydrated for {ticker}"}
+
+
+@router.get("/manage/hydrated-assets")
+def get_hydrated_assets():
+    """
+    Returns all currently cached hydrated asset entries.
+    Frontend polls this to overlay cached values when QuantData fields are blank.
+    No auth required — served via nginx proxy to the browser.
+    """
+    with _hydration_lock:
+        assets = list(_hydration_cache.values())
+    return {"assets": assets}
+
+
+# ---------------------------------------------------------------------------
+# Bearer Token Rotation
+# ---------------------------------------------------------------------------
+import uuid
+import subprocess
+import re
+
+TOKEN_FILE = '/home/ubuntu/.fortress_api_token'
+OVERRIDE_FILE = '/etc/systemd/system/fortress-dashboard.service.d/override.conf'
+
+@router.post('/manage/rotate-token')
+def rotate_token():
+    """
+    Generates a new 48-char hex bearer token.
+    1. Writes the new token to /home/ubuntu/.fortress_api_token (ubuntu-owned).
+    2. Updates the systemd override via 'sudo tee' (ubuntu has NOPASSWD:ALL).
+    3. Runs 'sudo systemctl daemon-reload && sudo systemctl restart fortress-dashboard'.
+    Returns the new token so the browser can save it immediately.
+    """
+    new_token = uuid.uuid4().hex + uuid.uuid4().hex[:16]
+    try:
+        # Step 1: write token file (ubuntu-owned, no sudo needed)
+        with open(TOKEN_FILE, 'w') as f:
+            f.write(new_token)
+
+        # Step 2: update systemd override using sudo tee
+        with open(OVERRIDE_FILE, 'r') as f:
+            content = f.read()
+        new_content = re.sub(
+            r'(Environment="FORTRESS_API_TOKEN=)[^"]*(")' ,
+            rf'\g<1>{new_token}\g<2>',
+            content,
+        )
+        if new_content == content:
+            new_content += f'\nEnvironment="FORTRESS_API_TOKEN={new_token}"\n'
+        result = subprocess.run(
+            ['sudo', 'tee', OVERRIDE_FILE],
+            input=new_content.encode(),
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f'sudo tee failed: {result.stderr.decode()}')
+
+        # Step 3: reload systemd and restart service
+        subprocess.run(['sudo', 'systemctl', 'daemon-reload'], check=True)
+        # Fire-and-forget restart: the service kills itself (SIGTERM) so we can't use check=True
+        subprocess.Popen(['sudo', 'systemctl', 'restart', 'fortress-dashboard'])
+
+        return {
+            'ok': True,
+            'new_token': new_token,
+            'message': 'Token rotated. Service restarting — reconnect with the new token.',
+        }
+    except Exception as e:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=f'Token rotation failed: {e}')
