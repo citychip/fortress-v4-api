@@ -22,6 +22,7 @@
 | 8 | `08_Developer_Guide.md` | Local setup, Docker Compose, env vars, module layout, test commands | P0/P2 |
 | 9 | `09_Operations_Notes.md` | Permanent hard-won operational knowledge — read before touching VPS | Permanent |
 | 10 | `10_GitHub_App_Setup_Archive.md` | Archived setup guide for the deleted 8081 GitHub app instance | Archive |
+| 11 | `11_Upgrade_Plan.md` | Sprint-ready V3→V4 upgrade backlog (v8.3–v8.11), pre-coding steps, rollback strategy | Live |
 
 ---
 
