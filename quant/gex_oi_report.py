@@ -9,7 +9,7 @@ import pathlib
 import time
 from datetime import datetime, timezone, timedelta
 from curl_cffi import requests
-from openai import OpenAI
+import anthropic
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Config
@@ -301,37 +301,35 @@ def generate_report(date: str, ticker_profiles: dict) -> str:
 
 def generate_ai_commentary(report_text: str) -> str:
     try:
-        client = OpenAI()
-        resp = client.chat.completions.create(
-            model="gpt-4.1-mini",
+        client = anthropic.Anthropic()
+        resp = client.messages.create(
+            model="claude-3-5-haiku-20241022",
+            max_tokens=600,
+            system=(
+                "You are a senior options strategist analyzing QuantData GEX and OI profiles "
+                "for Portfolio Strategy v3.2. The strategy sells premium via put credit spreads, "
+                "PMCCs, diagonals, and Jade Lizards on high-IV stocks. "
+                "GEX Call Walls = resistance (safe zone for short calls above). "
+                "GEX Put Walls = support (safe zone for short puts below). "
+                "Dark Pool floors = hard institutional support — break = thesis stop. "
+                "OI walls = pinning targets near expiry. "
+                "Write 5-7 concise, actionable bullet points covering: "
+                "(1) which tickers have the clearest structural support for put spreads, "
+                "(2) any GEX flip zones to watch, "
+                "(3) notable Dark Pool floors that define risk levels, "
+                "(4) OI pinning targets for the nearest expiry, "
+                "(5) any tickers to avoid due to thin or unclear structure."
+            ),
             messages=[
                 {
-                    "role": "system",
-                    "content": (
-                        "You are a senior options strategist analyzing QuantData GEX and OI profiles "
-                        "for Portfolio Strategy v3.2. The strategy sells premium via put credit spreads, "
-                        "PMCCs, diagonals, and Jade Lizards on high-IV stocks. "
-                        "GEX Call Walls = resistance (safe zone for short calls above). "
-                        "GEX Put Walls = support (safe zone for short puts below). "
-                        "Dark Pool floors = hard institutional support — break = thesis stop. "
-                        "OI walls = pinning targets near expiry. "
-                        "Write 5-7 concise, actionable bullet points covering: "
-                        "(1) which tickers have the clearest structural support for put spreads, "
-                        "(2) any GEX flip zones to watch, "
-                        "(3) notable Dark Pool floors that define risk levels, "
-                        "(4) OI pinning targets for the nearest expiry, "
-                        "(5) any tickers to avoid due to thin or unclear structure."
-                    )
-                },
-                {
                     "role": "user",
-                    "content": f"Here is today's GEX & OI profile report:\n\n{report_text[:6000]}"
+                    "content": f"Here is today's GEX & OI profile report:
+
+{report_text[:6000]}"
                 }
             ],
-            max_tokens=600,
-            temperature=0.3,
         )
-        return resp.choices[0].message.content.strip()
+        return resp.content[0].text.strip()
     except Exception as e:
         return f"[AI commentary unavailable: {e}]"
 

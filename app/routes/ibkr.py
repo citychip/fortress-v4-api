@@ -87,7 +87,25 @@ async def trigger_sync(backend: str | None = None):
 
         synced["greeks_backend_used"] = chosen
         positions = synced.pop("positions", [])
-        new_data = {**synced, "positions": positions}
+        
+        # --- Enrich with beta data (IBKR primary, yFinance fallback) ---
+        ticker_set = set()
+        for p in positions:
+            t = p.get("ticker")
+            if t:
+                ticker_set.add(t)
+        
+        betas = {}
+        if ticker_set:
+            try:
+                from app.services import beta_weights
+                tickers = sorted(ticker_set)
+                betas = beta_weights.fetch_betas_for_portfolio(tickers, {"positions": positions})
+            except Exception as e:
+                logger.warning("Beta-weight fetch failed (non-fatal): %s", e)
+        
+        # Add betas to positions data for downstream use
+        new_data = {**synced, "positions": positions, "_betas": betas}
         state.save_positions(new_data)
         cap_mod.invalidate()  # capability may have changed (e.g. session refreshed)
 

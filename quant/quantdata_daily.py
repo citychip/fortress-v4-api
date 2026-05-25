@@ -15,7 +15,7 @@ import json
 import pathlib
 from datetime import datetime, timezone, timedelta
 from curl_cffi import requests
-import openai
+import anthropic
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Configuration
@@ -584,29 +584,28 @@ def generate_report(date: str, ticker_data_map: dict, spx_gex: dict, spx_drift: 
 
 def generate_ai_summary(report_md: str) -> str:
     try:
-        client = openai.OpenAI()
-        response = client.chat.completions.create(
-            model="gpt-4.1-mini",
+        client = anthropic.Anthropic()
+        response = client.messages.create(
+            model="claude-3-5-haiku-20241022",
+            max_tokens=400,
+            system=(
+                "You are a quantitative options analyst assistant for the trader, "
+                "who runs a PMCC/diagonal/put-credit-spread/Jade Lizard portfolio "
+                "(Portfolio Strategy v3.2). Summarize the QuantData report in 3-5 "
+                "concise bullet points focused on actionable insights: "
+                "regime direction, which tickers are eligible for new put spreads, "
+                "and any notable GEX/drift signals. Be direct and brief."
+            ),
             messages=[
                 {
-                    "role": "system",
-                    "content": (
-                        "You are a quantitative options analyst assistant for the trader, "
-                        "who runs a PMCC/diagonal/put-credit-spread/Jade Lizard portfolio "
-                        "(Portfolio Strategy v3.2). Summarize the QuantData report in 3-5 "
-                        "concise bullet points focused on actionable insights: "
-                        "regime direction, which tickers are eligible for new put spreads, "
-                        "and any notable GEX/drift signals. Be direct and brief."
-                    ),
-                },
-                {
                     "role": "user",
-                    "content": f"Summarize this QuantData daily report:\n\n{report_md[:3000]}",
+                    "content": f"Summarize this QuantData daily report:
+
+{report_md[:3000]}",
                 },
             ],
-            max_tokens=400,
         )
-        return response.choices[0].message.content
+        return response.content[0].text
     except Exception as e:
         return f"AI summary unavailable: {e}"
 

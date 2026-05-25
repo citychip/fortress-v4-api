@@ -1,136 +1,83 @@
-# Implementation Status
+# Fortress Dashboard — Implementation Status
 
-**Snapshot date: 2026-05-15**
-**Strategy version:** v3.6
-**Dashboard version:** v3.6 backend (VPS) / v2 frontend (React/TypeScript, port 3000)
-
-This document is a point-in-time snapshot of what is live, what is broken, and what is in the build queue. It is the one place in the documentation set where reality-vs-spec drift is allowed to be visible. For the full backlog, see `review/11_Todo_Backlog.md`.
+**Snapshot:** May 19, 2026 | **Strategy:** v3.7 | **Dashboard:** Fortress V3 (React/tRPC) | **Build Spec:** v2.0
 
 ---
 
-## Live and Working
+## Live Components
 
-### Infrastructure
-
-| Component | Status | Notes |
-|---|---|---|
-| VPS (srv1321374, 76.13.138.194) | Live | Ubuntu 22.04, 4GB RAM, 40GB SSD |
-| CP Gateway (`voyz/ibeam`) | Live | Replaces legacy TWS gateway. Port 5000. Authenticated to U7453366. |
-| `fortress-dashboard.service` | Live | FastAPI + uvicorn, port 8080 |
-| `fortress_orchestrator.service` | Live | APScheduler, 10 scheduled scripts |
-| nginx (v2 frontend) | Live | Serves React build at port 3000 |
-| Python venv | Live | Python 3.14, all dependencies installed |
-| GitHub Actions CI/CD | Live | Auto-deploys to VPS on push to `master` |
-
-### Backend — Phases 1–6
-
-| Feature | Endpoint | Status |
-|---|---|---|
-| Morning briefing | `GET /api/briefing` | Live |
-| Per-leg positions | `GET /api/positions` | Live |
-| Aggregated positions | `GET /api/manage/positions` | Live |
-| IV crush candidates | `GET /api/candidates` | Live |
-| Earnings calendar | `GET/PUT/POST/DELETE /api/calendar/*` | Live |
-| Earnings auto-fetch | `POST /api/calendar/fetch-earnings` | Live — auth fix applied 2026-05-15 |
-| Universe viewer + editor | `GET/POST/DELETE /api/universe/*` | Live |
-| Alerts CRUD | `GET/POST/DELETE /api/alerts/*` | Live |
-| Journal CRUD + metrics | `GET/POST/DELETE /api/journal/*` | Live |
-| IBKR screenshot OCR | `POST /api/uploads/ibkr` | Live (legacy path) |
-| TradingView chart upload | `POST /api/uploads/chart` | Live |
-| Script runner | `POST /api/run/{script_key}` | Live |
-| IBKR Web API sync | `POST /api/ibkr/sync` | Live — web_api backend active |
-| IBKR capability check | `GET /api/ibkr/capability` | Live — returns session status, OPRA, backend mode |
-| TradingView Lightweight Charts widget | `GET /api/chart/{ticker}` | Live |
-| Stop-loss aggregator (4-level) | `GET /api/manage/stop_loss/{ticker}` | Live |
-| Roll candidate evaluator | `GET /api/manage/roll/{ticker}` | Live |
-| Post-earnings playbook | `POST /api/playbook/post_earnings` | Live |
-| Jade Lizard credit gate | `POST /api/manage/validate_jade_lizard` | Live |
-| SPY hedge coverage (USD) | `GET /api/manage/spy_hedge_coverage` | Live — classifier broadened 2026-05-15 |
-| Pre-trade gate checker | New Trade tab | Live |
-| Portfolio Greeks aggregation | Briefing tab | Live — all four Greeks live via OPRA (S-02 resolved) |
-| EUR/USD FX conversion | All threshold checks | Live |
-| BS-from-yfinance delta fallback | IBKR sync post-processing | Live |
-| Hard exclusion gate (§3.3) | Pre-trade gate + candidates | Live |
-| Per-leg IBKR records + aggregator | Positions + Manage tabs | Live |
-| Settings tab + config_store | `GET/POST /api/settings/*` | Live — `fortress_config.json` is canonical |
-| Backend dispatcher | `cfg("technical.greeks_backend")` | Live — {auto, web_api, bs_yfinance, tws_ibkr} |
-| Live Strategy Narrative | `GET /api/settings/narrative` | Live |
-| Security toggles + runtime guards | Settings → Security | Live |
-| Trade Reports tab | `GET /api/manage/trade_report` | Live |
-| Market Intelligence endpoint | `GET /api/market-intelligence` | Live |
-| Trader Personas (5) + Strategy Catalogue (24) | `GET /api/settings/trader_presets` | Live |
-| QuantData test | `POST /api/settings/test_quantdata` | Live |
-
-### QuantData Workflow Scripts
-
-| Script | Schedule | Status |
-|---|---|---|
-| `workflow_01_premarket_scanner.py` | Weekdays 09:00 ET | Live |
-| `quantdata_daily.py` | Weekdays 09:35 ET | Live |
-| `workflow_02_entry_scoring.py` | On-demand (before every entry) | Live |
-| `workflow_03_position_monitor.py` | Weekdays 12:00 + 15:45 ET | Live |
-| `workflow_04_eod_review.py` | Weekdays 16:15 ET | Live |
-| `workflow_05_iv_crush_report.py` | Weekdays 09:35 ET | Live |
-| `workflow_06_dark_pool_alert.py` | Weekdays 12:00 + 15:45 ET | Live |
-| `workflow_07_whale_flow_report.py` | Weekdays 09:35 ET | Live |
-| `workflow_08_max_pain_report.py` | Weekly Friday + on-demand | Live |
-| `gex_oi_report.py` | On-demand | Live |
-
-### MCP Scripts
-
-| Script | Purpose | Status |
-|---|---|---|
-| `scripts/mcp_briefing.py` | Morning briefing via MCP | Live |
-| `scripts/mcp_full_analysis.py` | Full ticker analysis via MCP | Live |
-| `scripts/mcp_gex2.py` | GEX level extraction via MCP | Live |
-| `scripts/mcp_position_analysis2.py` | Per-position analysis via MCP | Live |
-
-### v2 Dashboard (React/TypeScript — port 3000)
-
-| Feature | Page | Status |
-|---|---|---|
-| Trade Report panel with entry/stop/exit/roll/post-earnings sections | Dashboard | Live |
-| Post-earnings candidates section with days-since badge and IVR chip | Dashboard | Live |
-| Roll candidates DTE countdown ring (cyan, urgency badge) | Dashboard | Live |
-| Summary count grid (6 columns incl. Post-Earnings) | Dashboard | Live |
-| Greeks Summary panel (Net Δ/Γ/Θ/V, Avg IV, Leg count) | Analysis | Live |
-| Earnings date overlay on price chart (amber dashed vertical line) | Analysis | Live |
-| Deep-link navigation from Dashboard rows to Analysis with ticker pre-selected | Dashboard → Analysis | Live |
-| Settings sync indicator (SyncBadge: Saving… / Saved ✓ / Sync failed) | Settings | Live |
-| Connection Health panel — IBKR and QuantData ping tests with latency | Settings | Live |
-| Null-safety hardening on all nullable `.toFixed()` calls | Dashboard | Live |
+| Component | Status | Version | Notes |
+|---|---|---|---|
+| **Fortress V3 Frontend** | ✅ Live | React 19 + Tailwind 4 + tRPC 11 | Served on port 3000 via nginx. Source: `/home/ubuntu/fortress-v2/`. Web root: `/var/www/fortress-v2/`. |
+| **Python Backend (FastAPI)** | ✅ Live | v1.9.x | `fortress-dashboard.service` on port 8080. |
+| Bearer token auth | ✅ Live | — | All `/api/*` endpoints require `Authorization: Bearer <token>`. |
+| CP Gateway (voyz/ibeam) | ✅ Live | latest | Docker container. IBKR Web API primary broker path. |
+| IBKR Greeks | ✅ Live | Web API | Δ/Γ/Θ/V live when OPRA subscribed. BS fallback when session expires. |
+| MCP server | ✅ Live | v1.2 | 29 tools. Installed in Claude Desktop. Repo: `citychip/fortress-mcp`. |
+| Market Intelligence endpoint | ✅ Live | — | `/api/market-intelligence` — GEX, DP floors, Net Drift, regime score. `curl_cffi` Cloudflare bypass. |
+| Market Intelligence UI | ✅ Live | Sprint v7.1 | Sort dropdown (Score/Bias/Alpha), per-card refresh, metric tooltips. |
+| Candidates All-tab | ✅ Live | Sprint v7.0 | Full 19-ticker universe. Actionable at top; monitoring below divider. |
+| Candidates fallback | ✅ Live | Sprint v7.1 | All 19 tickers shown even when API returns 0 rows (placeholder rows). |
+| Settings — QuantData Login | ✅ Live | Sprint v7.2 | Email + password login in Settings tab. Calls `/api/settings/quantdata_login_refresh`. Returns SPY IV Rank as live proof. No DevTools required. |
+| QuantData auto-refresh (cron) | ✅ Live | Sprint v7.2 | `qd_refresh_session.py` runs daily at 06:00 UTC. Logs to `/var/log/qd_refresh.log`. |
+| QuantData API calls | ✅ Fixed | Sprint v7.1 | `market_intelligence.py` uses `curl_cffi` with Chrome impersonation. `chart.py` uses widget-UUID REST endpoints. |
+| IV Rank Heatmap | ✅ Live | — | Requires valid QuantData credentials. Shows "no data" when expired. |
+| IV Crush workflow | ✅ Live | — | `workflow_05_iv_crush_report.py`. Requires valid QuantData session. |
+| Trade Reports tab | ✅ Live | Phase 8 | Evaluation reports for new trades, rolls, buys, sells. |
+| Journal auto-populate | ✅ Live | Phase 5/6 | Auto-populates from IBKR sync. |
+| IBKR auto-sync | ✅ Live | Phase 5/6 | Background task. 60-second polling. |
+| Pre-trade matrix | ✅ Live | Phase 5/6 | Batch stop-loss/roll tables. |
+| Settings tab | ✅ Live | v1.8.2+ | Sections: General, API Connection, Connection Health, QuantData Credentials, Ticker Universe, Data Refresh, Server Settings, Backup & Restore, Security. |
+| Security toggles | ✅ Live | v1.8.2 | `use_ibkr_web_api` and `use_quantdata` with amber banners. |
 
 ---
 
 ## Known Issues
 
-| ID | Severity | Issue | Workaround |
-|---|---|---|---|
-| B-02 | Medium | qty=0 legs persist in sync list after position close | Workaround: manually remove from `active_positions.json`. Fix: post-sync filter in `ibkr_sync.py`. |
-| B-05 | Low | Position notes disabled for IBKR-synced positions | Workaround: use Journal tab for trade notes. |
+| ID | Severity | Component | Description | Status |
+|---|---|---|---|---|
+| K-01 | ~~Medium~~ | ~~QuantData session~~ | ~~`auth_token` and `cookie` expire periodically. IV Rank, Candidates, and chart overlays show no data.~~ | **Resolved** — Daily cron auto-refresh at 06:00 UTC. Manual refresh via Settings email/password login. No DevTools required. |
+| K-02 | Low | IV Crush workflow | Workflow skips tickers where QuantData returns no data. Generates empty `rows: []`. | **Mitigated** — Candidates All-tab shows placeholder rows when API returns 0 rows. |
+| K-03 | Low | CP Gateway | Session expires every ~24h. ibeam re-authenticates automatically; requires IBKR Mobile push approval. | **By design** — future OAuth 2.0 migration would eliminate this. |
+| K-04 | Low | Market Intel current_price | `current_price` is null outside market hours (yfinance). | **Fixed** — null guard added in Sprint v7.1. Shows `—` instead of crashing. |
+| K-05 | Low | Market Intel GEX/DP/drift | GEX, dark pool, and net drift fields are null in market-intelligence response. QuantData widget endpoints return 401 despite valid JWT. Root cause: widget endpoints require a live browser session cookie in addition to the JWT. | **Under investigation** — IV Rank (tool endpoint) works. Widget endpoints use a different auth path. |
 
 ---
 
-## Resolved Issues (since 2026-05-05)
+## Resolved Items
 
-| ID | Issue | Resolved |
+| ID | Item | Resolution |
 |---|---|---|
-| S-02 | Theta and vega showed as zero — IBKR Read-Only API not enabled | 2026-05-09 — CP Gateway + OPRA live |
-| B-01 | Same as S-02 | 2026-05-09 |
-| B-03 | SPY hedge coverage target now USD-native | 2026-05-05 |
-| B-04 | Universe editor UI was partial | 2026-05-05 (D-20) |
+| O-01 | Candidates All-tab showed empty state when API returned 0 rows | Fixed — frontend fallback shows all 19 universe tickers as monitoring rows |
+| O-02 | QuantData credential refresh required SSH + DevTools | Fixed — Settings email/password login + daily cron auto-refresh |
+| O-03 | `chart.py` used deprecated `tool/OPTIONS_*` QuantData endpoints (400 errors) | Fixed — replaced with widget-UUID REST endpoints |
+| O-04 | Market Intel page crashed with `TypeError: Cannot read properties of null` | Fixed — null guard on `current_price` |
+| O-05 | Market Intel had no sort, no per-card refresh, no metric explanations | Fixed — sort dropdown, per-card refresh button, and hover tooltips added |
+| O-06 | `market_intelligence.py` used plain `requests` — blocked by Cloudflare (HTTP 401) | Fixed — patched to use `curl_cffi` with Chrome impersonation |
+| O-07 | React build deployed to wrong path (`app/static/`) | Fixed — correct path is `/var/www/fortress-v2/` (nginx web root) |
 
 ---
 
-## IBKR Web API — Option Chain Capability
+## Pending / Pipeline
 
-The IB Gateway Web API (running at `localhost:5000`) supports full option chain access:
+| ID | Priority | Item |
+|---|---|---|
+| P-01 | Medium | Resolve QuantData widget endpoint 401 — GEX/DP/drift fields in market-intelligence. Investigate whether widget endpoints require a separate browser session cookie vs JWT. |
+| P-02 | Medium | Automated IV Crush workflow schedule (cron) — currently manual trigger only |
+| P-03 | Medium | IBKR OAuth 2.0 — eliminate CP Gateway daily push approval |
+| P-04 | Low | Strategy Workspace — scenario planning UI |
+| P-05 | Low | Vol analytics panel — IV term structure, skew chart |
 
-| Capability | Endpoint |
-|---|---|
-| Available expirations per ticker | `GET /v1/api/iserver/secdef/search?symbol=X&secType=STK` |
-| Strikes per expiry | `GET /v1/api/iserver/secdef/strikes?conid=X&sectype=OPT&month=MMMYY` |
-| Option conids (call and put per strike) | `GET /v1/api/iserver/secdef/info?conid=X&sectype=OPT&month=MMMYY&right=C&strike=Y` |
-| Live market snapshot (bid, ask, last, mark, delta, gamma, theta, vega, IV%) | `GET /v1/api/iserver/marketdata/snapshot?conids=X,Y,Z&fields=84,86,7308,7309,7310,7311,7633` |
+---
 
-Batch snapshot supports up to ~100 conids per call. Requires a 2-second warm-up on first call per conid. This unlocks a live option chain viewer, pre-trade strike suggester, and IV surface heatmap as planned future features (see V-02, V-07, V-11 in Todo Backlog).
+## Version History
+
+| Date | Version | Summary |
+|---|---|---|
+| 2026-05-19 | Sprint v7.2 | QuantData email/password login in Settings. Daily cron auto-refresh. `curl_cffi` patch for market_intelligence.py. Correct React deploy path confirmed (`/var/www/fortress-v2/`). K-01 resolved. |
+| 2026-05-18 | Sprint v7.1 | Market Intel tooltips/refresh/sort. Candidates fallback. QuantData credentials UI. chart.py fix. |
+| 2026-05-17 | Sprint v7.0 | Candidates All-tab redesign: actionable at top, monitoring below divider. |
+| 2026-05-15 | Sprint v6.x | Market Intel null crash fix. IV Crush workflow debugging. |
+| 2026-05-13 | Phase 8 | Trade Reports tab. UX improvements A-M. |
+| 2026-05-09 | v1.8.2 | Security section in Settings. `use_ibkr_web_api` / `use_quantdata` toggles. |
+| 2026-05-05 | v1.8 | MCP server (29 tools). Bearer token. CP Gateway primary. |

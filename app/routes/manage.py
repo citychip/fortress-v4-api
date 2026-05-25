@@ -1065,7 +1065,7 @@ def spy_hedge_coverage():
     data = state.get_active_positions()
 
     cached = data.get("spy_hedge_coverage")
-    if cached:
+    if cached and cached.get("legs_count", 0) > 0:
         return {**cached, "source": "ibkr_sync_cached"}
 
     target_min = 20000

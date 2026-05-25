@@ -41,6 +41,7 @@ from app.routes import (
     run,
     universe,
     uploads,
+    trpc,
 )
 
 
@@ -81,6 +82,7 @@ async def lifespan(app_: FastAPI):
 
 
 app = FastAPI(
+    redirect_slashes=False,
     title="Fortress Dashboard",
     description="Trading dashboard per Build Spec v1.2 — the trader's portfolio strategy v3.4",
     version="1.2.0",
@@ -119,6 +121,7 @@ app.include_router(options.router, prefix="/api")
 app.include_router(orders.router, prefix="/api")
 app.include_router(pnl.router, prefix="/api")
 app.include_router(stream.router, prefix="/api")
+app.include_router(trpc.router, prefix="/api")
 
 
 
@@ -136,3 +139,16 @@ def health():
 
 # Frontend is served by nginx from /var/www/fortress-v2/ (port 3000).
 # FastAPI only handles /api/* routes.
+
+@app.get("/api/health/v4")
+def health_v4():
+    """V4 health check with MySQL and Redis status."""
+    from app.services.db_v4 import test_connections
+    connections = test_connections()
+    return {
+        "status": "ok",
+        "version": app.version,
+        "v4": True,
+        "mysql": connections.get('mysql', 'not tested'),
+        "redis": connections.get('redis', 'not tested')
+    }

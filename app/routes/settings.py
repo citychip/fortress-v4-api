@@ -1044,3 +1044,342 @@ def test_quantdata_connection():
             "message": f"QuantData returned HTTP {resp.status_code}: {resp.text[:200]}",
             "status_code": resp.status_code,
         }
+
+
+# ---------------------------------------------------------------------------
+# QuantData Credentials Update  (Sprint v7.1)
+# ---------------------------------------------------------------------------
+
+class QuantDataCredentialsRequest(BaseModel):
+    auth_token: str
+    cookie: str
+
+
+@router.post("/settings/quantdata_credentials")
+def update_quantdata_credentials(body: QuantDataCredentialsRequest):
+    """
+    Update the QuantData auth_token and cookie in ~/.quantdata-mcp/config.json.
+    Called from the Settings page when the user pastes fresh credentials from
+    their browser DevTools after logging in to v3.quantdata.us.
+    """
+    import json as _json
+    import pathlib as _pathlib
+
+    if not body.auth_token.strip():
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="auth_token must not be empty")
+    if not body.cookie.strip():
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="cookie must not be empty")
+
+    mcp_config_path = _pathlib.Path.home() / ".quantdata-mcp" / "config.json"
+
+    # Load existing config (preserve tool IDs and other fields)
+    if mcp_config_path.exists():
+        try:
+            cfg = _json.loads(mcp_config_path.read_text())
+        except Exception:
+            cfg = {}
+    else:
+        cfg = {}
+
+    # Update only the credentials fields
+    cfg["auth_token"] = body.auth_token.strip()
+    cfg["cookie"] = body.cookie.strip()
+
+    # Write back
+    try:
+        mcp_config_path.parent.mkdir(parents=True, exist_ok=True)
+        mcp_config_path.write_text(_json.dumps(cfg, indent=2))
+    except Exception as e:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=f"Failed to write config: {e}")
+
+    return {
+        "ok": True,
+        "message": "QuantData credentials updated. Run the IV Crush workflow to regenerate candidate data.",
+    }
+
+
+@router.get("/settings/quantdata_credentials_status")
+def get_quantdata_credentials_status():
+    """
+    Returns the current QuantData credentials status: whether they exist,
+    a masked preview of the token, and when they were last updated.
+    """
+    import json as _json
+    import pathlib as _pathlib
+    import os as _os
+
+    mcp_config_path = _pathlib.Path.home() / ".quantdata-mcp" / "config.json"
+
+    if not mcp_config_path.exists():
+        return {"exists": False, "token_preview": None, "cookie_preview": None, "mtime": None}
+
+    try:
+        cfg = _json.loads(mcp_config_path.read_text())
+        token = cfg.get("auth_token", "")
+        cookie = cfg.get("cookie", "")
+        mtime = _os.path.getmtime(str(mcp_config_path))
+        from datetime import datetime as _dt, timezone as _tz
+        mtime_iso = _dt.fromtimestamp(mtime, tz=_tz.utc).isoformat()
+        return {
+            "exists": True,
+            "token_preview": token[:20] + "..." if len(token) > 20 else token,
+            "cookie_preview": cookie[:40] + "..." if len(cookie) > 40 else cookie,
+            "mtime": mtime_iso,
+        }
+    except Exception as e:
+        return {"exists": False, "error": str(e), "token_preview": None, "cookie_preview": None, "mtime": None}
+
+
+# QuantData Login-Based Credential Refresh  (Sprint v7.2)
+# ---------------------------------------------------------------------------
+# Accepts email + password, logs in to QuantData programmatically using
+# curl_cffi Chrome impersonation (required to bypass Cloudflare), writes
+# fresh auth_token + cookie to ~/.quantdata-mcp/config.json, then verifies
+# the connection by fetching SPY IV Rank as live proof.
+# ---------------------------------------------------------------------------
+
+class QuantDataLoginRequest(BaseModel):
+    email: str
+    password: str
+
+@router.post("/settings/quantdata_login_refresh")
+def quantdata_login_refresh(body: QuantDataLoginRequest):
+    """
+    Log in to QuantData with email + password, retrieve a fresh JWT token
+    and session cookie, persist them to ~/.quantdata-mcp/config.json, and
+    verify the connection by fetching SPY IV Rank.
+
+    Returns:
+        ok: bool
+        token_preview: first 20 chars of the new token
+        iv_rank: float | null  (SPY IV Rank as proof of live connection)
+        message: human-readable status
+        error: str | null
+    """
+    import json as _json
+    import pathlib as _pathlib
+    import subprocess as _subprocess
+
+    if not body.email.strip():
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="email must not be empty")
+    if not body.password.strip():
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="password must not be empty")
+
+    try:
+        from curl_cffi import requests as _cffi_requests
+    except ImportError:
+        return {
+            "ok": False,
+            "token_preview": None,
+            "iv_rank": None,
+            "message": "curl_cffi is not installed on the server. Run: pip install curl_cffi",
+            "error": "ImportError: curl_cffi",
+        }
+
+    QD_BASE = "https://core-lb-prod.quantdata.us"
+    LOGIN_URL = f"{QD_BASE}/api/user/authentication/login"
+    BROWSER_HEADERS = {
+        "accept": "application/json, text/plain, */*",
+        "accept-language": "en-US,en;q=0.9",
+        "content-type": "application/json",
+        "origin": "https://v3.quantdata.us",
+        "referer": "https://v3.quantdata.us/",
+        "sec-ch-ua": '"Chromium";v="110", "Not A(Brand";v="24", "Google Chrome";v="110"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"',
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-site",
+        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
+    }
+
+    # ── Step 1: warm up a browser session (sets Cloudflare cookies) ──────────
+    try:
+        session = _cffi_requests.Session(impersonate="chrome110")
+        session.get("https://v3.quantdata.us/login", timeout=20, headers={
+            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "user-agent": BROWSER_HEADERS["user-agent"],
+        })
+    except Exception:
+        pass  # warm-up failure is non-fatal
+
+    # ── Step 2: POST login ────────────────────────────────────────────────────
+    try:
+        resp = session.post(
+            LOGIN_URL,
+            json={"usernameOrEmail": body.email.strip(), "password": body.password.strip()},
+            headers=BROWSER_HEADERS,
+            timeout=30,
+        )
+    except Exception as e:
+        return {
+            "ok": False,
+            "token_preview": None,
+            "iv_rank": None,
+            "message": f"Network error during login: {e}",
+            "error": str(e),
+        }
+
+    if resp.status_code == 401:
+        return {
+            "ok": False,
+            "token_preview": None,
+            "iv_rank": None,
+            "message": "Login failed — incorrect email or password (HTTP 401).",
+            "error": "HTTP 401 Unauthorized",
+        }
+    if resp.status_code == 429:
+        return {
+            "ok": False,
+            "token_preview": None,
+            "iv_rank": None,
+            "message": "QuantData rate-limited the login attempt. Wait 60 seconds and try again.",
+            "error": "HTTP 429 Too Many Requests",
+        }
+    if not resp.ok:
+        return {
+            "ok": False,
+            "token_preview": None,
+            "iv_rank": None,
+            "message": f"Login returned HTTP {resp.status_code}: {resp.text[:200]}",
+            "error": f"HTTP {resp.status_code}",
+        }
+
+    # ── Step 3: extract JWT token ─────────────────────────────────────────────
+    try:
+        data = resp.json()
+    except Exception:
+        return {
+            "ok": False,
+            "token_preview": None,
+            "iv_rank": None,
+            "message": "Login response was not valid JSON.",
+            "error": "JSON parse error",
+        }
+
+    jwt_token = None
+    # Try common response shapes
+    for path in [
+        lambda d: d.get("response", {}).get("userSessionDTO", {}).get("token"),
+        lambda d: d.get("token"),
+        lambda d: d.get("data", {}).get("token"),
+        lambda d: d.get("accessToken"),
+        lambda d: d.get("access_token"),
+    ]:
+        try:
+            val = path(data)
+            if val and isinstance(val, str) and len(val) > 20:
+                jwt_token = val
+                break
+        except Exception:
+            continue
+
+    if not jwt_token:
+        return {
+            "ok": False,
+            "token_preview": None,
+            "iv_rank": None,
+            "message": "Login succeeded but could not extract JWT token from response. Response keys: " + str(list(data.keys()))[:200],
+            "error": "Token extraction failed",
+        }
+
+    # ── Step 4: build cookie string from response cookies + token cookie ──────
+    cookie_parts = []
+    for name, value in resp.cookies.items():
+        cookie_parts.append(f"{name}={value}")
+    # Also add session cookies from the warm-up
+    for name, value in session.cookies.items():
+        if name not in resp.cookies:
+            cookie_parts.append(f"{name}={value}")
+    cookie_parts.append(f"token={jwt_token}")
+    cookie_str = "; ".join(cookie_parts)
+
+    auth_token = f"Bearer {jwt_token}"
+
+    # ── Step 5: persist to ~/.quantdata-mcp/config.json ──────────────────────
+    mcp_config_path = _pathlib.Path.home() / ".quantdata-mcp" / "config.json"
+    try:
+        if mcp_config_path.exists():
+            cfg = _json.loads(mcp_config_path.read_text())
+        else:
+            cfg = {}
+        cfg["auth_token"] = auth_token
+        cfg["cookie"] = cookie_str
+        mcp_config_path.parent.mkdir(parents=True, exist_ok=True)
+        mcp_config_path.write_text(_json.dumps(cfg, indent=2))
+    except Exception as e:
+        return {
+            "ok": False,
+            "token_preview": auth_token[:20] + "...",
+            "iv_rank": None,
+            "message": f"Login succeeded but failed to save credentials: {e}",
+            "error": str(e),
+        }
+
+    # ── Step 6: verify by fetching SPY IV Rank ────────────────────────────────
+    iv_rank = None
+    verify_ok = False
+    verify_msg = ""
+
+    try:
+        cfg = _json.loads(mcp_config_path.read_text())
+        tools = cfg.get("tools", {})
+        iv_rank_id = tools.get("iv_rank") or tools.get("iv_rank_tool_id")
+
+        if iv_rank_id:
+            verify_url = f"{QD_BASE}/api/options/iv-rank/{iv_rank_id}?ticker=SPY"
+            verify_headers = {
+                **BROWSER_HEADERS,
+                "authorization": auth_token,
+                "cookie": cookie_str,
+            }
+            vresp = session.get(verify_url, headers=verify_headers, timeout=20)
+            if vresp.ok:
+                vdata = vresp.json()
+                # Parse IV rank from sessionDateToIVRankData structure
+                try:
+                    session_data = vdata.get("response", {}).get("sessionDateToIVRankData", {})
+                    if session_data:
+                        latest_date = sorted(session_data.keys())[-1]
+                        call_data = session_data[latest_date].get("contractTypeToIVData", {}).get("CALL", {})
+                        last_iv = call_data.get("lastIV", 0)
+                        max_iv = call_data.get("windowMaxIV", 1)
+                        min_iv = call_data.get("windowMinIV", 0)
+                        if max_iv != min_iv:
+                            iv_rank = round((last_iv - min_iv) / (max_iv - min_iv) * 100, 1)
+                except Exception:
+                    pass
+                verify_ok = True
+                verify_msg = f"SPY IV Rank: {iv_rank:.1f} (as of {latest_date})" if iv_rank is not None else "IV Rank endpoint returned 200 (value not parsed)"
+            else:
+                verify_msg = f"Verification call returned HTTP {vresp.status_code}"
+        else:
+            verify_msg = "Credentials saved. (IV Rank tool ID not configured — run qd_setup.py to enable full verification)"
+            verify_ok = True
+    except Exception as e:
+        verify_msg = f"Credentials saved. Verification failed: {e}"
+        verify_ok = True  # credentials were saved; verification is best-effort
+
+    # ── Step 7: trigger background service restart ────────────────────────────
+    try:
+        _subprocess.Popen(
+            ["systemctl", "restart", "fortress-dashboard"],
+            stdout=_subprocess.DEVNULL,
+            stderr=_subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception:
+        pass  # non-fatal
+
+    return {
+        "ok": verify_ok,
+        "token_preview": auth_token[:24] + "...",
+        "iv_rank": iv_rank,
+        "message": f"Login successful. Credentials saved. {verify_msg}",
+        "error": None,
+    }

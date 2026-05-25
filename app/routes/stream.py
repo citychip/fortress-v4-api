@@ -92,6 +92,7 @@ async def _event_generator(request: Request) -> AsyncGenerator[str, None]:
 
 
 @router.get("/stream")
+@router.get("/stream/")
 async def sse_stream(request: Request):
     """
     Server-Sent Events stream for real-time dashboard updates.

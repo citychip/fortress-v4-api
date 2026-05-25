@@ -73,6 +73,22 @@ def list_scripts():
     }
 
 
+
+@router.get("/run/results")
+def get_script_results():
+    """Return cached last-run results for all scripts from script_results.json."""
+    try:
+        data = state.read_json("script_results.json", default={})
+        # Strip the internal _last_updated key from per-script results
+        last_updated = data.get("_last_updated")
+        results = {k: v for k, v in data.items() if not k.startswith("_")}
+        return {
+            "results": results,
+            "last_updated": last_updated,
+        }
+    except Exception as e:
+        return {"results": {}, "last_updated": None, "error": str(e)}
+
 @router.post("/run/{script_key}")
 def run_script(script_key: str):
     """

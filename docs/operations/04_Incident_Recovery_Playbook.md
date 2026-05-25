@@ -1,322 +1,284 @@
 # Fortress Dashboard — Incident Recovery Playbook
 
-**Version 1.0 — May 5, 2026**
+**Version 1.2 — May 19, 2026**
 
-Step-by-step runbooks for the most likely failure scenarios during live trading. Each runbook identifies the symptom, the root cause, the recovery steps, and the fallback procedure if recovery is not possible within the trading session.
-
-**Governing principle:** When the system is degraded, default to IBKR directly. The dashboard is a decision-support layer, not a trading requirement. Every trade can be placed manually in IBKR without the dashboard. The dashboard's job is to make decisions faster and more consistent — not to gate execution.
+Recovery procedures for all known failure modes. Read this document during an incident, not before. Each section is self-contained.
 
 ---
 
-## 1. Dashboard Not Loading
+## 1. VPS Unreachable
 
-**Symptom:** Browser shows connection refused or timeout on `http://srv1321374:8080`.
+**Symptoms:** Dashboard at `http://76.13.138.194:3000` returns connection refused or times out.
 
-**Root cause:** `fortress-dashboard.service` has crashed or the VPS is unreachable.
+**Steps:**
 
-### Recovery steps
-
-**Step 1 — Check if VPS is reachable:**
-```bash
-ping YOUR_VPS_IP
-ssh ubuntu@YOUR_VPS_IP
-```
-
-If SSH fails, go to §5 (VPS Unreachable).
-
-**Step 2 — Check service status:**
-```bash
-sudo systemctl status fortress-dashboard
-sudo journalctl -u fortress-dashboard --since "10 minutes ago"
-```
-
-**Step 3 — Restart the service:**
-```bash
-sudo systemctl restart fortress-dashboard
-sleep 5
-sudo systemctl status fortress-dashboard
-```
-
-**Step 4 — Verify it's back:**
-```bash
-curl http://localhost:8080/api/health
-```
-Expected: `{"status": "ok"}`.
-
-**Step 5 — If service fails to start, check for Python errors:**
-```bash
-sudo journalctl -u fortress-dashboard -n 100
-```
-Common causes: missing dependency (run `pip install -r requirements.txt` in venv), port conflict (check `sudo ss -tlnp | grep 8080`), or corrupt state file (check `quant/` directory for malformed JSON).
-
-### Fallback (if recovery takes >10 minutes)
-
-Use IBKR directly for all position monitoring and trade execution. The QuantData reports are still available as markdown files in `~/quantdata_reports/` — SSH into the VPS and read them directly. The dashboard is not required to trade.
+1. Log into the VPS provider control panel and verify the instance is running.
+2. If stopped: start the instance. Wait 60 seconds for services to come up.
+3. SSH in: `ssh -i ~/.ssh/fortress_vps root@76.13.138.194`
+4. Check service status:
+   ```bash
+   sudo systemctl status fortress-dashboard
+   sudo systemctl status nginx
+   ```
+5. If `fortress-dashboard` is inactive:
+   ```bash
+   sudo systemctl start fortress-dashboard
+   journalctl -u fortress-dashboard -n 50
+   ```
+6. If nginx is inactive:
+   ```bash
+   sudo systemctl start nginx
+   sudo nginx -t  # check config
+   ```
+7. Verify health: `curl http://localhost:8080/api/health`
 
 ---
 
-## 2. IB Gateway Disconnected
+## 2. IBKR Gateway Disconnected
 
-**Symptom:** Dashboard shows stale data; `GET /api/ibkr/status` returns `connected: false`; Briefing tab shows stale-data banner that won't clear after sync.
+**Symptoms:** Dashboard header shows amber "IBKR" badge. `GET /api/ibkr/status` returns `connected: false`. Greeks show as `—` or stale.
 
-**Root cause:** IB Gateway Docker container has crashed, lost its session, or is in the "write access dialog" loop.
+**Steps:**
 
-### Recovery steps
+1. Check CP Gateway container:
+   ```bash
+   docker ps | grep cp-gateway
+   docker logs cp-gateway --tail 20
+   ```
+2. If container is stopped:
+   ```bash
+   cd /home/ubuntu/Fortress_Dashboard/cp-gateway
+   docker compose up -d
+   ```
+3. Wait ~30 seconds. An **IBKR Mobile push notification** will arrive. Tap **Approve**.
+4. Verify authentication:
+   ```bash
+   docker logs cp-gateway 2>&1 | grep -E "AUTHENTICATED|Login attempt" | tail -5
+   ```
+   Expect: `AUTHENTICATED Status(running=True, session=True, connected=True, authenticated=True, ...)`
+5. Verify from dashboard:
+   ```bash
+   TOKEN=$(cat ~/.fortress_api_token)
+   curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/ibkr/capability | python3 -m json.tool
+   ```
+   Expect: `web_api.session_status.established: true`
 
-**Step 1 — Check container status:**
-```bash
-cd /opt/fortress-dashboard/ib-gateway
-docker compose ps
-docker logs ib-gateway-ib-gateway-1 --tail 50
-```
-
-**Step 2 — Look for the write-access dialog symptom:**
-In the logs, look for repeated lines like:
-```
-API client needs write access action confirmation
-remove Client 11
-```
-This is the known issue (Todo S-02). The IBC layer dismisses each dialog after ~30 seconds, but it corrupts in-flight Greeks snapshots. Recovery: complete the IBKR account-level Read-Only API fix (see §2.1 below).
-
-**Step 3 — Restart the gateway:**
-```bash
-docker compose restart ib-gateway
-```
-Wait 60–90 seconds for the gateway to authenticate and open the API port.
-
-**Step 4 — Verify health:**
-```bash
-docker compose ps
-# Status should show (healthy) within 90 seconds
-```
-Then trigger a fresh sync from the dashboard or via:
-```bash
-curl -X POST http://localhost:8080/api/ibkr/sync
-```
-
-**Step 5 — If restart doesn't fix it:**
-```bash
-docker compose down
-docker compose up -d
-```
-Wait 90 seconds, then re-verify.
-
-### 2.1 Permanent fix: IBKR Read-Only API (Todo S-02)
-
-This fix eliminates the write-access dialog loop permanently.
-
-1. Log into IBKR Account Management: `https://www.interactivebrokers.com/sso/Login`
-2. Navigate to: Settings → Account Settings → API → Settings
-3. Enable "Read-Only API"
-4. Save and confirm
-5. Restart the gateway: `docker compose restart ib-gateway`
-
-After this fix: the dialog stops appearing, Greeks subscriptions stabilise, theta and vega start populating in Portfolio Greeks.
-
-### Fallback (if gateway cannot be recovered during market hours)
-
-The dashboard continues to function in read-only mode using the last synced state from `active_positions.json`. The BS-fallback delta computation uses yfinance IV (end-of-day), so delta estimates will be less precise but still usable for monitoring.
-
-For position decisions requiring live Greeks: use IBKR TWS or the IBKR mobile app directly. Do not rely on the dashboard's delta values when the gateway has been disconnected for >2 hours.
+**If push notification doesn't arrive within 3 minutes:**
+- ibeam retries every 60 seconds. Another push will arrive.
+- During the fallback window, the dashboard still works on `bs_yfinance` path (Black-Scholes from yfinance).
 
 ---
 
-## 3. Data Stale (Orchestrator Not Running)
+## 3. Dashboard Service Crash
 
-**Symptom:** Briefing tab shows stale-data banner; `briefing.staleness.state == "stale"`; QuantData reports are from a previous day.
+**Symptoms:** `http://76.13.138.194:3000` returns 502 Bad Gateway (nginx can't reach the backend).
 
-**Root cause:** `fortress_orchestrator.service` has crashed or the QuantData API is returning errors.
+**Steps:**
 
-### Recovery steps
-
-**Step 1 — Check orchestrator status:**
-```bash
-sudo systemctl status fortress_orchestrator
-sudo journalctl -u fortress_orchestrator --since "1 hour ago"
-```
-
-**Step 2 — Restart the orchestrator:**
-```bash
-sudo systemctl restart fortress_orchestrator
-sleep 10
-sudo systemctl status fortress_orchestrator
-```
-
-**Step 3 — Manually trigger the missed scripts:**
-```bash
-source /opt/fortress-dashboard/venv/bin/activate
-cd /opt/fortress-dashboard/quant
-
-# Run the scripts that should have fired
-python3 workflow_01_premarket_scanner.py
-python3 quantdata_daily.py
-python3 workflow_05_iv_crush_report.py
-python3 workflow_07_whale_flow_report.py
-```
-
-Or trigger via the dashboard Run tab (POST `/api/run/{script_key}`).
-
-**Step 4 — Verify reports updated:**
-```bash
-ls -lt ~/quantdata_reports/ | head -10
-```
-Reports should show today's date.
-
-### Fallback
-
-If the orchestrator cannot be recovered, the QuantData API can be queried directly via Python scripts run manually. The dashboard's Briefing and Candidates tabs will show stale data until a fresh report is generated. For position monitoring, use IBKR directly.
+1. SSH to VPS.
+2. Check service:
+   ```bash
+   sudo systemctl status fortress-dashboard
+   journalctl -u fortress-dashboard -n 100
+   ```
+3. Look for Python tracebacks in the journal. Common causes:
+   - Import error (missing dependency): `pip install -r requirements.txt` in the venv.
+   - Port conflict: check if something else is on 8080: `ss -tlnp | grep 8080`
+   - Config file corruption: restore from backup in `quant/backups/`.
+4. Restart:
+   ```bash
+   sudo systemctl restart fortress-dashboard
+   ```
+5. Verify: `curl http://localhost:8080/api/health`
 
 ---
 
-## 4. QuantData API 401 Error
+## 4. Frontend Not Loading (Fortress V3 React App)
 
-**Symptom:** Workflow scripts fail with HTTP 401 or "Unauthorized" errors; QuantData reports are not generated; orchestrator logs show repeated API errors.
+**Symptoms:** Browser shows blank page, 404, or old version of the frontend at `http://76.13.138.194:3000`.
 
-**Root cause:** The QuantData API token has expired or been revoked.
+**Steps:**
 
-### Recovery steps
-
-**Step 1 — Confirm the error:**
-```bash
-sudo journalctl -u fortress_orchestrator --since "1 hour ago" | grep -i "401\|unauthorized\|token"
-```
-
-**Step 2 — Locate the token configuration:**
-The QuantData API token is stored in the environment configuration for the orchestrator. Check:
-```bash
-cat /etc/systemd/system/fortress_orchestrator.service
-# or
-cat /opt/fortress-dashboard/quant/.env
-```
-Look for `QUANTDATA_API_KEY` or similar.
-
-**Step 3 — Refresh the token:**
-Log into the QuantData platform at `https://v3.quantdata.us` (or the relevant portal) and generate a new API key.
-
-**Step 4 — Update the token:**
-```bash
-# If stored in systemd override:
-sudo systemctl edit fortress_orchestrator
-# Add/update: Environment="QUANTDATA_API_KEY=<new_token>"
-
-# If stored in .env file:
-nano /opt/fortress-dashboard/quant/.env
-# Update the QUANTDATA_API_KEY line
-```
-
-**Step 5 — Restart the orchestrator and verify:**
-```bash
-sudo systemctl daemon-reload
-sudo systemctl restart fortress_orchestrator
-sleep 30
-# Manually run a script to confirm it works
-source /opt/fortress-dashboard/venv/bin/activate
-python3 /opt/fortress-dashboard/quant/workflow_01_premarket_scanner.py
-```
-
-### Fallback
-
-During the token refresh window, QuantData data is unavailable. For trade decisions:
-- Use the last available QuantData reports (markdown files in `~/quantdata_reports/`).
-- Use TradingView for chart structure and support/resistance.
-- Use IBKR option chain for live IV and delta.
-- Do not enter new positions based on stale QuantData IV/IVR data — the IV crush signal requires fresh data.
+1. Check nginx is serving the correct static files:
+   ```bash
+   ls -la /var/www/fortress-v2/
+   # Should contain index.html and assets/ directory from the React build
+   ls /var/www/fortress-v2/assets/
+   ```
+2. If files are missing or old, redeploy from the Manus sandbox:
+   ```bash
+   # On the Manus sandbox:
+   cd /home/ubuntu/fortress-v2 && pnpm build
+   cd /home/ubuntu/fortress-v2/dist/public && tar czf /tmp/fortress_react_build.tar.gz .
+   scp -i ~/.ssh/fortress_vps /tmp/fortress_react_build.tar.gz root@76.13.138.194:/tmp/
+   ssh -i ~/.ssh/fortress_vps root@76.13.138.194 \
+     "cd /var/www/fortress-v2 && tar xzf /tmp/fortress_react_build.tar.gz"
+   ```
+3. Remove stale old hashed JS/CSS files if the build hash changed:
+   ```bash
+   ssh -i ~/.ssh/fortress_vps root@76.13.138.194 "ls /var/www/fortress-v2/assets/"
+   # Delete any index-*.js / index-*.css that don't match the new build
+   ```
+4. Restart nginx:
+   ```bash
+   sudo systemctl restart nginx
+   ```
+5. Hard-refresh the browser (Ctrl+Shift+R) to clear cached assets.
 
 ---
 
-## 5. VPS Unreachable
+## 5. QuantData Credentials Expired
 
-**Symptom:** SSH fails; ping fails; dashboard is unreachable; no response from `YOUR_VPS_IP`.
+**Symptoms:** IV Rank Heatmap shows "no data" for all tickers. Candidates tab shows 0 rows or only placeholder rows. Market Intelligence cards show `—` for GEX/DP/Net Drift fields. VPS logs show `401 Unauthorized` on outgoing QuantData requests.
 
-**Root cause:** VPS provider outage, network issue, or the server has been shut down.
-
-### Recovery steps
-
-**Step 1 — Check VPS provider status:**
-Log into the VPS provider console (Hetzner, DigitalOcean, Vultr, or equivalent). Check if `srv1321374` is running. If it shows as stopped, start it.
-
-**Step 2 — Check provider status page:**
-If the server shows as running but is unreachable, check the provider's status page for regional outages.
-
-**Step 3 — Use VPS console (if SSH is down):**
-Most VPS providers offer a web-based console. Use it to check if the OS is running and if the services are up.
-
-**Step 4 — If the server needs to be rebuilt:**
-Follow `technical/06_VPS_Implementation_Guide_v1_5.md` to redeploy from scratch. The state files in `quant/` should be backed up to a separate location (see §5.1 below).
-
-### 5.1 State file backup (recommended, not yet automated — Todo O-01)
-
-The following files contain live trading state and should be backed up regularly:
-
+**Note:** The daily cron job at 06:00 UTC automatically refreshes credentials. Check the log first before taking manual action:
+```bash
+tail -20 /var/log/qd_refresh.log
 ```
-/opt/fortress-dashboard/quant/active_positions.json
-/opt/fortress-dashboard/quant/alerts.json
-/opt/fortress-dashboard/quant/journal.json
-/opt/fortress-dashboard/quant/earnings_blocklist.json
-/opt/fortress-dashboard/quant/ticker_universe.json
-/opt/fortress-dashboard/ib-gateway/.env
+If the last entry shows `Login successful` and today's date, the token is fresh — the issue may be something else (see §5.2).
+
+### 5.1 Refresh via Dashboard UI (recommended — no SSH required)
+
+1. Open the Fortress Dashboard → **Config** → **Settings** → scroll to **QuantData Credentials**.
+2. Enter your email and password in the login form.
+3. Click **Refresh Token & Test Connection**.
+4. Wait ~10 seconds. The result panel will show `SPY IV Rank: XX.X (as of YYYY-MM-DD)` — this confirms the new token is live.
+5. If the result shows an error, verify your password is correct at [v3.quantdata.us](https://v3.quantdata.us).
+
+### 5.2 Verify credentials are working
+
+```bash
+TOKEN=$(cat ~/.fortress_api_token)
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8080/api/market-intelligence?ticker=SPY" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+print('quantdata_available:', d.get('quantdata_available'))
+print('iv_rank:', d.get('iv_rank'))
+print('regime_score:', d.get('regime', {}).get('overall'))
+"
 ```
 
-Recommended: daily `rsync` or `rclone` backup to a cloud storage bucket. This is in the Todo Backlog as O-01.
+Expect `quantdata_available: True` and a non-null `iv_rank`. If still null, repeat step 5.1.
 
-### Fallback (VPS down during market hours)
+### 5.3 Re-run IV Crush workflow
 
-This is the most severe scenario. Fallback procedure:
+After refreshing credentials, regenerate today's candidate data:
 
-1. **Position monitoring:** use IBKR TWS or IBKR mobile app directly. All position data is in IBKR — the dashboard is a view layer.
-2. **Stop-loss decisions:** apply Strategy §6 rules manually. The 4-level verdict requires: (a) check if stock is below 200-day SMA in TradingView, (b) check if stock is below the last known DP floor from the most recent QuantData report, (c) assess LEAP MTM from IBKR.
-3. **Roll decisions:** use IBKR option chain directly. Apply Strategy §5 rules: 30–45 DTE, delta 0.20–0.25, net credit.
-4. **New entries:** defer until the system is back online. Do not enter new positions without the pre-trade gate and entry scorer.
-5. **ACT_IMMEDIATELY verdict:** if two or more stop-loss signals are firing and the VPS is down, execute the close in IBKR directly. Do not wait for the dashboard.
+```bash
+ssh root@76.13.138.194
+cd /home/ubuntu/Fortress_Dashboard
+source venv/bin/activate
+python3 quant/workflow_05_iv_crush_report.py
+```
+
+This takes ~2–3 minutes (fetches data for all 19 universe tickers). When complete, the Candidates tab and IV Rank Heatmap will show live data.
+
+### 5.4 Fallback via SSH (if dashboard UI is unavailable)
+
+```bash
+ssh root@76.13.138.194
+python3 /home/ubuntu/Fortress_Dashboard/quant/qd_refresh_session.py
+```
+
+The script logs in, saves fresh credentials to `/home/ubuntu/.quantdata-mcp/config.json`, and restarts the service automatically.
+
+To override credentials (e.g., after a password change):
+```bash
+QD_EMAIL="citychip@gmail.com" QD_PASSWORD="newpassword" \
+  python3 /home/ubuntu/Fortress_Dashboard/quant/qd_refresh_session.py
+```
 
 ---
 
-## 6. ACT_IMMEDIATELY at Market Close
+## 6. Data File Corruption
 
-**Symptom:** Stop-loss aggregator returns `ACT_IMMEDIATELY` verdict (3 signals fired) with less than 30 minutes to market close.
+**Symptoms:** Dashboard shows incorrect data, API returns 500 errors, or JSON parse errors in logs.
 
-This is a time-critical scenario. The following procedure overrides the normal "discuss before acting" principle per Strategy §15.1 — when 3 signals fire, the strategy rule is to close immediately.
+**Steps:**
 
-### Recovery steps
-
-**Step 1 — Confirm the verdict:**
-MCP: *"Run the stop-loss aggregator on {TICKER}. Anything firing?"*
-Or: Dashboard → Manage tab → Evaluate stop-loss.
-
-Confirm all three signals are genuinely fired, not a data artifact (check if IBKR sync is fresh; check if the DP floor data is from today's report).
-
-**Step 2 — Identify the position to close:**
-Go to IBKR TWS. Find the position. Confirm the current market value and the legs to close.
-
-**Step 3 — Execute the close in IBKR:**
-- For PMCC: close the short call first (buy to close), then evaluate the LEAP separately.
-- For PCS: close the entire spread (buy to close the short put, sell to close the long put) as a spread order.
-- Use limit orders at mid. If not filled within 2 minutes, walk the limit toward the ask.
-
-**Step 4 — Log the decision immediately after close:**
-MCP or Journal tab: *"Log: CLOSE on {TICKER}. Reasoning: ACT_IMMEDIATELY verdict — 3 stop-loss signals fired. Framework rules: §6 ACT_IMMEDIATELY."*
-
-**Step 5 — Post-close review:**
-After market close, review whether the signals were genuine or a data artifact. If a data artifact caused a false ACT_IMMEDIATELY, document it in the journal and flag it as a tool issue per Strategy §15.4.
+1. Identify the corrupted file from the error log:
+   ```bash
+   journalctl -u fortress-dashboard -n 50 | grep -i "json\|error\|corrupt"
+   ```
+2. Restore from backup:
+   ```bash
+   ls -lt /home/ubuntu/Fortress_Dashboard/quant/backups/ | head -20
+   # Find the most recent backup of the corrupted file
+   cp /home/ubuntu/Fortress_Dashboard/quant/backups/<filename>_<timestamp>.json \
+      /home/ubuntu/Fortress_Dashboard/quant/<filename>.json
+   ```
+3. Restart the service:
+   ```bash
+   sudo systemctl restart fortress-dashboard
+   ```
 
 ---
 
-## 7. False Alarm Handling
+## 7. IBKR Sync Returns 0 Positions
 
-**Symptom:** Dashboard shows a HIGH action or ACT verdict that appears to be based on stale or incorrect data.
+**Symptoms:** Positions tab is empty after sync. `GET /api/positions` returns empty array.
 
-### How to identify a false alarm
+**Steps:**
 
-- `current_delta_source == "unavailable"` on the affected position — delta-drift signals won't fire correctly.
-- `briefing.staleness.state == "stale"` — data is old; DP floor levels may be from a previous session.
-- IBKR sync timestamp is >2 hours old — Greeks and MV may not reflect current market.
+1. Check CP Gateway session:
+   ```bash
+   TOKEN=$(cat ~/.fortress_api_token)
+   curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/ibkr/capability | python3 -m json.tool
+   ```
+2. If `established: false`: follow §2 (IBKR Gateway Disconnected).
+3. If `established: true` but positions still empty:
+   ```bash
+   # Check if IBKR account has positions
+   curl -sk -X POST https://localhost:5000/v1/api/tickle | head -c 200
+   curl -sk "https://localhost:5000/v1/api/portfolio/accounts" | python3 -m json.tool
+   ```
+4. If account shows positions in the IBKR API but not in the dashboard, trigger a fresh sync:
+   ```bash
+   curl -s -X POST -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/ibkr/sync --max-time 110
+   ```
+5. If sync still returns 0: check `active_positions.json` directly and compare to IBKR account.
 
-### Recovery steps
+---
 
-1. Trigger a fresh IBKR sync: `POST /api/ibkr/sync`.
-2. Re-run the affected workflow script manually.
-3. Re-evaluate the stop-loss or roll verdict with fresh data.
-4. If the verdict changes after fresh data, the original was a false alarm — log it in the journal.
-5. If the verdict persists with fresh data, treat it as genuine.
+## 8. nginx Configuration Issues
 
-**Never dismiss a HIGH action without verifying the underlying data is fresh.** The cost of a false negative (missing a genuine signal) is higher than the cost of a false positive (investigating a stale signal).
+**Symptoms:** 502 Bad Gateway, or frontend loads but API calls fail with CORS errors.
+
+**Verify nginx config:**
+
+```bash
+sudo nginx -t
+cat /etc/nginx/sites-enabled/fortress
+```
+
+Expected config structure:
+```nginx
+server {
+    listen 3000;
+    root /var/www/fortress-v2;
+    index index.html;
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:8080/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
+```
+
+If config is wrong: edit, then `sudo systemctl reload nginx`.
+
+---
+
+## Document History
+
+| Version | Date | Changes |
+|---|---|---|
+| 1.2 | 2026-05-19 | §4: corrected deploy path to `/var/www/fortress-v2/` and updated deploy commands. §5: replaced manual DevTools steps with email/password login workflow and `qd_refresh_session.py` fallback. Added cron auto-refresh note. §8: corrected nginx `root` path. |
+| 1.1 | 2026-05-18 | Added §5 QuantData Credentials Expired (full runbook). Added §4 Frontend Not Loading. Added §8 nginx Configuration Issues. Updated all service names and paths for Fortress V3. |
+| 1.0 | 2026-05-09 | Initial release. VPS, IBKR gateway, service crash, data corruption, sync procedures. |

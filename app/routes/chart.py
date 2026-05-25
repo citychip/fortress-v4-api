@@ -58,9 +58,9 @@ def _qd_get(endpoint: str, params: dict | None = None) -> dict | None:
     for attempt in range(2):
         try:
             resp = req_lib.get(url, headers=headers, params=params, timeout=10)
-            if resp.status_code in (401, 403):
-                logger.warning("QuantData auth failed (%s) — check credentials in Settings > Security", resp.status_code)
-                return None
+            if resp.status_code in (400, 401, 403):
+                logger.warning("QuantData returned %s — invalid endpoint or expired credentials", resp.status_code)
+                return None  # do NOT retry on 4xx
             if resp.status_code == 429:
                 if attempt == 0:
                     time.sleep(1.0)
@@ -75,66 +75,156 @@ def _qd_get(endpoint: str, params: dict | None = None) -> dict | None:
     return None
 
 
+# Widget UUIDs for chart overlay data — same as market_intelligence.py
+# These are the correct REST endpoints. The deprecated /api/tool/* path causes 400 errors.
+_CHART_WIDGETS: dict[str, dict] = {
+    "SPY": {
+        "dp":      "0001c185-460d-43e5-b9e9-b1ede7943f6b",
+        "gex":     "2e4d7ea4-ae92-4209-bca4-ccb2908ec9f6",
+        "page_id": "e22a6d88-9d75-42b3-af9d-ee583008fdad",
+    },
+    "NVDA": {
+        "dp":      "7b2707f2-527b-484b-ab45-b6aa4df9dbc8",
+        "gex":     "0dda93ba-d196-48bc-bacc-4b788f23369e",
+        "page_id": "52ca72cb-7456-4d64-8cc4-7c25265b0bb9",
+    },
+    "_SYSTEM": {
+        "dp":         "a2c2f3f9-0c34-486d-a25a-9b98b82b49c9",
+        "gex":        "465c0bd0-149a-4fb9-8274-9f429ccecb29",
+        "page_id":    "e07c6cba-335b-42dc-942b-0f90a5144b4a",
+        "dp_page_id": "12f5f34d-6968-4eca-a687-d14566d2235f",
+    },
+}
+
+def _chart_session(page_id: str) -> req_lib.Session:
+    """Build a QuantData requests.Session for chart overlay fetches."""
+    auth = config_store.cfg("security.quantdata_auth_token", "")
+    inst = config_store.cfg("security.quantdata_instance_id", "")
+    sess = req_lib.Session()
+    sess.headers.update({
+        "accept":        "application/json",
+        "authorization": auth,
+        "x-instance-id": page_id,
+        "x-qd-version":  "1",
+        "origin":        "https://v3.quantdata.us",
+    })
+    return sess
+
+def _chart_set_filter(sess: req_lib.Session, ticker: str, session_date: str) -> None:
+    """Set QuantData global filter for the given ticker and date."""
+    user_id = config_store.cfg("security.quantdata_instance_id", "")
+    if not user_id:
+        return
+    now_ms = int(time.time() * 1000)
+    try:
+        sess.put(
+            f"{_QD_BASE}/user/attributes",
+            timeout=8,
+            json={
+                "id": user_id,
+                "fontSizePercentage": 100,
+                "globalFilter": {
+                    "expirationDate": {"filterOperationType": "EQUALS", "value": session_date},
+                    "sessionDate":    {"filterOperationType": "EQUALS", "value": session_date},
+                    "ticker":         {"filterOperationType": "EQUALS", "value": [ticker]},
+                },
+                "globalTickerConfiguration": {"defaultTicker": ticker, "favoriteTickers": []},
+                "globalToolConfiguration": {
+                    "hideAxisTitles": False, "hideCrosshairs": False,
+                    "hideDataZoomSliders": False, "hideLegends": False,
+                    "hideStatusIndicators": False, "hideTimeSliders": False,
+                    "hideTitles": False, "hideTooltips": False,
+                },
+                "notificationConfiguration": {"positionType": "BOTTOM_LEFT", "stacked": False},
+                "timeZoneType": "AMERICA_NEW_YORK",
+                "createdTime": now_ms, "lastUpdatedTime": now_ms,
+            },
+        )
+    except Exception as e:
+        logger.debug("chart: failed to set QD global filter: %s", e)
+
 def _fetch_dp_levels_live(ticker: str) -> dict | None:
     """
     Fetch Dark Pool floors and GEX walls from the live QuantData API.
+    Uses the correct widget-UUID REST endpoints — NOT the deprecated /api/tool/* path.
     Returns {"dp_floors": [...], "gex_calls": [...], "gex_puts": [...], "source": "live"}
     or None if the API call fails.
     """
     session_date = date.today().isoformat()
+    widgets  = _CHART_WIDGETS.get(ticker, _CHART_WIDGETS["_SYSTEM"])
+    is_sys   = ticker not in _CHART_WIDGETS
+    page_id  = widgets["page_id"]
+    sess     = _chart_session(page_id)
 
-    # DP levels
-    dp_data = _qd_get(
-        "tool/OPTIONS_DARK_POOL_LEVELS_TABLE",
-        params={"ticker": ticker, "sessionDate": session_date},
-    )
-    # GEX walls
-    gex_data = _qd_get(
-        "tool/OPTIONS_GEX_WALLS_TABLE",
-        params={"ticker": ticker, "sessionDate": session_date},
-    )
+    if is_sys:
+        _chart_set_filter(sess, ticker, session_date)
 
-    if dp_data is None and gex_data is None:
-        return None
-
-    # Parse DP floors
     dp_floors: list[float] = []
-    if dp_data:
-        response = dp_data.get("response", dp_data)
-        rows = response.get("rows", response.get("data", []))
-        for row in rows:
-            price = row.get("price") or row.get("level") or row.get("strike")
-            if price:
-                try:
-                    dp_floors.append(round(float(price), 2))
-                except (TypeError, ValueError):
-                    pass
-
-    # Parse GEX walls
     gex_calls: list[float] = []
     gex_puts:  list[float] = []
-    if gex_data:
-        response = gex_data.get("response", gex_data)
-        rows = response.get("rows", response.get("data", []))
-        for row in rows:
-            side  = (row.get("side") or row.get("callPut") or "").upper()
-            price = row.get("price") or row.get("strike") or row.get("level")
-            if price:
-                try:
-                    val = round(float(price), 2)
-                    if side in ("CALL", "C"):
-                        gex_calls.append(val)
-                    elif side in ("PUT", "P"):
-                        gex_puts.append(val)
-                except (TypeError, ValueError):
-                    pass
+
+    # ── Dark Pool levels ──────────────────────────────────────────────────────
+    dp_widget = widgets.get("dp")
+    if dp_widget:
+        dp_page = widgets.get("dp_page_id", page_id)
+        dp_sess = _chart_session(dp_page) if dp_page != page_id else sess
+        if dp_page != page_id and is_sys:
+            _chart_set_filter(dp_sess, ticker, session_date)
+        try:
+            r = dp_sess.get(f"{_QD_BASE}/equities/dark-pool/levels/{dp_widget}", timeout=15)
+            if r.status_code in (400, 401, 403):
+                logger.warning("QuantData DP levels returned %s for %s — credentials may be expired", r.status_code, ticker)
+                return None
+            if r.status_code == 200:
+                resp    = r.json().get("response", {})
+                dp_map  = resp.get("priceInCentsToDarkPoolLevelDataSumModelMap", {})
+                for k, v in dp_map.items():
+                    notional = v.get("notionalValueInCentsSum", 0) / 100_000_000
+                    if notional >= 50:
+                        try:
+                            dp_floors.append(round(int(k) / 100, 2))
+                        except (TypeError, ValueError):
+                            pass
+        except Exception as e:
+            logger.debug("chart: DP levels fetch failed for %s: %s", ticker, e)
+
+    # ── GEX walls ─────────────────────────────────────────────────────────────
+    gex_widget = widgets.get("gex")
+    if gex_widget:
+        try:
+            r = sess.get(f"{_QD_BASE}/options/exposure/strike/{gex_widget}", timeout=20)
+            if r.status_code in (400, 401, 403):
+                logger.warning("QuantData GEX returned %s for %s — credentials may be expired", r.status_code, ticker)
+                return None
+            if r.status_code == 200:
+                resp    = r.json().get("response", {})
+                exp_map = resp.get("expirationDateToStrikePriceInCentsToContractExposureMap", {})
+                net_gex: dict[float, float] = {}
+                for expiry, strike_data in exp_map.items():
+                    for strike_cents, sides in strike_data.items():
+                        price    = int(strike_cents) / 100
+                        call_gex = sides.get("CALL", 0) or 0
+                        put_gex  = sides.get("PUT", 0)  or 0
+                        net_gex[price] = net_gex.get(price, 0) + call_gex + put_gex
+                gex_calls = sorted(
+                    [round(p, 2) for p, g in net_gex.items() if g > 0],
+                    key=lambda p: net_gex[p], reverse=True
+                )[:5]
+                gex_puts = sorted(
+                    [round(p, 2) for p, g in net_gex.items() if g < 0],
+                    key=lambda p: net_gex[p]
+                )[:5]
+        except Exception as e:
+            logger.debug("chart: GEX fetch failed for %s: %s", ticker, e)
+
+    if not dp_floors and not gex_calls and not gex_puts:
+        return None
 
     logger.debug(
         "QuantData live: %s — %d DP floors, %d GEX calls, %d GEX puts",
         ticker, len(dp_floors), len(gex_calls), len(gex_puts),
     )
     return {"dp_floors": dp_floors, "gex_calls": gex_calls, "gex_puts": gex_puts, "source": "live"}
-
 
 # ── Static report file parser (fallback) ─────────────────────────────────────
 
@@ -313,7 +403,33 @@ def get_order_flow(
     if side:
         params["side"] = side.upper()
 
-    data = _qd_get("tool/OPTIONS_ORDER_FLOW_CONSOLIDATED_TABLE", params=params)
+    # Use the correct QuantData order flow REST endpoint
+    # The /api/tool/* path is deprecated and causes 400 errors
+    try:
+        _qd_base_url = "https://core-lb-prod.quantdata.us/api"
+        _auth  = config_store.cfg("security.quantdata_auth_token", "")
+        _inst  = config_store.cfg("security.quantdata_instance_id", "")
+        _hdrs  = {
+            "accept": "application/json",
+            "authorization": _auth,
+            "x-instance-id": _inst,
+            "x-qd-version": "1",
+            "origin": "https://v3.quantdata.us",
+        }
+        _r = req_lib.get(
+            f"{_qd_base_url}/options/order-flow/consolidated",
+            headers=_hdrs,
+            params=params,
+            timeout=15,
+        )
+        if _r.status_code in (400, 401, 403):
+            logger.warning("QuantData order flow returned %s for %s — credentials may be expired", _r.status_code, ticker)
+            return {"ticker": ticker, "enabled": True, "flow": [], "message": f"QuantData returned {_r.status_code} — credentials may be expired"}
+        _r.raise_for_status()
+        data = _r.json()
+    except Exception as _exc:
+        logger.debug("Order flow fetch failed for %s: %s", ticker, _exc)
+        data = None
     if data is None:
         return {"ticker": ticker, "enabled": True, "flow": [], "message": "QuantData API unavailable — try again shortly"}
 

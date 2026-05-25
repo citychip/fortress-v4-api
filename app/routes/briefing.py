@@ -108,6 +108,105 @@ def compute_portfolio_greeks(data: dict) -> dict:
     }
 
 
+# ── Beta cache: refresh at most once per hour to avoid fd exhaustion ─────────
+import time as _time
+_beta_cache: dict = {}          # {ticker -> {beta, price, source}}
+_beta_cache_tickers: set = set()
+_beta_cache_ts: float = 0.0
+_BETA_CACHE_TTL: float = 3600.0  # seconds
+
+
+def _fetch_betas_and_prices(tickers: list[str]) -> dict:
+    """Fetch beta (vs SPY, 1y weekly) and last price from yfinance.
+    Results are cached for _BETA_CACHE_TTL seconds to prevent fd exhaustion
+    when called repeatedly from the SSE stream.
+    """
+    global _beta_cache, _beta_cache_tickers, _beta_cache_ts
+
+    now = _time.monotonic()
+    ticker_set = set(tickers)
+    cache_valid = (
+        (now - _beta_cache_ts) < _BETA_CACHE_TTL
+        and ticker_set <= _beta_cache_tickers
+        and _beta_cache
+    )
+    if cache_valid:
+        return _beta_cache
+
+    result = {}
+    fetch_list = list(ticker_set | {"SPY"})
+    try:
+        import yfinance as yf
+        import numpy as np
+        raw = yf.download(
+            fetch_list,
+            period="1y",
+            interval="1wk",
+            auto_adjust=True,
+            progress=False,
+        )
+        closes = raw["Close"] if "Close" in raw.columns.get_level_values(0) else raw
+        spy_ret = closes["SPY"].pct_change().dropna() if "SPY" in closes.columns else None
+
+        for t in fetch_list:
+            try:
+                col = closes[t] if t in closes.columns else None
+                if col is None or col.dropna().empty:
+                    continue
+                price = float(col.dropna().iloc[-1])
+                if spy_ret is not None and len(spy_ret) > 10:
+                    stock_ret = col.pct_change().dropna()
+                    s_r, m_r = stock_ret.align(spy_ret, join="inner")
+                    if len(s_r) > 10:
+                        cov = float(np.cov(s_r, m_r)[0][1])
+                        var = float(np.var(m_r))
+                        beta = round(cov / var, 3) if var > 0 else 1.0
+                    else:
+                        beta = 1.0
+                else:
+                    beta = 1.0
+                result[t] = {"beta": beta, "price": price, "source": "yfinance"}
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    if result:
+        _beta_cache = result
+        _beta_cache_tickers = set(result.keys())
+        _beta_cache_ts = now
+
+    return result
+
+
+def compute_portfolio_greeks_with_beta(data: dict) -> dict:
+    """
+    Compute portfolio Greeks with SPY-equivalent beta-weighted delta.
+    Betas are cached for 1 hour — safe to call from SSE stream.
+    """
+    greeks = compute_portfolio_greeks(data)
+
+    try:
+        positions = data.get("positions", []) or []
+        tickers = list({p.get("ticker", "").upper() for p in positions if p.get("ticker")})
+        if tickers:
+            betas = _fetch_betas_and_prices(tickers)
+            if betas:
+                weighted_delta = state.compute_beta_weighted_delta(data, betas)
+                greeks["beta_weighted_delta"] = round(weighted_delta, 1)
+                greeks["beta_sources"] = "yfinance"
+            else:
+                greeks["beta_weighted_delta"] = None
+                greeks["beta_sources"] = "unavailable"
+    except Exception as e:
+        import logging
+        logging.getLogger("fortress.briefing").warning(f"Beta-weighted delta failed: {e}")
+        greeks["beta_weighted_delta"] = None
+        greeks["beta_sources"] = "error"
+
+    return greeks
+
+
 # ---------------------------------------------------------------------------
 # Pacing computation
 # ---------------------------------------------------------------------------
@@ -313,6 +412,16 @@ def get_briefing():
 
     # Macro regime + VIX state for Build Spec §5.5.1
     macro = candidates.get("macro_regime", {}) or {}
+
+    # Live VIX fallback: fetch from yfinance when no daily report has populated it
+    if not macro.get("vix"):
+        try:
+            import yfinance as _yf
+            _hist = _yf.Ticker("^VIX").history(period="1d")
+            if not _hist.empty:
+                macro["vix"] = round(float(_hist["Close"].iloc[-1]), 2)
+        except Exception:
+            pass
     vix = macro.get("vix", 0) or 0
     if vix > 35:
         vix_state = "stress"
@@ -358,6 +467,6 @@ def get_briefing():
             "all": conc_dict,
             "msft_warning": msft_warning,
         },
-        "greeks": compute_portfolio_greeks(positions),
+        "greeks": compute_portfolio_greeks_with_beta(positions),
         "actions": compute_actions(positions, alerts, candidates, calendar),
     }

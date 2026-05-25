@@ -27,6 +27,12 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
+try:
+    from curl_cffi import requests as _cffi_requests
+    _CFFI_AVAILABLE = True
+except ImportError:
+    import requests as _cffi_requests
+    _CFFI_AVAILABLE = False
 import requests
 from fastapi import APIRouter
 
@@ -36,16 +42,83 @@ logger = logging.getLogger("fortress.market_intelligence")
 router = APIRouter()
 
 # ─── QuantData credentials ────────────────────────────────────────────────────
-QD_AUTH_TOKEN  = os.environ.get("QUANTDATA_AUTH_TOKEN", "")
-QD_USER_ID     = os.environ.get("QUANTDATA_USER_ID", "")
-QD_BASE_URL    = "https://core-lb-prod.quantdata.us/api"
+# NOTE: credentials are read from config.json at request time (not at module import)
+# so that refreshed tokens are picked up without a service restart.
+QD_BASE_URL = "https://core-lb-prod.quantdata.us/api"
+_QD_CONFIG_PATH = Path.home() / ".quantdata-mcp" / "config.json"
 
-# Known widget IDs per ticker (SPY default; can be extended)
-# Discovered via GET /api/pages — these are stable widget UUIDs on the QuantData platform.
-# Last verified: 2026-05-14
+
+
+# ── US market holiday set (NYSE) — covers 2025-2027 ──────────────────────────
+_US_MARKET_HOLIDAYS: set = {
+    # 2025
+    "2025-01-01", "2025-01-20", "2025-02-17", "2025-04-18",
+    "2025-05-26", "2025-07-04", "2025-09-01", "2025-11-27", "2025-12-25",
+    # 2026
+    "2026-01-01", "2026-01-19", "2026-02-16", "2026-04-03",
+    "2026-05-25", "2026-07-03", "2026-09-07", "2026-11-26", "2026-12-25",
+    # 2027
+    "2027-01-01", "2027-01-18", "2027-02-15", "2027-04-26",
+    "2027-05-31", "2027-07-05", "2027-09-06", "2027-11-25", "2027-12-24",
+}
+
+
+def _last_trading_day() -> str:
+    from datetime import date, timedelta
+    d = date.today()
+    for _ in range(10):
+        if d.weekday() < 5 and d.isoformat() not in _US_MARKET_HOLIDAYS:
+            return d.isoformat()
+        d -= timedelta(days=1)
+    return d.isoformat()
+
+
+def _get_qd_credentials() -> tuple[str, str, str]:
+    """
+    Read auth_token, cookie, and user_id from ~/.quantdata-mcp/config.json.
+    Falls back to environment variables for backwards compatibility.
+    Returns (auth_token_with_bearer_prefix, cookie, user_id).
+    """
+    import json, base64
+    token  = os.environ.get("QUANTDATA_AUTH_TOKEN", "")
+    cookie = ""
+    user_id = os.environ.get("QUANTDATA_USER_ID", "")
+    try:
+        if _QD_CONFIG_PATH.exists():
+            cfg = json.loads(_QD_CONFIG_PATH.read_text())
+            token   = cfg.get("auth_token", token)
+            cookie  = cfg.get("cookie", cookie)
+            user_id = cfg.get("user_id", user_id)  # explicit key (written by qd_refresh_session.py)
+    except Exception:
+        pass
+    # Ensure token has Bearer prefix
+    if token and not token.startswith("Bearer "):
+        token = f"Bearer {token}"
+    # If user_id still not found, decode it from the JWT payload (userId claim)
+    if not user_id and token:
+        try:
+            raw = token.removeprefix("Bearer ").strip()
+            payload_b64 = raw.split(".")[1]
+            # Add padding so base64 doesn't choke on short segments
+            payload_b64 += "==" * (4 - len(payload_b64) % 4)
+            payload = json.loads(base64.urlsafe_b64decode(payload_b64))
+            user_id = payload.get("userId", "")
+        except Exception:
+            pass
+    return token, cookie, user_id
+
+
+def _get_qd_cookie() -> str:
+    """Read the QuantData cookie from ~/.quantdata-mcp/config.json (updated by Settings page)."""
+    _, cookie, _ = _get_qd_credentials()
+    return cookie
+
+# Known widget IDs per ticker — discovered via GET /api/pages.
+# Widget UUIDs are stable identifiers on the QuantData platform.
+# Last verified: 2026-05-19 (auto-discovery via /api/pages, 'component' field)
 #
 # Widget type legend:
-#   gex       — OPTIONS_EXPOSURE_BY_STRIKE_CHART
+#   gex       — OPTIONS_EXPOSURE_BY_STRIKE_CHART  (first one on the page)
 #   dp        — DARK_POOL_LEVELS_TABLE
 #   net_drift — OPTIONS_NET_DRIFT_CHART
 #   page_id   — The QuantData page that owns these widgets (used as x-instance-id header)
@@ -55,29 +128,47 @@ QD_BASE_URL    = "https://core-lb-prod.quantdata.us/api"
 #   EXPOSURE   page: e07c6cba-335b-42dc-942b-0f90a5144b4a  gex widget: 465c0bd0-149a-4fb9-8274-9f429ccecb29
 #   FLOW       page: a3500c30-51a5-42aa-af53-29a20d03b632  drift widget: de8c5cf5-7ba7-4343-98b9-399b76a96904
 _WIDGET_IDS: dict[str, dict[str, str]] = {
+    # ── Dedicated SPY page (e22a6d88) — all three widget types ─────────────────
     "SPY": {
         "gex":       "2e4d7ea4-ae92-4209-bca4-ccb2908ec9f6",  # OPTIONS_EXPOSURE_BY_STRIKE_CHART (SPY page)
         "dp":        "0001c185-460d-43e5-b9e9-b1ede7943f6b",  # DARK_POOL_LEVELS_TABLE (SPY page)
         "net_drift": "9fcb5310-970a-453e-a672-0f3b5ef22c78",  # OPTIONS_NET_DRIFT_CHART (SPY page)
         "page_id":   "e22a6d88-9d75-42b3-af9d-ee583008fdad",  # SPY custom page
     },
+    # ── SPX Dashboard (672ab496) — GEX + net_drift (no DP widget on this page) ─
     "SPX": {
-        "gex":       "444d17ce-e2f0-4d38-9acb-e51b09d6d4b6",  # OPTIONS_EXPOSURE_BY_STRIKE_CHART (SPX Dashboard)
-        "page_id":   "672ab496-da3e-4538-bc68-3d0925b9b122",
+        "gex":       "444d17ce-e2f0-4d38-9acb-e51b09d6d4b6",  # OPTIONS_EXPOSURE_BY_STRIKE_CHART [SPX GEX]
+        "net_drift": "46560851-54d3-4abe-b135-65c493eb381a",  # OPTIONS_NET_DRIFT_CHART [Net Drift]
+        "page_id":   "672ab496-da3e-4538-bc68-3d0925b9b122",  # SPX Dashboard
     },
+    # ── SPY Dashboard (9b3d47a2) — used for QQQ (GEX + DP + net_drift) ─────────
+    # Note: this page is named "SPY Dashboard" but the widgets respond to the
+    # global filter, so it works correctly for QQQ when the filter is set.
     "QQQ": {
-        "gex":       "4b6d1f27-4131-44e1-a5f3-724d6f701d16",  # OPTIONS_EXPOSURE_BY_STRIKE_CHART (SPY Dashboard)
-        "page_id":   "9b3d47a2-92b0-49be-9a85-778c06300df0",
+        "gex":       "4b6d1f27-4131-44e1-a5f3-724d6f701d16",  # OPTIONS_EXPOSURE_BY_STRIKE_CHART [Exposure by Strike]
+        "dp":        "0e3e3809-aa84-49cc-9f58-30cd60730b59",  # DARK_POOL_LEVELS_TABLE [Dark Pool Levels]
+        "net_drift": "c36dd60c-2d58-4e53-83d9-43cdf2ff7e29",  # OPTIONS_NET_DRIFT_CHART [Net Drift]
+        "page_id":   "9b3d47a2-92b0-49be-9a85-778c06300df0",  # SPY Dashboard
     },
     # ── Individual equities — dedicated pages ──────────────────────────────────
     "NVDA": {
-        "gex":       "0dda93ba-d196-48bc-bacc-4b788f23369e",  # OPTIONS_EXPOSURE_BY_STRIKE_CHART (NVDA Dashboard)
-        "dp":        "7b2707f2-527b-484b-ab45-b6aa4df9dbc8",  # DARK_POOL_LEVELS_TABLE (NVDA Dashboard)
-        "net_drift": "cf9f3e83-875c-4d84-b912-2770a2f94688",  # OPTIONS_NET_DRIFT_CHART (NVDA Dashboard)
-        "page_id":   "52ca72cb-7456-4d64-8cc4-7c25265b0bb9",  # NVDA Dashboard custom page
+        "gex":       "0dda93ba-d196-48bc-bacc-4b788f23369e",  # OPTIONS_EXPOSURE_BY_STRIKE_CHART [Exposure by Strike]
+        "dp":        "7b2707f2-527b-484b-ab45-b6aa4df9dbc8",  # DARK_POOL_LEVELS_TABLE [Dark Pool Levels]
+        "net_drift": "cf9f3e83-875c-4d84-b912-2770a2f94688",  # OPTIONS_NET_DRIFT_CHART [Net Drift]
+        "page_id":   "52ca72cb-7456-4d64-8cc4-7c25265b0bb9",  # NVDA Dashboard
     },
-    # ── Individual equities — system pages (ticker-agnostic, filterable) ───────
-    # MSFT, TSLA, AMZN, AAPL, META, and any other ticker use the system pages.
+    # ── MSFT dedicated page (2ef8b3c4) — DP only; GEX/drift fall back to system ─
+    "MSFT": {
+        "dp":        "1d0411cd-fa4b-4699-98f0-6a460828c975",  # DARK_POOL_LEVELS_TABLE [Dark Pool Levels]
+        "page_id":   "2ef8b3c4-0910-42f9-b5e2-844377432e8c",  # Microsoft page
+        # GEX and net_drift not present on this page — fetched via system pages below
+        "gex":       "465c0bd0-149a-4fb9-8274-9f429ccecb29",  # fallback: EXPOSURE system page GEX
+        "net_drift": "de8c5cf5-7ba7-4343-98b9-399b76a96904",  # fallback: FLOW system page drift
+        "gex_page_id":   "e07c6cba-335b-42dc-942b-0f90a5144b4a",  # EXPOSURE system page
+        "drift_page_id": "a3500c30-51a5-42aa-af53-29a20d03b632",  # FLOW_ANALYSIS system page
+    },
+    # ── All other tickers — system pages (ticker-agnostic, filterable) ──────────
+    # TSLA, AMZN, AAPL, META, VST, MSTR, TSM, etc. use the system pages.
     # The global filter is set to the requested ticker before each fetch.
     "_SYSTEM": {
         "gex":       "465c0bd0-149a-4fb9-8274-9f429ccecb29",  # OPTIONS_EXPOSURE_BY_STRIKE_CHART (EXPOSURE system page)
@@ -94,33 +185,152 @@ _QD_SESS: requests.Session | None = None
 # Serializes concurrent system-page requests to prevent global-filter race condition
 _QD_SYSTEM_LOCK = threading.Lock()
 
+# Cache for the auto-discovered page registry (populated at first request)
+_PAGE_REGISTRY_CACHE: dict | None = None
+_PAGE_REGISTRY_LOCK  = threading.Lock()
+_PAGE_REGISTRY_TTL   = 86_400  # 24 hours
+_PAGE_REGISTRY_TS    = 0.0
+
+# Components we care about when walking the QuantData page layout tree
+_TARGET_COMPONENTS = {
+    "OPTIONS_EXPOSURE_BY_STRIKE_CHART": "gex",
+    "DARK_POOL_LEVELS_TABLE":           "dp",
+    "OPTIONS_NET_DRIFT_CHART":          "net_drift",
+}
+
+
+def _walk_layout(node: Any, widgets: list) -> None:
+    """Recursively walk a QuantData page layout tree and collect target widget IDs."""
+    if isinstance(node, dict):
+        comp = node.get("component")
+        if comp in _TARGET_COMPONENTS:
+            widgets.append({"key": _TARGET_COMPONENTS[comp], "id": node["id"]})
+        for v in node.values():
+            _walk_layout(v, widgets)
+    elif isinstance(node, list):
+        for item in node:
+            _walk_layout(item, widgets)
+
+
+def _load_page_registry(force: bool = False) -> dict[str, dict[str, str]]:
+    """
+    Fetch all QuantData pages and build a widget map keyed by page_id.
+
+    Returns a dict of {page_id: {"gex": widget_id, "dp": widget_id, "net_drift": widget_id}}
+    for every page that contains at least one target widget type.
+
+    Results are cached for 24 hours (_PAGE_REGISTRY_TTL) to avoid hammering the API.
+    The cache is stored in the module-level _PAGE_REGISTRY_CACHE variable.
+
+    The correct field for widget type in the layout JSON is "component" (not "type").
+    """
+    global _PAGE_REGISTRY_CACHE, _PAGE_REGISTRY_TS
+
+    now = time.monotonic()
+    with _PAGE_REGISTRY_LOCK:
+        if not force and _PAGE_REGISTRY_CACHE is not None and (now - _PAGE_REGISTRY_TS) < _PAGE_REGISTRY_TTL:
+            return _PAGE_REGISTRY_CACHE
+
+        token, cookie, _ = _get_qd_credentials()
+        if not token:
+            return _PAGE_REGISTRY_CACHE or {}
+
+        headers = {
+            "authorization": token,
+            "x-qd-version":  "1",
+            "origin":        "https://v3.quantdata.us",
+            "referer":       "https://v3.quantdata.us/",
+        }
+        if cookie:
+            headers["cookie"] = cookie
+
+        try:
+            if _CFFI_AVAILABLE:
+                sess = _cffi_requests.Session(impersonate="chrome110")
+                sess.headers.update(headers)
+            else:
+                sess = requests.Session()
+                sess.headers.update(headers)
+
+            resp = sess.get(f"{QD_BASE_URL}/pages", timeout=20)
+            if resp.status_code != 200:
+                logger.warning("_load_page_registry: /api/pages returned %d", resp.status_code)
+                return _PAGE_REGISTRY_CACHE or {}
+
+            pages = resp.json().get("response", {}).get("pages", [])
+            registry: dict[str, dict[str, str]] = {}
+
+            for page in pages:
+                page_id = page.get("id", "")
+                if not page_id:
+                    continue
+                widgets: list[dict] = []
+                _walk_layout(page.get("layout", {}), widgets)
+                if not widgets:
+                    continue
+
+                entry: dict[str, str] = {"page_id": page_id, "name": page.get("name", "")}
+                # For each key type, take the first widget found on the page
+                seen: set[str] = set()
+                for w in widgets:
+                    k = w["key"]
+                    if k not in seen:
+                        entry[k] = w["id"]
+                        seen.add(k)
+
+                registry[page_id] = entry
+
+            _PAGE_REGISTRY_CACHE = registry
+            _PAGE_REGISTRY_TS    = now
+            logger.info("_load_page_registry: loaded %d pages with target widgets", len(registry))
+            return registry
+
+        except Exception as exc:
+            logger.warning("_load_page_registry: failed to load pages: %s", exc)
+            return _PAGE_REGISTRY_CACHE or {}
+
 
 def _qd_session(page_id: str) -> requests.Session:
-    sess = requests.Session()
-    sess.headers.update({
+    """Create a QuantData session using curl_cffi Chrome impersonation to bypass Cloudflare."""
+    token, cookie, _ = _get_qd_credentials()
+    headers = {
         "accept":        "application/json",
-        "authorization": QD_AUTH_TOKEN,
+        "authorization": token,
         "x-instance-id": page_id,
         "x-qd-version":  "1",
         "origin":        "https://v3.quantdata.us",
+        "referer":       "https://v3.quantdata.us/",
         "content-type":  "application/json",
-    })
+    }
+    if cookie:
+        headers["cookie"] = cookie
+    if _CFFI_AVAILABLE:
+        sess = _cffi_requests.Session(impersonate="chrome110")
+        sess.headers.update(headers)
+    else:
+        sess = requests.Session()
+        sess.headers.update(headers)
     return sess
 
 
 def _qd_available() -> bool:
-    return bool(QD_AUTH_TOKEN and QD_USER_ID)
+    token, _, _ = _get_qd_credentials()
+    return bool(token)
 
 
 def _set_global_filter(sess: requests.Session, ticker: str, session_date: str) -> None:
     """Set QuantData global session filter for the given ticker and date."""
+    _, _, user_id = _get_qd_credentials()
+    if not user_id:
+        logger.debug("_set_global_filter: no user_id in config, skipping")
+        return
     now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
     try:
         sess.put(
             f"{QD_BASE_URL}/user/attributes",
             timeout=10,
             json={
-                "id": QD_USER_ID,
+                "id": user_id,
                 "fontSizePercentage": 100,
                 "globalFilter": {
                     "expirationDate": {"filterOperationType": "EQUALS", "value": session_date},
@@ -369,6 +579,36 @@ def _synthesize_regime(gex: dict | None, dp: dict | None, drift: dict | None, ma
               "bearish"          if score == -2 else \
               "strongly_bearish"
 
+    # Extract top GEX walls and DP floor/ceiling for direct display in UI
+    gex_call_wall = None
+    gex_put_wall  = None
+    dp_floor      = None
+    dp_ceiling    = None
+    try:
+        call_walls = (gex or {}).get("call_walls") or []
+        if call_walls:
+            gex_call_wall = call_walls[0].get("strike")
+    except Exception:
+        pass
+    try:
+        put_walls = (gex or {}).get("put_walls") or []
+        if put_walls:
+            gex_put_wall = put_walls[0].get("strike")
+    except Exception:
+        pass
+    try:
+        floors = (dp or {}).get("floors") or []
+        if floors:
+            dp_floor = floors[0].get("price")
+    except Exception:
+        pass
+    try:
+        ceilings = (dp or {}).get("ceilings") or []
+        if ceilings:
+            dp_ceiling = ceilings[0].get("price")
+    except Exception:
+        pass
+
     return {
         "overall":       overall,
         "score":         score,
@@ -376,6 +616,10 @@ def _synthesize_regime(gex: dict | None, dp: dict | None, drift: dict | None, ma
         "current_price": current_price,
         "gamma_regime":  gamma_regime,
         "flip_zone":     flip_zone,
+        "gex_call_wall": gex_call_wall,
+        "gex_put_wall":  gex_put_wall,
+        "dp_floor":      dp_floor,
+        "dp_ceiling":    dp_ceiling,
     }
 
 
@@ -576,7 +820,7 @@ def get_market_intelligence(ticker: str = "SPY", session_date: str | None = None
     from ..routes.briefing import get_briefing
 
     if not session_date:
-        session_date = date.today().isoformat()
+        session_date = _last_trading_day()
 
     ticker = ticker.upper()
     as_of  = datetime.now(timezone.utc).isoformat()
@@ -607,6 +851,10 @@ def get_market_intelligence(ticker: str = "SPY", session_date: str | None = None
     drift_data = None
     qd_source  = "unavailable"
 
+    # Re-read credentials at request time so refreshed tokens are picked up immediately
+    _qd_token, _qd_cookie, _qd_uid = _get_qd_credentials()
+    logger.debug("QD credentials: token_len=%d cookie_len=%d", len(_qd_token), len(_qd_cookie))
+
     if _qd_available():
         # Use ticker-specific widgets if available; fall back to system pages for any ticker
         widgets = _WIDGET_IDS.get(ticker)
@@ -617,18 +865,29 @@ def get_market_intelligence(ticker: str = "SPY", session_date: str | None = None
 
         page_id = widgets.get("page_id", "")
 
-        # System-page tickers share the same QuantData global filter — serialize to prevent race conditions
+        # Determine whether this ticker uses the system-page global filter for any widget.
+        # MSFT has a dedicated DP widget but falls back to system pages for GEX and drift,
+        # so it still needs the global filter set (and the system lock held for those calls).
         import contextlib
-        lock_ctx = _QD_SYSTEM_LOCK if is_system_page else contextlib.nullcontext()
+        has_system_fallback = is_system_page or bool(
+            widgets.get("gex_page_id") or widgets.get("drift_page_id")
+        )
+        lock_ctx = _QD_SYSTEM_LOCK if has_system_fallback else contextlib.nullcontext()
         with lock_ctx:
             sess = _qd_session(page_id)
 
             # Set global filter to the requested ticker on all relevant pages
             _set_global_filter(sess, ticker, session_date)
 
-            # GEX — use primary page_id
+            # GEX — may use a different page_id (MSFT uses system EXPOSURE page for GEX)
             if widgets.get("gex"):
-                gex_data = _fetch_gex(sess, widgets["gex"])
+                gex_page = widgets.get("gex_page_id", page_id)
+                if gex_page != page_id:
+                    gex_sess = _qd_session(gex_page)
+                    _set_global_filter(gex_sess, ticker, session_date)
+                    gex_data = _fetch_gex(gex_sess, widgets["gex"])
+                else:
+                    gex_data = _fetch_gex(sess, widgets["gex"])
 
             # DP — may use a different page_id (system pages only)
             if widgets.get("dp"):
@@ -693,6 +952,6 @@ def get_market_intelligence(ticker: str = "SPY", session_date: str | None = None
             "pacing":        pacing,
             "net_liq":       net_liq,
         },
-        "quantdata_available": _qd_available(),
+        "quantdata_available": bool(_qd_token),
         "source":        qd_source,
     }

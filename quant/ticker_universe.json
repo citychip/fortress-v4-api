@@ -25,7 +25,8 @@
   ],
   "macro": [
     "SPX",
-    "SPY"
+    "SPY",
+    "VIX"
   ],
   "excluded": [
     {
@@ -50,5 +51,5 @@
       "note": "Strategy §3.3 — ignored entirely. Display in book, never recommend."
     }
   ],
-  "_last_updated": "2026-05-15"
+  "_last_updated": "2026-05-19"
 }

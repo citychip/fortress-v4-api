@@ -302,6 +302,18 @@ def get_iv_crush_report() -> dict:
     }
 
 
+def _fetch_live_vix() -> float | None:
+    """Fetch live VIX from yfinance as fallback when no daily report exists."""
+    try:
+        import yfinance as yf
+        hist = yf.Ticker("^VIX").history(period="1d")
+        if not hist.empty:
+            return round(float(hist["Close"].iloc[-1]), 2)
+    except Exception:
+        pass
+    return None
+
+
 def _parse_macro_regime(daily_md: str) -> dict:
     """Best-effort extraction of macro regime fields from daily report markdown."""
     # Default fallback
@@ -326,8 +338,64 @@ def _parse_macro_regime(daily_md: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Concentration computation (when absent from positions file)
+# Beta-weighted Greeks helpers
 # ---------------------------------------------------------------------------
+
+def _get_beta_for_ticker(ticker: str, betas: dict[str, dict[str, Any]], fallback: float = 1.0) -> float:
+    """Get beta for a ticker from the betas dict. Returns fallback if missing."""
+    t = ticker.upper()
+    entry = betas.get(t)
+    if entry:
+        return float(entry["beta"])
+    return fallback
+
+
+def compute_beta_weighted_delta(positions_data: dict, betas: dict[str, dict[str, Any]] | None = None) -> float:
+    """Compute SPY-equivalent beta-weighted portfolio delta.
+
+    For each leg:
+        share_delta   = qty × option_delta × multiplier
+        dollar_delta  = share_delta × stock_price
+        spy_equiv_$   = dollar_delta × stock_beta
+    Sum all spy_equiv_$ → divide by SPY price → SPY-equivalent shares.
+
+    If betas/prices not provided, returns raw unweighted delta (shares sum).
+    """
+    if not betas:
+        return positions_data.get("portfolio_delta") or 0
+
+    positions = positions_data.get("positions", []) or []
+    spy_price = betas.get("SPY", {}).get("price") or 545.0  # fallback if SPY missing
+    total_spy_dollar = 0.0
+
+    for p in positions:
+        ticker = p.get("ticker", "").upper()
+        sec_type = p.get("sec_type", "OPT")
+        qty = p.get("qty") or 0
+        try:
+            multiplier = int(p.get("multiplier") or 100)
+        except (ValueError, TypeError):
+            multiplier = 100
+
+        if sec_type == "STK":
+            # Stock: delta = 1 per share, multiplier irrelevant
+            stock_price = betas.get(ticker, {}).get("price") or 1.0
+            beta = _get_beta_for_ticker(ticker, betas, fallback=1.0)
+            dollar_delta = qty * 1.0 * stock_price
+        else:
+            option_delta = p.get("current_delta")
+            if option_delta is None:
+                continue
+            stock_price = betas.get(ticker, {}).get("price") or 1.0
+            beta = _get_beta_for_ticker(ticker, betas, fallback=1.0)
+            share_delta = qty * option_delta * multiplier
+            dollar_delta = share_delta * stock_price
+
+        total_spy_dollar += dollar_delta * beta
+
+    if spy_price == 0:
+        return 0.0
+    return total_spy_dollar / spy_price
 
 
 # --- Phase 3 IBKR sync support (May 4 2026) ---
