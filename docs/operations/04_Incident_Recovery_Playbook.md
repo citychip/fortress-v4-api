@@ -1,6 +1,6 @@
 # Fortress Dashboard — Incident Recovery Playbook
 
-**Version 1.2 — May 19, 2026**
+**Version 1.1 — May 18, 2026**
 
 Recovery procedures for all known failure modes. Read this document during an incident, not before. Each section is self-contained.
 
@@ -14,7 +14,7 @@ Recovery procedures for all known failure modes. Read this document during an in
 
 1. Log into the VPS provider control panel and verify the instance is running.
 2. If stopped: start the instance. Wait 60 seconds for services to come up.
-3. SSH in: `ssh -i ~/.ssh/fortress_vps root@76.13.138.194`
+3. SSH in: `ssh -i ~/.ssh/fortress_vps ubuntu@76.13.138.194`
 4. Check service status:
    ```bash
    sudo systemctl status fortress-dashboard
@@ -101,49 +101,45 @@ Recovery procedures for all known failure modes. Read this document during an in
 
 1. Check nginx is serving the correct static files:
    ```bash
-   ls -la /var/www/fortress-v2/
+   ls -la /home/ubuntu/Fortress_Dashboard/app/static/
    # Should contain index.html and assets/ directory from the React build
-   ls /var/www/fortress-v2/assets/
    ```
-2. If files are missing or old, redeploy from the Manus sandbox:
+2. If files are missing or old, redeploy from the sandbox:
    ```bash
-   # On the Manus sandbox:
+   # On the development machine (Manus sandbox):
    cd /home/ubuntu/fortress-v2 && pnpm build
-   cd /home/ubuntu/fortress-v2/dist/public && tar czf /tmp/fortress_react_build.tar.gz .
-   scp -i ~/.ssh/fortress_vps /tmp/fortress_react_build.tar.gz root@76.13.138.194:/tmp/
-   ssh -i ~/.ssh/fortress_vps root@76.13.138.194 \
-     "cd /var/www/fortress-v2 && tar xzf /tmp/fortress_react_build.tar.gz"
+   scp -i ~/.ssh/fortress_vps -r dist/* ubuntu@76.13.138.194:/home/ubuntu/Fortress_Dashboard/app/static/
    ```
-3. Remove stale old hashed JS/CSS files if the build hash changed:
-   ```bash
-   ssh -i ~/.ssh/fortress_vps root@76.13.138.194 "ls /var/www/fortress-v2/assets/"
-   # Delete any index-*.js / index-*.css that don't match the new build
-   ```
-4. Restart nginx:
+3. Restart nginx:
    ```bash
    sudo systemctl restart nginx
    ```
-5. Hard-refresh the browser (Ctrl+Shift+R) to clear cached assets.
+4. Hard-refresh the browser (Ctrl+Shift+R) to clear cached assets.
 
 ---
 
 ## 5. QuantData Credentials Expired
 
-**Symptoms:** IV Rank Heatmap shows "no data" for all tickers. Candidates tab shows 0 rows or only placeholder rows. Market Intelligence cards show `—` for GEX/DP/Net Drift fields. VPS logs show `401 Unauthorized` on outgoing QuantData requests.
+**Symptoms:** IV Rank Heatmap shows "no data" for all tickers. Candidates tab shows 0 rows or only placeholder rows. Market Intelligence cards show `—` for GEX/DP/Net Drift fields. VPS logs show `403 Forbidden` on outgoing QuantData requests.
 
-**Note:** The daily cron job at 06:00 UTC automatically refreshes credentials. Check the log first before taking manual action:
-```bash
-tail -20 /var/log/qd_refresh.log
-```
-If the last entry shows `Login successful` and today's date, the token is fresh — the issue may be something else (see §5.2).
+**This is the most common recurring incident.** QuantData session tokens expire periodically (days to weeks).
 
 ### 5.1 Refresh via Dashboard UI (recommended — no SSH required)
 
-1. Open the Fortress Dashboard → **Config** → **Settings** → scroll to **QuantData Credentials**.
-2. Enter your email and password in the login form.
-3. Click **Refresh Token & Test Connection**.
-4. Wait ~10 seconds. The result panel will show `SPY IV Rank: XX.X (as of YYYY-MM-DD)` — this confirms the new token is live.
-5. If the result shows an error, verify your password is correct at [v3.quantdata.us](https://v3.quantdata.us).
+1. Open the Fortress Dashboard → **Settings** → scroll to **QuantData Credentials**.
+2. Click **Update Credentials**.
+3. In a separate browser tab, go to [v3.quantdata.us](https://v3.quantdata.us) and log in.
+4. Open DevTools (F12) → **Network** tab.
+5. Filter requests by `core-lb-prod.quantdata.us`.
+6. Click any request in the list.
+7. In the **Headers** panel, find the **Request Headers** section.
+8. Copy the value of the `authorization` header (starts with `Bearer eyJ...`).
+9. Copy the full value of the `cookie` header.
+10. Back in the Fortress Dashboard Settings form, paste:
+    - **Auth Token** field: the `authorization` header value (with or without the `Bearer ` prefix — the backend strips it).
+    - **Cookie** field: the full `cookie` header value.
+11. Click **Save Credentials**.
+12. The status indicator should turn green within a few seconds.
 
 ### 5.2 Verify credentials are working
 
@@ -153,20 +149,20 @@ curl -s -H "Authorization: Bearer $TOKEN" \
   "http://localhost:8080/api/market-intelligence?ticker=SPY" | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
-print('quantdata_available:', d.get('quantdata_available'))
-print('iv_rank:', d.get('iv_rank'))
 print('regime_score:', d.get('regime', {}).get('overall'))
+print('gex_call_wall:', d.get('gex', {}).get('call_wall'))
+print('dp_floor_1:', d.get('dark_pool', {}).get('floors', [{}])[0].get('price'))
 "
 ```
 
-Expect `quantdata_available: True` and a non-null `iv_rank`. If still null, repeat step 5.1.
+Expect non-null values for all three fields. If still null, repeat step 5.1 — the session may have been partially expired.
 
 ### 5.3 Re-run IV Crush workflow
 
 After refreshing credentials, regenerate today's candidate data:
 
 ```bash
-ssh root@76.13.138.194
+ssh ubuntu@76.13.138.194
 cd /home/ubuntu/Fortress_Dashboard
 source venv/bin/activate
 python3 quant/workflow_05_iv_crush_report.py
@@ -177,16 +173,14 @@ This takes ~2–3 minutes (fetches data for all 19 universe tickers). When compl
 ### 5.4 Fallback via SSH (if dashboard UI is unavailable)
 
 ```bash
-ssh root@76.13.138.194
-python3 /home/ubuntu/Fortress_Dashboard/quant/qd_refresh_session.py
-```
+ssh ubuntu@76.13.138.194
+# Edit the config file directly
+nano /home/ubuntu/.quantdata-mcp/config.json
+# Update "auth_token" and "cookie" fields with fresh values
+# Save and exit (Ctrl+X, Y, Enter)
 
-The script logs in, saves fresh credentials to `/home/ubuntu/.quantdata-mcp/config.json`, and restarts the service automatically.
-
-To override credentials (e.g., after a password change):
-```bash
-QD_EMAIL="citychip@gmail.com" QD_PASSWORD="newpassword" \
-  python3 /home/ubuntu/Fortress_Dashboard/quant/qd_refresh_session.py
+# Restart the dashboard service to pick up new credentials
+sudo systemctl restart fortress-dashboard
 ```
 
 ---
@@ -256,11 +250,11 @@ Expected config structure:
 ```nginx
 server {
     listen 3000;
-    root /var/www/fortress-v2;
+    root /home/ubuntu/Fortress_Dashboard/app/static;
     index index.html;
 
     location /api/ {
-        proxy_pass http://127.0.0.1:8080/;
+        proxy_pass http://127.0.0.1:8080;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
     }
@@ -279,6 +273,5 @@ If config is wrong: edit, then `sudo systemctl reload nginx`.
 
 | Version | Date | Changes |
 |---|---|---|
-| 1.2 | 2026-05-19 | §4: corrected deploy path to `/var/www/fortress-v2/` and updated deploy commands. §5: replaced manual DevTools steps with email/password login workflow and `qd_refresh_session.py` fallback. Added cron auto-refresh note. §8: corrected nginx `root` path. |
 | 1.1 | 2026-05-18 | Added §5 QuantData Credentials Expired (full runbook). Added §4 Frontend Not Loading. Added §8 nginx Configuration Issues. Updated all service names and paths for Fortress V3. |
 | 1.0 | 2026-05-09 | Initial release. VPS, IBKR gateway, service crash, data corruption, sync procedures. |

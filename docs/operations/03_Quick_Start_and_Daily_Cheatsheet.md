@@ -1,6 +1,6 @@
 # Fortress Dashboard — Quick-Start & Daily Cheatsheet
 
-**Version 1.4 — May 19, 2026**
+**Version 1.3 — May 18, 2026**
 
 One-page operational reference for live sessions. This is the document to open first each morning. For full detail on any item, see the linked documents.
 
@@ -14,9 +14,9 @@ One-page operational reference for live sessions. This is the document to open f
 | Dashboard health | `GET /api/health` | Liveness check (no auth required) |
 | IBKR Gateway status | `GET /api/ibkr/status` | Gateway connection + account ID |
 | API docs | `http://76.13.138.194:8080/docs` | FastAPI auto-docs (backend direct) |
-| VPS SSH | `ssh -i ~/.ssh/fortress_vps root@76.13.138.194` | |
+| VPS SSH | `ssh -i ~/.ssh/fortress_vps ubuntu@76.13.138.194` | |
 | IBKR Account Mgmt | `https://www.interactivebrokers.com/sso/Login` | For Read-Only API fix |
-| QuantData | `https://v3.quantdata.us` | For manual session verification |
+| QuantData | `https://v3.quantdata.us` | For credential refresh |
 
 ---
 
@@ -82,12 +82,6 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/briefing | pyth
 # IBKR sync
 curl -X POST -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/ibkr/sync --max-time 110
 
-# Manually refresh QuantData session (runs automatically at 06:00 UTC via cron)
-python3 /home/ubuntu/Fortress_Dashboard/quant/qd_refresh_session.py
-
-# View QuantData refresh log
-tail -50 /var/log/qd_refresh.log
-
 # Re-run IV Crush workflow (after QuantData credential refresh)
 cd /home/ubuntu/Fortress_Dashboard && source venv/bin/activate
 python3 quant/workflow_05_iv_crush_report.py
@@ -100,39 +94,13 @@ cd /home/ubuntu/Fortress_Dashboard/cp-gateway && docker compose restart
 
 ## QuantData Credential Refresh (when IV Rank shows "no data")
 
-**Automatic:** The cron job at 06:00 UTC refreshes credentials daily. Check the log first:
-```bash
-tail -20 /var/log/qd_refresh.log
-```
-
-**Manual via Dashboard UI (no SSH required):**
-1. Dashboard → **Config** → **Settings** → scroll to **QuantData Credentials**
-2. Enter your email (`citychip@gmail.com`) and password
-3. Click **Refresh Token & Test Connection**
-4. Confirm the result shows `SPY IV Rank: XX.X` — this proves the connection is live
-5. Re-run IV Crush workflow (command above) to regenerate candidate data
-
-**Manual via SSH (fallback):**
-```bash
-python3 /home/ubuntu/Fortress_Dashboard/quant/qd_refresh_session.py
-```
+1. Dashboard → **Settings** → **QuantData Credentials** → **Update Credentials**
+2. Open [v3.quantdata.us](https://v3.quantdata.us) → DevTools (F12) → Network → filter `core-lb-prod`
+3. Click any request → copy `authorization` header value and `cookie` header value
+4. Paste into the Settings form → **Save Credentials**
+5. Re-run IV Crush workflow (command above)
 
 Full procedure: `operations/04_Incident_Recovery_Playbook.md` §5.
-
----
-
-## Deploy React Frontend (from Manus sandbox)
-
-```bash
-cd /home/ubuntu/fortress-v2 && pnpm build
-cd /home/ubuntu/fortress-v2/dist/public && tar czf /tmp/fortress_react_build.tar.gz .
-scp -i ~/.ssh/fortress_vps /tmp/fortress_react_build.tar.gz root@76.13.138.194:/tmp/
-ssh -i ~/.ssh/fortress_vps root@76.13.138.194 \
-  "cd /var/www/fortress-v2 && tar xzf /tmp/fortress_react_build.tar.gz"
-# Remove stale old hashed JS/CSS files if filenames changed
-```
-
-Full procedure: `04_VPS_Implementation_Guide_v1_7.md` §6.
 
 ---
 
@@ -143,8 +111,8 @@ Full procedure: `04_VPS_Implementation_Guide_v1_7.md` §6.
 | Dashboard unreachable | Check VPS instance is running | Playbook §1 |
 | IBKR amber badge / no Greeks | `docker compose restart cp-gateway` | Playbook §2 |
 | 502 Bad Gateway | `sudo systemctl restart fortress-dashboard` | Playbook §3 |
-| Frontend blank / old version | Redeploy from Manus sandbox to `/var/www/fortress-v2/` | Playbook §4 |
-| IV Rank shows "no data" | Settings → QuantData Credentials → Refresh Token | Playbook §5 |
+| Frontend blank / old version | Check `/app/static/` has React build files | Playbook §4 |
+| IV Rank shows "no data" | Refresh QuantData credentials in Settings | Playbook §5 |
 | Candidates shows 0 rows | Refresh QuantData credentials, re-run IV Crush workflow | Playbook §5.3 |
 | Data looks wrong / 500 errors | Restore from `quant/backups/` | Playbook §6 |
 | Positions tab empty after sync | Check CP Gateway session, trigger fresh sync | Playbook §7 |
@@ -155,7 +123,6 @@ Full procedure: `04_VPS_Implementation_Guide_v1_7.md` §6.
 
 | Version | Date | Changes |
 |---|---|---|
-| 1.4 | 2026-05-19 | Replaced manual DevTools credential refresh steps with email/password login workflow. Added automatic cron refresh note. Added deploy workflow quick-reference. Corrected SSH user to `root`. |
 | 1.3 | 2026-05-18 | Updated URLs for Fortress V3 (port 3000). Added QuantData credential refresh quick-steps. Updated CP Gateway restart command. Added Sort dropdown note. |
 | 1.2 | 2026-05-13 | Added Trade Reports tab. Updated morning sequence for Market Intelligence. |
 | 1.1 | 2026-05-09 | Security toggles. Bearer token auth. |
