@@ -42,7 +42,10 @@ from app.routes import (
     universe,
     uploads,
     trpc,
+    scheduler as scheduler_route,
+    portfolio as portfolio_route,
 )
+from app.scheduler import runner as scheduler_runner
 
 
 logger = logging.getLogger("fortress")
@@ -76,9 +79,11 @@ async def lifespan(app_: FastAPI):
     config_store.load()
     _auto_sync_task = asyncio.create_task(_ibkr_auto_sync_loop())
     logger.info("IBKR auto-sync background task started.")
+    scheduler_runner.start()
     yield
     if _auto_sync_task:
         _auto_sync_task.cancel()
+    scheduler_runner.shutdown()
 
 
 app = FastAPI(
@@ -122,6 +127,8 @@ app.include_router(orders.router, prefix="/api")
 app.include_router(pnl.router, prefix="/api")
 app.include_router(stream.router, prefix="/api")
 app.include_router(trpc.router, prefix="/api")
+app.include_router(scheduler_route.router, prefix="/api")
+app.include_router(portfolio_route.router, prefix="/api")
 
 
 

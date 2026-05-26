@@ -9,7 +9,102 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
+import logging
 from app.services import state
+from app.services.opra import build_opra
+
+logger = logging.getLogger("fortress.positions")
+
+
+def _get_positions_data() -> dict:
+    """Read positions with MySQL-first strategy.
+
+    Priority:
+      1. Query MySQL positions table — authoritative for core IBKR fields.
+         Enriched fields (greeks, strategy, notes) are merged from in-memory state.
+      2. Fall back to in-memory state entirely if MySQL is unavailable or empty.
+    """
+    state_data = state.get_active_positions()
+
+    try:
+        from app.services.db_v4 import SessionLocal
+        from app.services.models_v4 import Position as _DbPosition
+
+        with SessionLocal() as db:
+            db_rows = db.query(_DbPosition).all()
+
+        if not db_rows:
+            logger.debug("MySQL positions table empty — using in-memory state")
+            return state_data
+
+        # Build conid-keyed lookup for enriched fields from in-memory state
+        state_enrich: dict = {}
+        for p in state_data.get("positions", []):
+            cid = str(p.get("conid") or "")
+            if cid:
+                state_enrich[cid] = p
+
+        positions = []
+        for row in db_rows:
+            cid = str(row.conid)
+            enrich = state_enrich.get(cid, {})
+
+            # Expiry: convert date → "YYYY-MM-DD"
+            expiry_str = row.expiry.isoformat() if row.expiry else enrich.get("expiry")
+
+            # Multiplier: store as string (rest of codebase expects string)
+            mult_str = str(int(row.multiplier)) if row.multiplier else enrich.get("multiplier", "100")
+
+            # Conid: keep as int when possible for downstream compat
+            conid_val = int(row.conid) if row.conid and row.conid.isdigit() else row.conid
+
+            positions.append({
+                # Core fields — MySQL is authoritative
+                "ticker":             row.symbol,
+                "sec_type":           row.sec_type or "OPT",
+                "currency":           row.currency or "USD",
+                "qty":                float(row.position or 0),
+                "avg_cost":           float(row.avg_cost or 0) if row.avg_cost is not None else None,
+                "market_value":       float(row.market_value or 0) if row.market_value is not None else None,
+                "strike":             float(row.strike) if row.strike is not None else None,
+                "short_strike":       float(row.strike) if row.strike is not None else None,
+                "expiry":             expiry_str,
+                "right":              row.opt_right,
+                "multiplier":         mult_str,
+                "conid":              conid_val,
+                "local_symbol":       row.description or enrich.get("local_symbol"),
+                # Enriched fields — merged from in-memory state (absent in DB schema)
+                "long_strike":        enrich.get("long_strike"),
+                "leg_direction":      enrich.get("leg_direction"),
+                "current_delta":      enrich.get("current_delta"),
+                "current_delta_source": enrich.get("current_delta_source"),
+                "current_gamma":      enrich.get("current_gamma"),
+                "current_theta":      enrich.get("current_theta"),
+                "current_vega":       enrich.get("current_vega"),
+                "current_iv":         enrich.get("current_iv"),
+                "current_mark":       enrich.get("current_mark"),
+                "_ibkr_delta_raw":    enrich.get("_ibkr_delta_raw"),
+                "delta_state":        None,   # recomputed by enrichment loop
+                "alert_state":        enrich.get("alert_state", "ok"),
+                "strategy":           enrich.get("strategy"),
+                "notes":              enrich.get("notes", ""),
+                "dp_floor":           enrich.get("dp_floor"),
+                "net_liq_pct":        enrich.get("net_liq_pct"),
+                "opra_symbol":        enrich.get("opra_symbol"),
+                "_ibkr_synced":       True,
+                "_ibkr_sync_time":    enrich.get("_ibkr_sync_time"),
+            })
+
+        return {
+            **state_data,
+            "positions": positions,
+            "_mysql_source": True,
+        }
+
+    except Exception as exc:
+        logger.warning("MySQL positions read failed — falling back to in-memory state: %s", exc)
+        return state_data
+
 
 router = APIRouter()
 
@@ -88,14 +183,24 @@ def derive_alert_state(pos: dict) -> str:
 def get_positions():
     """Return positions with computed delta_state and alert_state for visual indicators."""
     try:
-        data = state.get_active_positions()
+        data = _get_positions_data()
     except state.StateError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
     enriched = []
     for pos in data.get("positions", []):
+        # Backfill opra_symbol for legacy records that pre-date v8.6
+        opra_sym = pos.get("opra_symbol")
+        if not opra_sym and (pos.get("sec_type") or "").upper() == "OPT":
+            opra_sym = build_opra(
+                pos.get("ticker", ""),
+                pos.get("expiry", ""),
+                pos.get("right", ""),
+                pos.get("strike"),
+            )
         enriched.append({
             **pos,
+            "opra_symbol": opra_sym,
             "delta_state": compute_delta_state(pos),
             "alert_state": derive_alert_state(pos),
         })
@@ -105,6 +210,7 @@ def get_positions():
         "ocr_last_sync": data.get("ocr_last_sync"),
         "positions": enriched,
         "concentration": state.compute_concentration(data),
+        "_data_source": "mysql" if data.get("_mysql_source") else "state",
         "totals": {
             "net_liq": data.get("net_liq"),
             "daily_pnl": data.get("daily_pnl"),

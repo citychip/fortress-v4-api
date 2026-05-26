@@ -13,6 +13,7 @@ Provides:
 """
 
 from __future__ import annotations
+from app.services.opra import build_opra  # Sprint v8.6
 
 import glob
 import json
@@ -96,7 +97,17 @@ DEFAULT_CALENDAR = {"_last_updated": None, "tickers": {}}
 
 
 def get_active_positions():
-    return read_json("active_positions.json", DEFAULT_POSITIONS)
+    data = read_json("active_positions.json", DEFAULT_POSITIONS)
+    # Sprint v8.6: backfill opra_symbol for legacy records
+    for pos in data.get("positions", []):
+        if not pos.get("opra_symbol") and (pos.get("sec_type") or "").upper() == "OPT":
+            pos["opra_symbol"] = build_opra(
+                pos.get("ticker", ""),
+                pos.get("expiry", ""),
+                pos.get("right", ""),
+                pos.get("strike"),
+            )
+    return data
 
 
 def get_alerts():

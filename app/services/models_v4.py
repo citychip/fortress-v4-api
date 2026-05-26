@@ -114,5 +114,20 @@ class Event(Base):
     old_value = Column(Text)
     new_value = Column(Text)
     user_id = Column(String(50))
-    metadata = Column(JSON)
+    event_metadata = Column('metadata', JSON)  # 'metadata' is reserved by SQLAlchemy Base
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
+
+class Greeks(Base):
+    __tablename__ = 'greeks'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    conid = Column(String(50), nullable=False)
+    symbol = Column(String(20), nullable=False)
+    account = Column(String(20))
+    delta = Column(DECIMAL(10, 4))
+    gamma = Column(DECIMAL(10, 4))
+    theta = Column(DECIMAL(10, 4))
+    vega = Column(DECIMAL(10, 4))
+    rho = Column(DECIMAL(10, 4))
+    pv_dividend = Column(DECIMAL(15, 2))
+    underlying_symbol = Column(String(20))
+    timestamp = Column(TIMESTAMP, server_default=func.current_timestamp(), onupdate=func.current_timestamp())

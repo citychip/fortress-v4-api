@@ -11,6 +11,7 @@ from typing import Any, Optional
 from app.services.ibkr_web import FIELD_TAGS, SNAPSHOT_FIELDS
 from app.services.ibkr_web.client import WebApiClient, GatewayUnreachable, WebApiError
 from app.services.ibkr_web import session as web_session
+from app.services.opra import build_opra
 from app.services.ibkr_web import portfolio as web_portfolio
 from app.services.ibkr_web import snapshot as web_snapshot
 
@@ -117,6 +118,15 @@ def _do_sync(client, account_id, existing_positions):
 
     spy_hedge_coverage = _compute_spy_hedge_coverage(positions_data, net_liq)
 
+    # Sprint v8.7: persist to MySQL (non-blocking — failures don't abort sync)
+    try:
+        from app.services.db_v4 import upsert_positions, upsert_greeks
+        n_pos = upsert_positions(positions_data, resolved_account)
+        n_gk = upsert_greeks(positions_data, resolved_account)
+        logger.info("MySQL write: %d positions, %d greeks rows", n_pos, n_gk)
+    except Exception as _mysql_err:
+        logger.warning("MySQL write step failed (sync still OK): %s", _mysql_err)
+
     now = datetime.now(timezone.utc).isoformat()
     return {
         **account_fields,
@@ -215,6 +225,7 @@ def _map_position(p, existing):
         "strategy": strategy,
         "notes": notes,
         "_ibkr_synced": True,
+        "opra_symbol": build_opra(ticker, expiry, right, strike) if sec_type == "OPT" else None,
         "_ibkr_sync_time": datetime.now(timezone.utc).isoformat(),
         "market_value": market_value,
     }
