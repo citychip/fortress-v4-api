@@ -17,10 +17,10 @@ The V4 documentation describes a fully re-architected system (dedicated engines,
 | Data layer | MySQL as primary store, JSON deprecated | `fortress_v4` DB exists (13 tables), all empty — routes still use JSON/config_store |
 | APScheduler | 8 scripts on fixed ET schedules | No APScheduler; only asyncio IBKR auto-sync runs; scripts triggered manually via run.py |
 | Engines | PositionEngine, MarketEngine, AlertEngine, ExecutionEngine | Not implemented; logic lives inline in routes |
-| Config backup | `/api/config/backup` + `/api/config/restore` | Not implemented (K-02 known issue) |
-| OPRA padding | 21-char symbol normalisation | Not fixed (K-01 known issue) |
-| Journal close_id | FK linking close→open entries | Not implemented (K-04 known issue) |
-| New portfolio endpoints | `/api/portfolio/beta`, `/api/portfolio/sector-exposure`, `/api/portfolio/capital-efficiency` | Not implemented |
+| Config backup | `/api/config/backup` + `/api/config/restore` | ✅ DONE — Sprint v8.4 |
+| OPRA padding | 21-char symbol normalisation | ✅ DONE — Sprint v8.6 |
+| Journal close_id | FK linking close→open entries | ✅ DONE — Sprint v8.8 |
+| New portfolio endpoints | `/api/portfolio/beta`, `/api/portfolio/sector-exposure`, `/api/portfolio/capital-efficiency` | ✅ DONE — Sprint v8.5 |
 | Port 8081 | Docs say permanently closed | V4 is running here — ignore this doc note, it referred to the old stale clone |
 
 ---
@@ -360,13 +360,13 @@ The V4 docs also specify these larger items. They are deferred — current V3/V4
 
 | Sprint | Feature | Est. Time | Phase Backlog IDs |
 |---|---|---|---|
-| Pre-coding | VPS infra updates (pymysql, env vars, APScheduler pkg) | 20 min | VPS-1 to VPS-5 |
-| **v8.3** | **APScheduler — 8 auto workflows** | **~2 hr** | P4-14 |
-| **v8.4** | **Config backup/restore + auto-backup on write** | **~1 hr** | P4-21, P4-22 (K-02) |
-| **v8.5** | **Portfolio endpoints (beta, sector, capital efficiency)** | **~1.5 hr** | P4-16, P4-17, P4-18 |
-| **v8.6** | **OPRA symbol padding** | **~1 hr** | P4-25 (K-01) |
-| **v8.7** | **MySQL data layer (positions write + read)** | **~3 hr** | P4-01, P4-05 to P4-09 |
-| **v8.8** | **Journal close linkage** | **~1 hr** | P4-07, P4-20 (K-04) |
+| Pre-coding | VPS infra updates (pymysql, env vars, APScheduler pkg) | ✅ DONE | VPS-1 to VPS-5 |
+| **v8.3** | **APScheduler — 8 auto workflows** | ✅ DONE | P4-14 |
+| **v8.4** | **Config backup/restore + auto-backup on write** | ✅ DONE | P4-21, P4-22 (K-02) |
+| **v8.5** | **Portfolio endpoints (beta, sector, capital efficiency)** | ✅ DONE | P4-16, P4-17, P4-18 |
+| **v8.6** | **OPRA symbol padding** | ✅ DONE | P4-25 (K-01) |
+| **v8.7** | **MySQL data layer (positions write + read)** | ✅ DONE | P4-01, P4-05 to P4-09 |
+| **v8.8** | **Journal close linkage** | ✅ DONE | P4-07, P4-20 (K-04) |
 | **v8.9** | **IBKR upload retry** | **~45 min** | P4-24 (K-03) |
 | **v8.10** | **Forward P&L panel on position cards** | **~1.5 hr** | todo.md Sprint v5.0 Gap 2 |
 | **v8.11** | **Regime label formatting** | **~30 min** | todo.md v3.5 open item |
@@ -389,4 +389,4 @@ V4 is promoted to primary (replacing port 3000) only after all sprints through v
 
 ---
 
-*Plan prepared: 2026-05-26 | Based on: V4 docs zip (06–09), GitHub docs/v4 (00–10), VPS audit*
+*Plan prepared: 2026-05-26 — Updated: 2026-05-26 | Based on: V4 docs zip (06–09), GitHub docs/v4 (00–10), VPS audit*

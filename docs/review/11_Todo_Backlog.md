@@ -51,3 +51,26 @@
 |---|---|---|
 | D-01 | Real-time WebSocket streaming for Greeks | IBKR Web API polling at 60s is sufficient for the strategy's time horizon. WebSocket adds complexity without meaningful benefit. |
 | D-02 | Mobile app | The dashboard is used at a desktop workstation. Responsive design improvements are sufficient. |
+
+---
+
+## Completed (V4 Sprints — May 26, 2026)
+
+| ID | Item | Resolved |
+|---|---|---|
+| ✅ V4-K01 | OPRA 21-char symbol padding — silent wrong-greeks on option lookups | Sprint v8.6 — `app/services/opra.py` normalises all symbols at sync + load time |
+| ✅ V4-K02 | Config backup/restore missing — any write could corrupt settings with no recovery | Sprint v8.4 — `POST /api/config/backup` + `POST /api/config/restore` + auto-backup on every write |
+| ✅ V4-K04 | Journal close linkage — no FK between close and open trade entries | Sprint v8.8 — `POST /api/journal/close/{id}` stamps `open_entry_id`, `iv_crush_realized`, `dte_at_close`; back-links open entry |
+| ✅ V4-P01 | Portfolio endpoints missing — no beta, sector-exposure, or capital-efficiency data | Sprint v8.5 — `GET /api/portfolio/beta`, `/sector-exposure`, `/capital-efficiency` |
+| ✅ V4-P02 | APScheduler not wired — 8 workflows ran manually only | Sprint v8.3 — BackgroundScheduler auto-runs briefing, IBKR sync, backup, reports |
+| ✅ V4-P03 | MySQL data layer not wired — `fortress_v4` DB existed but routes used JSON only | Sprint v8.7 — positions + greeks written on every IBKR sync; `GET /api/positions` reads MySQL first |
+| ✅ V4-P04 | Null guard missing on `current_iv` / `current_theta` in PositionsPage | Hotfix — `!= null` guard applied to both V3 and V4 frontends |
+| ✅ V4-CI | GitHub Actions CI/CD pipeline broken (SSH action CDN failure + GITHUB_TOKEN 403) | Fixed — inline SSH setup + `git pull` on VPS; all 4 repos now have working pipelines |
+
+## Active Backlog — V4 Remaining
+
+| ID | Priority | Item | Sprint |
+|---|---|---|---|
+| V4-K03 | Medium | IBKR upload retry — `POST /api/ibkr/upload/retry` Redis-backed retry for failed uploads | v8.9 |
+| V4-F01 | Medium | Forward P&L panel — wire `GET /api/options/forward-pnl` to PositionsPage accordion | v8.10 |
+| V4-F02 | Low | Regime label formatting — replace `SNAKE_CASE` with human-readable labels across 4 pages | v8.11 |

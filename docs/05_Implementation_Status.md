@@ -76,3 +76,46 @@
 | 2026-05-13 | Phase 8 | Trade Reports tab. UX improvements A-M. |
 | 2026-05-09 | v1.8.2 | Security section in Settings. `use_ibkr_web_api` / `use_quantdata` toggles. |
 | 2026-05-05 | v1.8 | MCP server (29 tools). Bearer token. CP Gateway primary. |
+
+---
+
+## V4 Dashboard (Port 8081) — Sprint Progress
+
+**Snapshot:** May 26, 2026 | **V4 Backend:** FastAPI + SQLAlchemy + MySQL | **V4 Frontend:** React + Vite
+
+### Completed Sprints
+
+| Sprint | Feature | Status | Key Files |
+|---|---|---|---|
+| Pre-coding | MySQL connector, env vars, APScheduler pkg in V4 venv | ✅ Done | `/etc/systemd/system/fortress-dashboard-v4.service` |
+| **v8.3** | APScheduler — 8 auto workflows (briefing, sync, backup, reports) | ✅ Done | `app/scheduler/runner.py`, `app/routes/scheduler.py` |
+| **v8.4** | Config backup/restore + auto-backup on every write (K-02) | ✅ Done | `app/routes/config_store.py` |
+| **v8.5** | Portfolio endpoints — beta, sector-exposure, capital-efficiency | ✅ Done | `app/routes/portfolio.py` |
+| **v8.6** | OPRA symbol padding — 21-char normalisation on all option legs (K-01) | ✅ Done | `app/services/opra.py`, `ibkr_sync_web.py`, `state.py` |
+| **v8.7** | MySQL data layer — positions + greeks write on sync; MySQL-first read | ✅ Done | `app/services/db_v4.py`, `app/services/models_v4.py`, `app/routes/positions.py` |
+| **v8.8** | Journal close linkage — `POST /api/journal/close/{id}` links close→open (K-04) | ✅ Done | `app/routes/journal.py` |
+
+### Remaining Sprints
+
+| Sprint | Feature | Est. |
+|---|---|---|
+| **v8.9** | IBKR upload retry — Redis-backed `POST /api/ibkr/upload/retry` (K-03) | ~45 min |
+| **v8.10** | Forward P&L panel — wire `GET /api/options/forward-pnl` to PositionsPage UI | ~1.5 hr |
+| **v8.11** | Regime label formatting — replace `SNAKE_CASE` with human-readable labels | ~30 min |
+
+### V4 Known Issues (current)
+
+| ID | Description | Status |
+|---|---|---|
+| K-01 | OPRA 21-char symbol padding | ✅ Fixed — Sprint v8.6 |
+| K-02 | Config backup/restore missing | ✅ Fixed — Sprint v8.4 |
+| K-03 | IBKR upload retry missing | ⏳ Sprint v8.9 |
+| K-04 | Journal close_id linkage | ✅ Fixed — Sprint v8.8 |
+
+### CI/CD
+
+| Component | Status |
+|---|---|
+| GitHub Actions — `fortress-v4-api` | ✅ Live — push to `main` auto-deploys via SSH + `git pull` + service restart |
+| GitHub Actions — `fortress-v4-frontend` | ⏳ Not yet wired |
+
