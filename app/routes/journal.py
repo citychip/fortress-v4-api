@@ -3,6 +3,7 @@ Journal endpoints — Phase 2 write capability.
 GET  /api/journal          — list all entries + 30d metrics (existing)
 POST /api/journal          — log a new trade entry
 DELETE /api/journal/{id}   — remove an entry (correction flow)
+POST /api/journal/close/{id} — link close→open entry (K-04, Sprint v8.8)
 """
 from __future__ import annotations
 
@@ -121,7 +122,11 @@ def create_journal_entry(body: JournalEntryCreate):
         all_tickers = set()
         for tier_tickers in universe_data.values():
             if isinstance(tier_tickers, list):
-                all_tickers.update(t.upper() for t in tier_tickers)
+                for t in tier_tickers:
+                    if isinstance(t, str):
+                        all_tickers.add(t.upper())
+                    elif isinstance(t, dict) and t.get("ticker"):
+                        all_tickers.add(t["ticker"].upper())
         ticker_upper = body.ticker.upper()
         is_outside = ticker_upper not in all_tickers
         if is_outside and not body.outside_universe and not body.outside_universe_justification:
@@ -241,3 +246,92 @@ def delete_journal_entry(entry_id: str):
         state.save_journal(data)
     except state.StateError as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Sprint v8.8 — Journal Close Linkage (K-04)
+# ---------------------------------------------------------------------------
+
+class JournalCloseLink(BaseModel):
+    open_entry_id: str = Field(..., description="ID of the OPEN journal entry this close trade is linked to")
+    iv_crush_realized: Optional[float] = Field(
+        None, description="IV crush realised at close (e.g. 0.42 means IV dropped 42 points)"
+    )
+    dte_at_close: Optional[int] = Field(
+        None, ge=0, description="Days-to-expiry of the option leg when the position was closed"
+    )
+
+
+@router.post("/journal/close/{close_entry_id}", status_code=200)
+def link_journal_close(close_entry_id: str, body: JournalCloseLink):
+    """
+    Link a closing journal entry to its opening entry (K-04 fix).
+
+    - Stamps the close entry with open_entry_id, iv_crush_realized, dte_at_close.
+    - Stamps the open entry with close_entry_id (back-link).
+    Both entries are written atomically to journal.json.
+    """
+    try:
+        data = state.get_journal()
+    except state.StateError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    entries = data.get("entries", [])
+
+    # Resolve both entries
+    close_idx, close_entry = _find_entry(entries, close_entry_id)
+
+    if body.open_entry_id == close_entry_id:
+        raise HTTPException(
+            status_code=422,
+            detail="open_entry_id and close_entry_id must be different entries."
+        )
+
+    open_idx, open_entry = _find_entry(entries, body.open_entry_id)
+
+    # Warn (but don't block) if action types look wrong
+    if close_entry.get("action") not in ("CLOSE", "TRIM", "ROLL"):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Entry '{close_entry_id}' has action '{close_entry.get('action')}'. "
+                "Expected CLOSE, TRIM, or ROLL for the closing entry."
+            )
+        )
+    if open_entry.get("action") not in ("OPEN", "ADD", "ROLL"):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Entry '{body.open_entry_id}' has action '{open_entry.get('action')}'. "
+                "Expected OPEN, ADD, or ROLL for the opening entry."
+            )
+        )
+
+    # Stamp the close entry
+    entries[close_idx] = {
+        **close_entry,
+        "open_entry_id": body.open_entry_id,
+        "iv_crush_realized": body.iv_crush_realized,
+        "dte_at_close": body.dte_at_close,
+        "_linked_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    # Back-link on the open entry
+    entries[open_idx] = {
+        **open_entry,
+        "close_entry_id": close_entry_id,
+    }
+
+    data["entries"] = entries
+    data["_last_updated"] = datetime.now(timezone.utc).isoformat()
+
+    try:
+        state.save_journal(data)
+    except state.StateError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return {
+        "status": "linked",
+        "close_entry": entries[close_idx],
+        "open_entry": entries[open_idx],
+    }
