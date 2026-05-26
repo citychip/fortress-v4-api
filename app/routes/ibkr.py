@@ -86,6 +86,15 @@ async def trigger_sync(backend: str | None = None):
             )
 
         synced["greeks_backend_used"] = chosen
+        # --- Sprint v8.9: record sync attempt in Redis for retry ---
+        import time as _t
+        _store_sync_result({
+            "status": "ok",
+            "backend": chosen,
+            "synced_at": synced.get("ibkr_last_sync") or synced.get("_last_updated"),
+            "is_retry": False,
+            "recorded_at": _t.strftime("%Y-%m-%dT%H:%M:%SZ", _t.gmtime()),
+        })
         positions = synced.pop("positions", [])
         
         # --- Enrich with beta data (IBKR primary, yFinance fallback) ---
@@ -132,6 +141,15 @@ async def trigger_sync(backend: str | None = None):
     except Exception as e:
         err_str = str(e)
         logger.error("IBKR sync failed: %s", e, exc_info=True)
+        # --- Sprint v8.9: record failure in Redis for retry ---
+        import time as _t2
+        _store_sync_result({
+            "status": "error",
+            "error": err_str[:500],
+            "backend": chosen if 'chosen' in dir() else None,
+            "is_retry": False,
+            "recorded_at": _t2.strftime("%Y-%m-%dT%H:%M:%SZ", _t2.gmtime()),
+        })
         # Detect IBKR Web API session expiry and return a structured 401 with re-auth hint
         if "auth_failed" in err_str or "401" in err_str or "403" in err_str:
             raise HTTPException(
@@ -252,6 +270,164 @@ async def preview_sync():
                     "error": "session_expired",
                     "message": err_str,
                     "hint": "IBKR session expired. Re-authenticate in CP Gateway.",
+                },
+            )
+        raise HTTPException(status_code=500, detail=err_str)
+
+
+# ---------------------------------------------------------------------------
+# Sprint v8.9 — IBKR Upload Retry (K-03)
+# ---------------------------------------------------------------------------
+
+import json as _json
+import os as _os
+import time as _time
+
+_REDIS_URL = _os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+_REDIS_KEY = "fortress:ibkr:last_sync_attempt"
+_REDIS_TTL = 86400  # 24 hours
+
+
+def _get_redis():
+    import redis as _redis
+    return _redis.Redis.from_url(_REDIS_URL, decode_responses=True)
+
+
+def _store_sync_result(result: dict):
+    """Persist last sync attempt to Redis (best-effort; never raises)."""
+    try:
+        r = _get_redis()
+        r.set(_REDIS_KEY, _json.dumps(result), ex=_REDIS_TTL)
+    except Exception as _e:
+        logger.warning("Redis store failed (non-fatal): %s", _e)
+
+
+def _load_sync_result() -> dict | None:
+    """Read last sync attempt from Redis. Returns None if missing or Redis down."""
+    try:
+        r = _get_redis()
+        raw = r.get(_REDIS_KEY)
+        return _json.loads(raw) if raw else None
+    except Exception as _e:
+        logger.warning("Redis read failed: %s", _e)
+        return None
+
+
+@router.get("/ibkr/last-sync")
+async def get_last_sync():
+    """Return metadata about the most recent sync attempt (from Redis)."""
+    record = _load_sync_result()
+    if not record:
+        return {"status": "no_record", "message": "No sync attempt recorded yet."}
+    return record
+
+
+@router.post("/ibkr/upload/retry")
+async def retry_last_upload():
+    """
+    Re-trigger the last IBKR sync attempt (K-03 fix).
+
+    Reads the last sync context from Redis (backend, settings snapshot) and
+    re-runs the same sync pipeline. Returns the new result alongside the
+    previous attempt's outcome so the caller can compare.
+
+    If no prior attempt is found, falls back to a fresh sync using current settings.
+    """
+    prior = _load_sync_result()
+    prior_status = prior.get("status") if prior else None
+    prior_backend = prior.get("backend") if prior else None
+
+    logger.info(
+        "Retry requested — prior attempt: status=%s backend=%s",
+        prior_status, prior_backend
+    )
+
+    # Re-use the same backend as the last attempt when known; otherwise auto-resolve
+    retry_backend = prior_backend if prior_backend in ("web_api", "bs_yfinance") else None
+
+    from app.services.ibkr_web import capability as cap_mod
+
+    try:
+        existing_data = state.get_active_positions()
+        existing_positions = (
+            existing_data.get("positions", []) if isinstance(existing_data, dict) else []
+        )
+        settings = state.get_dashboard_settings()
+        ibkr_enabled = config_store.cfg("security.use_ibkr_web_api", True)
+
+        if not ibkr_enabled:
+            chosen = "bs_yfinance"
+        elif retry_backend:
+            chosen = retry_backend
+        else:
+            cap = cap_mod.get_capability()
+            chosen = state.resolve_greeks_backend(settings, cap)
+
+        started_at = _time.time()
+
+        if chosen == "web_api":
+            from app.services import ibkr_sync_web
+            synced = await asyncio.get_event_loop().run_in_executor(
+                None, ibkr_sync_web.sync_via_web_api, existing_positions, settings
+            )
+        else:
+            from app.services import ibkr_sync_synthetic
+            synced = await asyncio.get_event_loop().run_in_executor(
+                None, ibkr_sync_synthetic.sync_synthetic, existing_positions, settings
+            )
+
+        positions = synced.pop("positions", [])
+        synced["greeks_backend_used"] = chosen
+        new_data = {**synced, "positions": positions}
+        state.save_positions(new_data)
+        cap_mod.invalidate()
+
+        elapsed = round(_time.time() - started_at, 2)
+
+        result_record = {
+            "status": "ok",
+            "backend": chosen,
+            "positions_count": len(positions),
+            "synced_at": synced.get("ibkr_last_sync") or synced.get("_last_updated"),
+            "elapsed_s": elapsed,
+            "is_retry": True,
+            "recorded_at": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()),
+        }
+        _store_sync_result(result_record)
+
+        return {
+            **result_record,
+            "prior_attempt": {
+                "status": prior_status,
+                "backend": prior_backend,
+                "recorded_at": prior.get("recorded_at") if prior else None,
+                "error": prior.get("error") if prior else None,
+            },
+        }
+
+    except Exception as e:
+        err_str = str(e)
+        logger.error("IBKR retry sync failed: %s", e, exc_info=True)
+
+        fail_record = {
+            "status": "error",
+            "error": err_str,
+            "backend": retry_backend,
+            "is_retry": True,
+            "recorded_at": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()),
+        }
+        _store_sync_result(fail_record)
+
+        if "auth_failed" in err_str or "401" in err_str or "403" in err_str:
+            raise HTTPException(
+                status_code=401,
+                detail={
+                    "error": "session_expired",
+                    "message": err_str,
+                    "hint": "IBKR session expired. Re-authenticate in CP Gateway then retry.",
+                    "reauth_url": config_store.cfg(
+                        "security.cp_gateway_url", "https://localhost:5000"
+                    ),
                 },
             )
         raise HTTPException(status_code=500, detail=err_str)
