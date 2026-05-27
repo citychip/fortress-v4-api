@@ -42,6 +42,7 @@ from app.routes import (
     universe,
     uploads,
     trpc,
+    qd,
     scheduler as scheduler_route,
     portfolio as portfolio_route,
 )
@@ -124,6 +125,7 @@ app.include_router(settings.router, prefix="/api")
 app.include_router(market_intelligence.router, prefix="/api")
 app.include_router(options.router, prefix="/api")
 app.include_router(orders.router, prefix="/api")
+app.include_router(qd.router, prefix="/api")
 app.include_router(pnl.router, prefix="/api")
 app.include_router(stream.router, prefix="/api")
 app.include_router(trpc.router, prefix="/api")
