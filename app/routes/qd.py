@@ -13,9 +13,8 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
-import httpx
 import requests
 from fastapi import APIRouter, HTTPException, Query
 
@@ -119,7 +118,7 @@ def _get_tool_id(key: str) -> str:
     )
 
 
-def _qd_get(tool_key: str, ticker: str, session_date: str | None, extra_params: dict | None = None) -> Any:
+def _qd_get(tool_key: str, ticker: str, session_date: Optional[str], extra_params: Optional[dict] = None) -> Any:
     """Call QD API for a given tool key and ticker."""
     token, inst = _get_auth()
     tool_id = _get_tool_id(tool_key)
@@ -170,7 +169,7 @@ def _today() -> str:
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @router.get("/qd/iv-rank/{ticker}")
-def qd_iv_rank(ticker: str, session_date: str | None = Query(default=None)):
+def qd_iv_rank(ticker: str, session_date: Optional[str] = Query(default=None)):
     data = _qd_get("iv_rank", ticker, session_date)
     return {
         "ticker": ticker.upper(),
@@ -186,7 +185,7 @@ def qd_iv_rank(ticker: str, session_date: str | None = Query(default=None)):
 
 
 @router.get("/qd/net-drift/{ticker}")
-def qd_net_drift(ticker: str, session_date: str | None = Query(default=None)):
+def qd_net_drift(ticker: str, session_date: Optional[str] = Query(default=None)):
     data = _qd_get("net_drift", ticker, session_date)
     call_p = _extract(data, ["callPremium", "call_premium"], 0)
     put_p  = _extract(data, ["putPremium",  "put_premium"],  0)
@@ -205,7 +204,7 @@ def qd_net_drift(ticker: str, session_date: str | None = Query(default=None)):
 
 
 @router.get("/qd/max-pain/{ticker}")
-def qd_max_pain(ticker: str, session_date: str | None = Query(default=None)):
+def qd_max_pain(ticker: str, session_date: Optional[str] = Query(default=None)):
     data = _qd_get("max_pain", ticker, session_date)
     return {
         "ticker":          ticker.upper(),
@@ -221,8 +220,8 @@ def qd_max_pain(ticker: str, session_date: str | None = Query(default=None)):
 @router.get("/qd/order-flow/{ticker}")
 def qd_order_flow(
     ticker: str,
-    session_date: str | None = Query(default=None),
-    min_premium:  float | None = Query(default=None),
+    session_date: Optional[str] = Query(default=None),
+    min_premium:  Optional[float] = Query(default=None),
     side:         str   | None = Query(default=None),
     limit:        int          = Query(default=50),
 ):
@@ -242,7 +241,7 @@ def qd_order_flow(
 
 
 @router.get("/qd/dark-pool/{ticker}")
-def qd_dark_pool(ticker: str, session_date: str | None = Query(default=None)):
+def qd_dark_pool(ticker: str, session_date: Optional[str] = Query(default=None)):
     data = _qd_get("dark_pool", ticker, session_date)
     levels = _extract(data, ["levels", "dpLevels", "dp_levels", "data", "rows"], [])
     return {
@@ -253,7 +252,7 @@ def qd_dark_pool(ticker: str, session_date: str | None = Query(default=None)):
 
 
 @router.get("/qd/oi-change/{ticker}")
-def qd_oi_change(ticker: str, session_date: str | None = Query(default=None)):
+def qd_oi_change(ticker: str, session_date: Optional[str] = Query(default=None)):
     data = _qd_get("oi_change", ticker, session_date)
     return {
         "ticker":              ticker.upper(),
