@@ -281,3 +281,30 @@ def _extract(data: Any, keys: list[str], default: Any = None) -> Any:
                     if k in data[wrapper]:
                         return data[wrapper][k]
     return default
+
+
+@router.get("/qd/tools")
+def qd_tools_diagnostic():
+    """Diagnostic: list all tool names and IDs found in the QD config."""
+    cfg = _load_config()
+    tools: list[dict] = cfg.get("tools", [])
+    available = []
+    for t in tools:
+        name = (t.get("toolName") or t.get("name") or t.get("tool_name") or "").upper()
+        tid  = (t.get("toolId")   or t.get("id")   or t.get("tool_id")   or "")
+        if name:
+            available.append({"name": name, "id": tid or "(no id)"})
+    # Also show which of our proxy keys resolved
+    resolved = {}
+    for key, slugs in _TOOL_NAMES.items():
+        try:
+            tid = _get_tool_id(key)
+            resolved[key] = {"status": "ok", "tool_id": tid}
+        except HTTPException as e:
+            resolved[key] = {"status": "missing", "detail": e.detail}
+    return {
+        "config_paths_checked": [str(p) for p in _CONFIG_PATHS],
+        "config_tool_count": len(available),
+        "all_tools_in_config": available,
+        "proxy_key_resolution": resolved,
+    }
