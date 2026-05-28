@@ -1,6 +1,7 @@
 """
 P&L analytics endpoint.
 GET /api/pnl?period=daily|weekly|monthly
+GET /api/pnl/history?days=90   — daily equity-curve snapshots from MySQL
 """
 from __future__ import annotations
 
@@ -111,4 +112,84 @@ def get_pnl(period: str = Query("daily", pattern="^(daily|weekly|monthly)$")):
         "best_day": best_day,
         "worst_day": worst_day,
         "last_updated": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.get("/pnl/history")
+def get_pnl_history(days: int = Query(default=90, ge=1, le=365)):
+    """
+    Daily equity-curve snapshots for the last N calendar days.
+
+    Reads from MySQL `pnl_snapshots` table (written nightly by the APScheduler
+    EOD workflow). Falls back to a single synthetic row from current account
+    state when the table is empty or unavailable.
+
+    Response:
+        rows  — list of {date, net_liquidation, unrealized_pnl, realized_pnl,
+                         buying_power, account}
+        count — number of rows returned
+        source — "mysql" | "state_fallback"
+        as_of  — UTC timestamp
+    """
+    cutoff_date = (datetime.now(timezone.utc) - timedelta(days=days)).date()
+    rows: list[dict] = []
+    source = "mysql"
+
+    # ── Try MySQL pnl_snapshots table ─────────────────────────────────────
+    try:
+        from app.services.db_v4 import engine
+        from sqlalchemy import text
+
+        with engine.connect() as conn:
+            result = conn.execute(
+                text(
+                    """
+                    SELECT snapshot_date, net_liquidation, unrealized_pnl,
+                           realized_pnl, buying_power, account_id
+                    FROM pnl_snapshots
+                    WHERE snapshot_date >= :cutoff
+                    ORDER BY snapshot_date ASC
+                    """
+                ),
+                {"cutoff": cutoff_date.isoformat()},
+            )
+            for r in result.mappings():
+                rows.append(
+                    {
+                        "date": str(r["snapshot_date"]),
+                        "net_liquidation": float(r["net_liquidation"]) if r["net_liquidation"] is not None else None,
+                        "unrealized_pnl": float(r["unrealized_pnl"]) if r["unrealized_pnl"] is not None else None,
+                        "realized_pnl": float(r["realized_pnl"]) if r["realized_pnl"] is not None else None,
+                        "buying_power": float(r["buying_power"]) if r["buying_power"] is not None else None,
+                        "account": str(r["account_id"]),
+                    }
+                )
+    except Exception:
+        source = "state_fallback"
+
+    # ── Fallback: synthesize one row from current account state ───────────
+    if not rows:
+        source = "state_fallback"
+        account_data = state.get_active_positions()
+        account_fields = account_data.get("account_fields", {})
+        net_liq = account_fields.get("net_liq")
+        buying_power = account_fields.get("buying_power")
+        account_id = account_data.get("account_id", "")
+        if net_liq:
+            rows.append(
+                {
+                    "date": datetime.now(timezone.utc).date().isoformat(),
+                    "net_liquidation": round(float(net_liq), 2),
+                    "unrealized_pnl": None,
+                    "realized_pnl": None,
+                    "buying_power": round(float(buying_power), 2) if buying_power else None,
+                    "account": account_id,
+                }
+            )
+
+    return {
+        "rows": rows,
+        "count": len(rows),
+        "source": source,
+        "as_of": datetime.now(timezone.utc).isoformat(),
     }
