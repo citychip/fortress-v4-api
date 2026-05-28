@@ -12,6 +12,7 @@ import logging
 import time
 from collections import defaultdict
 from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import APIRouter
 
@@ -307,4 +308,109 @@ def capital_efficiency():
         "above_threshold":          portfolio_eff >= threshold,
         "by_position":              by_position,
         "as_of":                    datetime.now(timezone.utc).isoformat(),
+    }
+
+
+# ---------------------------------------------------------------------------
+# /api/portfolio/pcs-exposure
+# ---------------------------------------------------------------------------
+
+@router.get("/portfolio/pcs-exposure")
+def pcs_exposure():
+    """
+    Put-credit-spread (PCS) book exposure summary.
+
+    Identifies PCS spreads: positions where strategy == "PCS", or where
+    we find short-put positions (qty < 0, right == P, sec_type == OPT).
+
+    Response:
+        pcs_count       — number of active PCS short-put legs
+        count_cap       — max spreads cap from strategy settings (default 5)
+        total_notional  — sum of short_strike * contracts (max notional proxy)
+        notional_cap    — max notional cap from strategy settings (default $25,000)
+        count_breach    — true if pcs_count > count_cap
+        notional_breach — true if total_notional > notional_cap
+        count_warning   — true if pcs_count >= count_cap
+        notional_warning — true if total_notional >= notional_cap * 0.8
+        spreads         — per-spread detail
+        as_of
+    """
+    data = state.get_active_positions()
+    positions = data.get("positions", []) or []
+
+    count_cap = int(config_store.cfg("strategy.max_pcs_spreads", 5))
+    notional_cap = float(config_store.cfg("strategy.pcs_notional_cap", 25000.0))
+
+    # Identify PCS short-put legs: strategy==PCS flag OR short OPT put position
+    pcs_legs = [
+        p for p in positions
+        if (p.get("strategy") or "").upper() == "PCS"
+        or (
+            (p.get("sec_type") or "").upper() == "OPT"
+            and (p.get("right") or p.get("opt_right") or "").upper() == "P"
+            and (
+                p.get("leg_direction") == "short"
+                or (p.get("leg_direction") is None and (p.get("qty") or 0) < 0)
+            )
+        )
+    ]
+
+    spreads = []
+    total_notional = 0.0
+
+    for p in pcs_legs:
+        ticker = (p.get("ticker") or "").upper()
+        expiry_str = p.get("expiry") or ""
+        short_strike = float(p.get("strike") or 0)
+        try:
+            mult = int(p.get("multiplier") or 100)
+        except (TypeError, ValueError):
+            mult = 100
+        contracts = abs(float(p.get("qty") or 0))
+
+        # Find matching long put at a lower strike (same ticker/expiry)
+        long_strike: Optional[float] = None
+        for other in positions:
+            if (other.get("ticker") or "").upper() != ticker:
+                continue
+            if (other.get("expiry") or "") != expiry_str:
+                continue
+            if (other.get("sec_type") or "").upper() != "OPT":
+                continue
+            if (other.get("right") or other.get("opt_right") or "").upper() != "P":
+                continue
+            other_qty = other.get("qty") or 0
+            other_dir = other.get("leg_direction") or ("long" if other_qty > 0 else "short")
+            if other_dir == "long":
+                ls = float(other.get("strike") or 0)
+                if ls < short_strike:
+                    long_strike = ls
+                    break
+
+        notional = round(short_strike * contracts * mult, 2)
+        total_notional += notional
+
+        spreads.append({
+            "ticker": ticker,
+            "expiry": expiry_str,
+            "short_strike": short_strike,
+            "long_strike": long_strike,
+            "contracts": contracts,
+            "notional": notional,
+        })
+
+    pcs_count = len(spreads)
+    total_notional = round(total_notional, 2)
+
+    return {
+        "pcs_count": pcs_count,
+        "count_cap": count_cap,
+        "total_notional": total_notional,
+        "notional_cap": notional_cap,
+        "count_breach": pcs_count > count_cap,
+        "notional_breach": total_notional > notional_cap,
+        "count_warning": pcs_count >= count_cap,
+        "notional_warning": total_notional >= notional_cap * 0.8,
+        "spreads": spreads,
+        "as_of": datetime.now(timezone.utc).isoformat(),
     }
