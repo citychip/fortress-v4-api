@@ -2,10 +2,10 @@ name: Deploy to VPS
 
 # Requires GitHub repository secrets:
 #   VPS_HOST      — IP address of your VPS
-#   VPS_USER      — SSH user (e.g. root)
+#   VPS_USER      — SSH user (root)
 #   VPS_SSH_KEY   — Private SSH key (OpenSSH format, no passphrase)
-#   VPS_APP_PATH  — Absolute path to app on VPS (e.g. /home/ubuntu/Fortress_Dashboard_v4)
-#   SERVICE_NAME  — systemd service name (e.g. fortress-dashboard-v4)
+#   VPS_APP_PATH  — Absolute path to app on VPS (/home/ubuntu/Fortress_Dashboard_v4)
+#   SERVICE_NAME  — systemd service name (fortress-dashboard-v4)
 
 on:
   push:
@@ -29,15 +29,36 @@ jobs:
       # ── 2. Pull latest code on VPS ───────────────────────────────────────────
       - name: Pull latest code
         run: |
-          ssh -i ~/.ssh/id_deploy "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}"             "cd ${{ secrets.VPS_APP_PATH }} &&               git fetch origin main &&               git reset --hard origin/main &&               echo 'Pull complete: '$(git log -1 --oneline)"
+          ssh -i ~/.ssh/id_deploy \
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=10 \
+            "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
+            "cd ${{ secrets.VPS_APP_PATH }} && \
+              git fetch origin main && \
+              git reset --hard origin/main && \
+              echo 'Pull complete: '$(git log -1 --oneline)"
 
       # ── 3. Restart service ───────────────────────────────────────────────────
       - name: Restart service
         run: |
-          ssh -i ~/.ssh/id_deploy "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}"             "systemctl restart ${{ secrets.SERVICE_NAME }} &&               sleep 4 &&               systemctl is-active --quiet ${{ secrets.SERVICE_NAME }} &&               echo 'Service is running' ||               (journalctl -u ${{ secrets.SERVICE_NAME }} --no-pager -n 30; exit 1)"
+          ssh -i ~/.ssh/id_deploy \
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=10 \
+            "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
+            "systemctl restart ${{ secrets.SERVICE_NAME }} && \
+              sleep 4 && \
+              systemctl is-active --quiet ${{ secrets.SERVICE_NAME }} && \
+              echo 'Service is running' || \
+              (journalctl -u ${{ secrets.SERVICE_NAME }} --no-pager -n 30; exit 1)"
 
       # ── 4. Health check ──────────────────────────────────────────────────────
+      # V4 service runs on port 8081 (proxied to 443 via nginx)
       - name: Health check
         run: |
           sleep 5
-          ssh -i ~/.ssh/id_deploy "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}"             "curl -sf http://localhost:8080/api/health | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d); sys.exit(0 if d.get(\"status\") == \"ok\" else 1)'"
+          ssh -i ~/.ssh/id_deploy \
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=10 \
+            "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
+            "curl -sf http://localhost:8081/api/health | \
+              python3 -c 'import sys,json; d=json.load(sys.stdin); print(d); sys.exit(0 if d.get(\"status\") == \"ok\" else 1)'"
