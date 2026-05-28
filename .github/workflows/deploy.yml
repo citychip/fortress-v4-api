@@ -1,16 +1,17 @@
 name: Deploy to VPS
 
 # Requires GitHub repository secrets:
-#   VPS_HOST      — IP address of your VPS
-#   VPS_USER      — SSH user (root)
+#   VPS_HOST      — IP address of your VPS (76.13.138.194)
+#   VPS_USER      — SSH user (root — NOT ubuntu)
 #   VPS_SSH_KEY   — Private SSH key (OpenSSH format, no passphrase)
-#   VPS_APP_PATH  — Absolute path to app on VPS (/home/ubuntu/Fortress_Dashboard_v4)
-#   SERVICE_NAME  — systemd service name (fortress-dashboard-v4)
+#   VPS_APP_PATH  — /home/ubuntu/fortress-v4-api
+#   SERVICE_NAME  — fortress-dashboard-v4
 
 on:
   push:
     branches:
       - main
+  workflow_dispatch:  # allow manual trigger from GitHub Actions UI
 
 jobs:
   deploy:
