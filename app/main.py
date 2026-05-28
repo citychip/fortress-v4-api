@@ -45,6 +45,7 @@ from app.routes import (
     qd,
     scheduler as scheduler_route,
     portfolio as portfolio_route,
+    market,
 )
 from app.scheduler import runner as scheduler_runner
 
@@ -131,6 +132,7 @@ app.include_router(stream.router, prefix="/api")
 app.include_router(trpc.router, prefix="/api")
 app.include_router(scheduler_route.router, prefix="/api")
 app.include_router(portfolio_route.router, prefix="/api")
+app.include_router(market.router, prefix="/api")
 
 
 
