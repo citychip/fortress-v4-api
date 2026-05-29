@@ -203,8 +203,7 @@ def main(ticker: str):
             print("🚫 " * 20)
             
             # Log hard reject
-            log_dir = pathlib.Path.home() / "quantdata_reports"
-            log_dir.mkdir(exist_ok=True)
+            log_dir = pathlib.Path(__file__).parent
             with open(log_dir / f"hard_rejects_{today_str}.log", "a") as f:
                 f.write(f"[{datetime.now(ET).isoformat()}] REJECT: {ticker} | Reason: Concentration {conc_pct:.1f}% >= {CONCENTRATION_LIMIT_PCT}%\n")
             return

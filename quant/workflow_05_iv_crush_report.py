@@ -21,29 +21,45 @@ from datetime import datetime, timezone, timedelta
 
 import numpy as np
 import yfinance as yf
-from curl_cffi import requests
 from tabulate import tabulate
 
-CONFIG_PATH = pathlib.Path.home() / ".quantdata-mcp" / "config.json"
-config = json.loads(CONFIG_PATH.read_text())
-TOKEN = config["auth_token"]
-COOKIE = config["cookie"]
-PAGE_ID = config["page_id"]
-TOOLS = config["tools"]
-BASE_URL = "https://core-lb-prod.quantdata.us/api"
-USER_ID = "a7da66dc-7c6e-4e72-bc1e-555e686adc72"
 ET = timezone(timedelta(hours=-4))
 
-HEADERS = {
-    "accept": "application/json",
-    "authorization": TOKEN,
-    "cookie": COOKIE,
-    "origin": "https://v3.quantdata.us",
-    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    "content-type": "application/json",
-}
-session = requests.Session(impersonate="chrome110")
-session.headers.update(HEADERS)
+def get_atm_iv(ticker_symbol: str) -> float:
+    """
+    Compute current ATM implied volatility from yfinance options chain.
+    Returns IV as a percentage (e.g. 28.4 for 28.4%). Returns 0.0 on failure.
+    """
+    try:
+        t = yf.Ticker(ticker_symbol)
+        price = t.fast_info.get("lastPrice") or t.fast_info.get("previousClose", 0)
+        if not price:
+            return 0.0
+        expirations = t.options
+        if not expirations:
+            return 0.0
+        # Use nearest expiry with at least 7 days out
+        from datetime import datetime
+        today = datetime.now().date()
+        target = None
+        for exp in expirations:
+            exp_date = datetime.strptime(exp, "%Y-%m-%d").date()
+            if (exp_date - today).days >= 7:
+                target = exp
+                break
+        if not target:
+            target = expirations[0]
+        chain = t.option_chain(target)
+        calls = chain.calls[["strike", "impliedVolatility"]].dropna()
+        puts = chain.puts[["strike", "impliedVolatility"]].dropna()
+        # Get ATM options (closest strike to current price)
+        atm_call = calls.iloc[(calls["strike"] - price).abs().argsort()[:1]]
+        atm_put = puts.iloc[(puts["strike"] - price).abs().argsort()[:1]]
+        call_iv = float(atm_call["impliedVolatility"].values[0]) * 100
+        put_iv = float(atm_put["impliedVolatility"].values[0]) * 100
+        return round((call_iv + put_iv) / 2, 2)
+    except Exception:
+        return 0.0
 
 TICKER_UNIVERSE_FILE = pathlib.Path.home() / "ticker_universe.json"
 EARNINGS_FILE = pathlib.Path.home() / "earnings_blocklist.json"
@@ -138,41 +154,36 @@ def compute_hv(ticker_symbol: str, window: int = 20) -> float:
         return 0.0
 
 
-def get_iv_rank(ticker: str, today: str) -> dict:
-    """Fetch IV Rank data from QuantData for a given ticker."""
-    meta = {
-        "filter": {
-            "contractType": {"filterOperationType": "EQUALS", "value": []},
-            "ticker": {"filterOperationType": "EQUALS", "value": ticker},
-        },
-        "lookBackPeriod": 365, "maturity": 30, "type": "OPTIONS_IV_RANK_CHART",
-    }
-    update_tool("iv_rank", meta)
-    time.sleep(0.5)
-    data = fetch("options/iv-rank", "iv_rank")
-    if not data:
+def get_iv_rank(ticker: str, today: str, _unused: dict = None) -> dict:
+    """
+    Compute IV and IVR from yfinance options chain + 52-week HV window.
+    IVR = (current_iv - min_iv_52w) / (max_iv_52w - min_iv_52w) * 100
+    Uses rolling 20-day HV as a proxy for IV at each weekly point.
+    """
+    try:
+        yf_symbol = "^GSPC" if ticker == "SPX" else ticker
+        t = yf.Ticker(yf_symbol)
+        price = t.fast_info.get("lastPrice") or t.fast_info.get("previousClose", 0)
+        current_iv = get_atm_iv(ticker)
+        if not current_iv:
+            return {}
+        # 52-week rolling HV range as IV proxy for IVR calculation
+        hist = t.history(period="1y", auto_adjust=True)["Close"].values
+        if len(hist) < 22:
+            return {}
+        weekly_ivs = []
+        for i in range(20, len(hist)):
+            chunk = hist[i-20:i]
+            log_rets = [math.log(chunk[j] / chunk[j-1]) for j in range(1, len(chunk))]
+            hv = math.sqrt(252) * float(np.std(log_rets)) * 100
+            weekly_ivs.append(hv)
+        iv_min = min(weekly_ivs)
+        iv_max = max(weekly_ivs)
+        ivr = round((current_iv - iv_min) / (iv_max - iv_min) * 100, 1) if iv_max > iv_min else 0.0
+        ivr = max(0.0, min(100.0, ivr))
+        return {"price": price, "ivr": ivr, "current_iv": current_iv}
+    except Exception:
         return {}
-
-    price = data.get("stockPriceInCents", 0) / 100
-    ivr_map = data.get("sessionDateToIVRankData", {})
-    today_data = ivr_map.get(today, {})
-    ct_data = today_data.get("contractTypeToIVData", {})
-    call_iv = ct_data.get("CALL", {})
-    put_iv = ct_data.get("PUT", {})
-
-    def calc_ivr(iv_dict):
-        last = iv_dict.get("lastIV", 0)
-        lo = iv_dict.get("windowMinIV", 0)
-        hi = iv_dict.get("windowMaxIV", 1)
-        return round((last - lo) / (hi - lo) * 100, 1) if hi > lo else 0.0
-
-    call_ivr = calc_ivr(call_iv)
-    put_ivr = calc_ivr(put_iv)
-    avg_ivr = round((call_ivr + put_ivr) / 2, 1) if (call_ivr or put_ivr) else 0.0
-    # lastIV is already in percentage form (e.g. 43.7 means 43.7%)
-    current_iv = round((call_iv.get("lastIV", 0) + put_iv.get("lastIV", 0)) / 2, 2)
-
-    return {"price": price, "ivr": avg_ivr, "current_iv": current_iv}
 
 
 def classify_signal(ivr: float, current_iv: float, hv20: float, edays: str, conc: str) -> tuple[str, float]:
@@ -221,7 +232,7 @@ def main():
         hv20 = compute_hv(ticker, window=20)
         hv30 = compute_hv(ticker, window=30)
 
-        # Step 2: Get current IV and IVR from QuantData
+        # Step 2: Get current IV and IVR from yfinance options chain
         iv_data = get_iv_rank(ticker, today_str)
         if not iv_data:
             continue

@@ -28,14 +28,14 @@ _QD_BASE = "https://core-lb-prod.quantdata.us/api"
 
 # ── Tool name → QD slug mapping ───────────────────────────────────────────────
 _TOOL_NAMES: Dict[str, List[str]] = {
-    "iv_rank":    ["INTRADAY_IV_RANK", "IV_RANK"],
-    "net_drift":  ["OPTIONS_NET_DRIFT_TABLE", "NET_DRIFT", "OPTIONS_NET_DRIFT"],
-    "max_pain":   ["OPTIONS_MAX_PAIN", "MAX_PAIN", "OPTIONS_MAX_PAIN_TABLE"],
-    "order_flow": ["OPTIONS_ORDER_FLOW_CONSOLIDATED_TABLE",
+    "iv_rank":    ["iv-rank", "INTRADAY_IV_RANK", "IV_RANK"],
+    "net_drift":  ["net-drift", "OPTIONS_NET_DRIFT_TABLE", "NET_DRIFT"],
+    "max_pain":   ["max-pain", "OPTIONS_MAX_PAIN", "MAX_PAIN"],
+    "order_flow": ["order-flow", "OPTIONS_ORDER_FLOW_CONSOLIDATED_TABLE",
                    "OPTIONS_ORDER_FLOW_CONSOLIDATED", "OPTIONS_ORDER_FLOW"],
-    "dark_pool":  ["DARK_POOL_LEVELS_TABLE", "DARK_POOL_LEVELS", "DARK_POOL"],
-    "oi_change":  ["OPTIONS_OPEN_INTEREST_CHANGE_TABLE",
-                   "OPTIONS_OPEN_INTEREST_CHANGE", "OPTIONS_OI_CHANGE"],
+    "dark_pool":  ["dark-pool-levels", "DARK_POOL_LEVELS_TABLE", "DARK_POOL_LEVELS"],
+    "oi_change":  ["oi-change", "OPTIONS_OPEN_INTEREST_CHANGE_TABLE",
+                   "OPTIONS_OPEN_INTEREST_CHANGE"],
 }
 
 # ── Config cache (TTL = 60s) ──────────────────────────────────────────────────
@@ -76,19 +76,39 @@ def _get_auth() -> tuple:
 
 
 def _get_tool_id(key: str) -> str:
-    """Look up tool ID for key. Searches config tools list by name."""
+    """Look up tool ID for key. Handles both dict and list tool formats."""
     cfg = _load_config()
-    tools = cfg.get("tools", [])
+    tools = cfg.get("tools", {})
 
-    # Build name→id map from config
-    name_to_id: Dict[str, str] = {}
-    for t in tools:
-        name = (t.get("toolName") or t.get("name") or t.get("tool_name") or "").upper()
-        tid  = (t.get("toolId")   or t.get("id")   or t.get("tool_id")   or "")
-        if name and tid:
-            name_to_id[name] = tid
+    # New format: tools is a dict {"iv_rank": "uuid", "dark_pool_levels": "uuid", ...}
+    if isinstance(tools, dict):
+        # Direct match
+        if key in tools:
+            return tools[key]
+        # Alias map (route key -> config key)
+        aliases = {"dark_pool": "dark_pool_levels"}
+        if key in aliases and aliases[key] in tools:
+            return tools[aliases[key]]
+        # Fuzzy: any config key that starts with the route key
+        for k, v in tools.items():
+            if k.startswith(key) or key.startswith(k.rstrip("s")):
+                return v
 
-    # Also check top-level shorthand keys (legacy format)
+    # Legacy list format: [{"toolName": ..., "toolId": ...}, ...]
+    elif isinstance(tools, list):
+        name_to_id: Dict[str, str] = {}
+        for t in tools:
+            if not isinstance(t, dict):
+                continue
+            name = (t.get("toolName") or t.get("name") or t.get("tool_name") or "").upper()
+            tid  = (t.get("toolId")   or t.get("id")   or t.get("tool_id")   or "")
+            if name and tid:
+                name_to_id[name] = tid
+        for name in _TOOL_NAMES.get(key, []):
+            if name in name_to_id:
+                return name_to_id[name]
+
+    # Legacy shorthand keys
     shorthand = {
         "iv_rank":    cfg.get("iv_rank_tool_id"),
         "net_drift":  cfg.get("net_drift_tool_id"),
@@ -99,11 +119,6 @@ def _get_tool_id(key: str) -> str:
     }
     if shorthand.get(key):
         return shorthand[key]
-
-    # Search by canonical names
-    for name in _TOOL_NAMES.get(key, []):
-        if name in name_to_id:
-            return name_to_id[name]
 
     raise HTTPException(
         status_code=404,
@@ -132,6 +147,7 @@ def _qd_get(tool_key: str, ticker: str, session_date: Optional[str], extra_param
     headers = {
         "accept": "application/json",
         "authorization": token,
+        "x-instance-id": inst,
         "x-qd-version": "1",
         "origin": "https://v3.quantdata.us",
     }
@@ -151,7 +167,7 @@ def _qd_get(tool_key: str, ticker: str, session_date: Optional[str], extra_param
     if resp.status_code == 503:
         raise HTTPException(status_code=503, detail="QuantData service unavailable.")
     if not resp.ok:
-        raise HTTPException(status_code=resp.status_code, detail="QuantData error {}".format(resp.status_code))
+        raise HTTPException(status_code=resp.status_code, detail="QuantData error {} — {}".format(resp.status_code, resp.text[:200]))
     if not resp.content:
         raise HTTPException(status_code=204, detail="QuantData returned empty response.")
 
@@ -180,16 +196,39 @@ def _extract(data: Any, keys: List[str], default: Any = None) -> Any:
 @router.get("/qd/iv-rank/{ticker}")
 def qd_iv_rank(ticker: str, session_date: Optional[str] = Query(default=None)):
     data = _qd_get("iv_rank", ticker, session_date)
+    today = session_date or _today()
+    response = data.get("response", data)
+    date_map = response.get("sessionDateToIVRankData", {})
+    today_data = date_map.get(today, {})
+    ct = today_data.get("contractTypeToIVData", {})
+    call = ct.get("CALL", {})
+    put  = ct.get("PUT", {})
+
+    # current IV = average of CALL and PUT lastIV
+    call_iv = call.get("lastIV")
+    put_iv  = put.get("lastIV")
+    current_iv = round((call_iv + put_iv) / 2, 4) if call_iv and put_iv else (call_iv or put_iv)
+
+    # 52w high/low from windowMaxIV/windowMinIV across all dates
+    all_max = [d.get("contractTypeToIVData", {}).get("CALL", {}).get("windowMaxIV") for d in date_map.values()]
+    all_min = [d.get("contractTypeToIVData", {}).get("PUT", {}).get("windowMinIV") for d in date_map.values()]
+    iv_high = max((v for v in all_max if v), default=None)
+    iv_low  = min((v for v in all_min if v), default=None)
+
+    # IV Rank = (current - low) / (high - low) * 100
+    iv_rank = None
+    if current_iv and iv_high and iv_low and (iv_high - iv_low) > 0:
+        iv_rank = round((current_iv - iv_low) / (iv_high - iv_low) * 100, 1)
+
     return {
         "ticker":        ticker.upper(),
-        "session_date":  session_date or _today(),
-        "iv_rank":       _extract(data, ["ivRank", "iv_rank", "IVRank"]),
-        "iv_percentile": _extract(data, ["ivPercentile", "iv_percentile"]),
-        "current_iv":    _extract(data, ["currentIV", "current_iv", "iv"]),
-        "iv_52w_high":   _extract(data, ["iv52wHigh", "iv_52w_high"]),
-        "iv_52w_low":    _extract(data, ["iv52wLow", "iv_52w_low"]),
-        "call_iv":       _extract(data, ["callIV", "call_iv"]),
-        "put_iv":        _extract(data, ["putIV", "put_iv"]),
+        "session_date":  today,
+        "iv_rank":       iv_rank,
+        "current_iv":    round(current_iv, 4) if current_iv else None,
+        "iv_52w_high":   round(iv_high, 4) if iv_high else None,
+        "iv_52w_low":    round(iv_low, 4) if iv_low else None,
+        "call_iv":       round(call_iv, 4) if call_iv else None,
+        "put_iv":        round(put_iv, 4) if put_iv else None,
     }
 
 
@@ -277,13 +316,19 @@ def qd_oi_change(ticker: str, session_date: Optional[str] = Query(default=None))
 def qd_tools_diagnostic():
     """Diagnostic: list all tool names and IDs found in the QD config."""
     cfg = _load_config()
-    tools = cfg.get("tools", [])
+    tools = cfg.get("tools", {})
     available = []
-    for t in tools:
-        name = (t.get("toolName") or t.get("name") or t.get("tool_name") or "").upper()
-        tid  = (t.get("toolId")   or t.get("id")   or t.get("tool_id")   or "")
-        if name:
+    if isinstance(tools, dict):
+        for name, tid in tools.items():
             available.append({"name": name, "id": tid or "(no id)"})
+    elif isinstance(tools, list):
+        for t in tools:
+            if not isinstance(t, dict):
+                continue
+            name = (t.get("toolName") or t.get("name") or t.get("tool_name") or "").upper()
+            tid  = (t.get("toolId")   or t.get("id")   or t.get("tool_id")   or "")
+            if name:
+                available.append({"name": name, "id": tid or "(no id)"})
 
     resolved: Dict[str, Any] = {}
     for key in _TOOL_NAMES:

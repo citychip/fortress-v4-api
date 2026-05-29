@@ -116,7 +116,7 @@ def main():
     print("   The 10-day earnings blackout rule overrides any flow signal.")
 
     # Save to file
-    out_path = pathlib.Path.home() / "quantdata_reports" / f"Workflow_07_Whale_Flow_{today}.md"
+    out_path = pathlib.Path(__file__).parent / f"Workflow_07_Whale_Flow_{today}.md"
     with open(out_path, "w") as f:
         f.write(f"# Whale Flow Report ({today})\n\n")
         f.write(tabulate(results, headers=["Ticker", "Call Premium", "Put Premium", "Call Sweeps", "Put Sweeps", "Bias"], tablefmt="pipe"))

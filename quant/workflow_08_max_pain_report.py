@@ -9,78 +9,69 @@ Focus: Short-dated position management.
 import json
 import pathlib
 from datetime import datetime, timezone, timedelta
-from curl_cffi import requests
+import yfinance as yf
 from tabulate import tabulate
 
-CONFIG_PATH = pathlib.Path.home() / ".quantdata-mcp" / "config.json"
-config = json.loads(CONFIG_PATH.read_text())
-TOKEN = config["auth_token"]
-COOKIE = config["cookie"]
-PAGE_ID = config["page_id"]
-TOOLS = config["tools"]
-BASE_URL = "https://core-lb-prod.quantdata.us/api"
-USER_ID = "a7da66dc-7c6e-4e72-bc1e-555e686adc72"
 ET = timezone(timedelta(hours=-4))
-
-HEADERS = {
-    "accept": "application/json",
-    "authorization": TOKEN,
-    "cookie": COOKIE,
-    "origin": "https://v3.quantdata.us",
-    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    "content-type": "application/json",
-}
-session = requests.Session(impersonate="chrome110")
-session.headers.update(HEADERS)
 
 TICKERS = ["MSFT", "AVGO", "NFLX", "VST", "GOOGL", "AMZN", "AMD", "MSTR", "META", "AAPL", "NVDA"]
 
-def update_tool(tool_key: str, metadata: dict):
-    tid = TOOLS.get(tool_key)
-    if not tid: return
-    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-    payload = {
-        "id": tid, "userId": USER_ID, "filterGroupIds": [],
-        "metadata": metadata, "pageId": PAGE_ID,
-        "createdTime": now_ms, "lastUpdatedTime": now_ms,
-    }
-    try: session.put(f"{BASE_URL}/tool", json=payload, timeout=10)
-    except Exception: pass
-
-def fetch(endpoint: str, tool_key: str) -> dict:
-    tid = TOOLS.get(tool_key)
-    if not tid: return {}
+def compute_max_pain(ticker_symbol: str) -> dict:
+    """
+    Compute max pain strike from yfinance options chain.
+    Max pain = strike where sum of ITM call + put value is minimized (for option holders).
+    Returns {price, max_pain} or {} on failure.
+    """
     try:
-        resp = session.get(f"{BASE_URL}/{endpoint}/{tid}", timeout=10)
-        if resp.status_code == 200: return resp.json().get("response", {})
-    except Exception: pass
-    return {}
+        t = yf.Ticker(ticker_symbol)
+        price = t.fast_info.get("lastPrice") or t.fast_info.get("previousClose", 0)
+        if not price:
+            return {}
+        expirations = t.options
+        if not expirations:
+            return {}
+        # Use nearest expiry 7-30 days out for max pain relevance
+        today = datetime.now().date()
+        target = None
+        for exp in expirations:
+            days = (datetime.strptime(exp, "%Y-%m-%d").date() - today).days
+            if 7 <= days <= 30:
+                target = exp
+                break
+        if not target:
+            target = expirations[0]
+        chain = t.option_chain(target)
+        calls = chain.calls[["strike", "openInterest"]].dropna()
+        puts = chain.puts[["strike", "openInterest"]].dropna()
+        strikes = sorted(set(calls["strike"].tolist() + puts["strike"].tolist()))
+        min_pain, max_pain_strike = float("inf"), strikes[0]
+        for s in strikes:
+            call_pain = sum(max(0, s - k) * oi for k, oi in zip(calls["strike"], calls["openInterest"]) if k < s)
+            put_pain  = sum(max(0, k - s) * oi for k, oi in zip(puts["strike"],  puts["openInterest"])  if k > s)
+            total = call_pain + put_pain
+            if total < min_pain:
+                min_pain, max_pain_strike = total, s
+        return {"price": price, "max_pain": max_pain_strike}
+    except Exception:
+        return {}
+
 
 def main():
     today = datetime.now(ET).strftime("%Y-%m-%d")
     print("=" * 60)
     print(f"MAX PAIN REPORT — {today}")
     print("=" * 60)
-    
+
     results = []
     for ticker in TICKERS:
         print(f"Scanning {ticker}...", end="\r")
-        meta = {
-            "filter": {
-                "expirationDate": {"filterOperationType": "EQUALS"},
-                "ticker": {"filterOperationType": "EQUALS", "value": ticker}
-            },
-            "type": "OPTIONS_MAX_PAIN_CHART"
-        }
-        update_tool("max_pain", meta)
-        data = fetch("options/max-pain", "max_pain")
+        data = compute_max_pain(ticker)
         if data:
-            price = data.get("stockPriceInCents", 0) / 100
-            pain = data.get("strikePriceInCentsWithMaxPain", 0) / 100
-            if pain:
-                dist = (pain - price) / price * 100
-                pull = "⬆️ UP" if pain > price else "⬇️ DOWN"
-                results.append([ticker, f"${price:.2f}", f"${pain:.2f}", f"{dist:+.1f}%", pull])
+            price = data["price"]
+            pain = data["max_pain"]
+            dist = (pain - price) / price * 100
+            pull = "⬆️ UP" if pain > price else "⬇️ DOWN"
+            results.append([ticker, f"${price:.2f}", f"${pain:.2f}", f"{dist:+.1f}%", pull])
             
     print(" " * 40 + "\r", end="") # Clear line
     
@@ -88,7 +79,7 @@ def main():
     print("\nStrategy Note: Most relevant for positions in their final 7-14 days before expiration.")
     
     # Save to file
-    out_path = pathlib.Path.home() / "quantdata_reports" / f"Workflow_08_Max_Pain_{today}.md"
+    out_path = pathlib.Path(__file__).parent / f"Workflow_08_Max_Pain_{today}.md"
     with open(out_path, "w") as f:
         f.write(f"# Max Pain Report ({today})\n\n")
         f.write(tabulate(results, headers=["Ticker", "Current Price", "Max Pain Strike", "Distance", "Pinning Pull"], tablefmt="pipe"))

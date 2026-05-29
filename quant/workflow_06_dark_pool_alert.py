@@ -127,7 +127,7 @@ def main():
         print("\nStrategy Rule (Sec 6): If price closes below Dark Pool floor, thesis is broken. Close immediately.")
     
     # Save to file
-    out_path = pathlib.Path.home() / "quantdata_reports" / f"Workflow_06_DP_Alerts_{today_et}.md"
+    out_path = pathlib.Path(__file__).parent / f"Workflow_06_DP_Alerts_{today_et}.md"
     with open(out_path, "w") as f:
         f.write(f"# Dark Pool Alert Report ({today_et})\n\n")
         f.write(f"Positions monitored: {', '.join(p['ticker'] for p in positions)}\n\n")
