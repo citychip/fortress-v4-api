@@ -212,6 +212,8 @@ Full request/response schemas are documented in `docs/02_Trading_Dashboard_Build
 | Version | Date | Summary |
 |---|---|---|
 | v4.2 | 2026-05-29 | qd.py: fixed per-ticker IV rank — added x-instance-id header, correct iv-rank response parsing (sessionDateToIVRankData), computed IVR from 52w HV window; workflow_01/05 migrated from QuantData IVR to yfinance ATM options IV + rolling HV IVR (eliminates QD per-ticker filter dependency); workflow_08 max pain migrated to yfinance options chain; all workflow scripts now save to quant/ directory; fortress_mcp.py: removed local QD credentials requirement, all qd_* tools proxy through server |
+| v4.1 | 2026-05-29 | WSL local deployment support; dual-token middleware aligned; trpc prefs path fixed; install scripts in citychip/fortress-install |
+| v4.0 | 2026-05-28 | ibind OAuth 1.0a integration (headless IBKR auth, no CP Gateway needed); dual-token middleware (FORTRESS_API_TOKEN + FORTRESS_MCP_TOKEN both accepted); ibkr_use_ibind_oauth toggle in Settings; QuantData QD proxy fixed (dict-format tool IDs, correct URL slugs for iv-rank/net-drift/max-pain); CP Gateway IP allowlist support |
 | v3.9 | 2026-05-27 | qd.py: dynamic QuantData tool ID discovery — fixes max_pain/order_flow/dark_pool/oi_change 404/503 after JWT refresh; MCP token auth; FORTRESS_MCP_TOKEN support in middleware |
 | v3.8 | 2026-05-18 | VIX 30d sparkline + Macro Regime Gauge on Morning Brief; mini sparklines in Dashboard trade report rows |
 | v3.7.2 | 2026-05-16 | Action Center, Build Center, Portfolio Center, Approvals cockpits; pending orders persistence; hydration cache endpoints; QuantData race condition fix; script result persistence |
