@@ -193,3 +193,102 @@ def get_pnl_history(days: int = Query(default=90, ge=1, le=365)):
         "source": source,
         "as_of": datetime.now(timezone.utc).isoformat(),
     }
+
+
+# ── MySQL helpers ─────────────────────────────────────────────────────────────
+
+try:
+    import pymysql as _pymysql
+    import pymysql.cursors
+    _PYMYSQL_OK = True
+except ImportError:
+    _PYMYSQL_OK = False
+import os as _os
+
+
+def _snap_mysql_conn():
+    if not _PYMYSQL_OK:
+        return None
+    try:
+        return _pymysql.connect(
+            host=_os.getenv('MYSQL_HOST', 'localhost'),
+            user=_os.getenv('MYSQL_USER', 'fortress'),
+            password=_os.getenv('MYSQL_PASS', 'fortress_v4_pass'),
+            database=_os.getenv('MYSQL_DB', 'fortress_v4'),
+            connect_timeout=3,
+        )
+    except Exception:
+        return None
+
+
+# ── POST /api/pnl/snapshot ────────────────────────────────────────────────────
+
+from fastapi import HTTPException as _HTTPException
+
+@router.post('/pnl/snapshot')
+def post_pnl_snapshot():
+    '''Write a portfolio snapshot from current active_positions data to MySQL.
+    Idempotent — upserts on snapshot_date so running twice on the same day is safe.
+    '''
+    pos_data = state.get_active_positions() or {}
+
+    net_liq        = pos_data.get('net_liq')
+    buying_power   = pos_data.get('buying_power')
+    excess_liq     = pos_data.get('excess_liquidity')
+    daily_pnl      = pos_data.get('daily_pnl')
+    unrealized_pnl = pos_data.get('unrealized_pnl')
+
+    positions_list = pos_data.get('positions', [])
+    gross_mv = sum(abs(float(p.get('market_value') or 0)) for p in positions_list)
+    net_mv   = sum(float(p.get('market_value') or 0) for p in positions_list)
+
+    try:
+        settings = state.get_dashboard_settings()
+        account = settings.get('ibkr_account_id') or ''
+    except Exception:
+        account = ''
+
+    today = datetime.now(timezone.utc).date().isoformat()
+
+    conn = _snap_mysql_conn()
+    if conn is None:
+        raise _HTTPException(status_code=503, detail='MySQL unavailable')
+
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            '''
+            INSERT INTO portfolio_snapshots
+                (snapshot_date, total_value, cash_balance, net_liquidation,
+                 buying_power, gross_position_value, net_position_value,
+                 realized_pnl, unrealized_pnl, account)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                total_value            = VALUES(total_value),
+                cash_balance           = VALUES(cash_balance),
+                net_liquidation        = VALUES(net_liquidation),
+                buying_power           = VALUES(buying_power),
+                gross_position_value   = VALUES(gross_position_value),
+                net_position_value     = VALUES(net_position_value),
+                realized_pnl           = VALUES(realized_pnl),
+                unrealized_pnl         = VALUES(unrealized_pnl),
+                account                = VALUES(account)
+            ''',
+            (today, net_liq, excess_liq, net_liq, buying_power,
+             gross_mv or None, net_mv or None, daily_pnl, unrealized_pnl, account),
+        )
+        conn.commit()
+        cur.close()
+    except Exception as exc:
+        raise _HTTPException(status_code=500, detail=f'MySQL write failed: {exc}')
+    finally:
+        conn.close()
+
+    return {
+        'ok': True,
+        'snapshot_date': today,
+        'net_liquidation': net_liq,
+        'unrealized_pnl': unrealized_pnl,
+        'realized_pnl': daily_pnl,
+        'account': account,
+    }

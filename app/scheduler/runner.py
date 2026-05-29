@@ -154,6 +154,24 @@ def _job(key: str):
     return partial(_run_script, key)
 
 
+def _run_eod_snapshot() -> None:
+    """Write EOD portfolio snapshot to MySQL. Called by APScheduler at 16:10 ET."""
+    import requests as _req, os as _os
+    import logging as _log
+    logger = _log.getLogger("fortress.scheduler")
+    try:
+        token = _os.environ.get("FORTRESS_API_TOKEN", "")
+        resp = _req.post("http://127.0.0.1:8081/api/pnl/snapshot",
+                         headers={"Authorization": f"Bearer {token}"}, timeout=10)
+        if resp.ok:
+            d = resp.json()
+            logger.info("EOD snapshot — net_liq=%s date=%s", d.get("net_liquidation"), d.get("snapshot_date"))
+        else:
+            logger.warning("EOD snapshot failed: HTTP %s", resp.status_code)
+    except Exception as exc:
+        logger.error("EOD snapshot error: %s", exc)
+
+
 def build_scheduler() -> BackgroundScheduler:
     """
     Register all 8 script jobs with their UTC cron schedules.
@@ -232,6 +250,13 @@ def build_scheduler() -> BackgroundScheduler:
         _job("gex_oi"),
         CronTrigger(hour=17, minute=0, day_of_week="mon-fri", timezone="UTC"),
         id="gex_oi_pm", name="GEX/OI Update (PM)", replace_existing=True,
+    )
+
+    # EOD Portfolio Snapshot: 20:10 UTC (16:10 ET) Mon-Fri
+    sched.add_job(
+        _run_eod_snapshot,
+        CronTrigger(hour=20, minute=10, day_of_week="mon-fri", timezone="UTC"),
+        id="eod_snapshot", name="EOD Portfolio Snapshot", replace_existing=True,
     )
 
     return sched
