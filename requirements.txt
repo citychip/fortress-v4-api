@@ -13,3 +13,4 @@ Pillow>=10.0.0
 ib_async>=2.1.0
 lxml>=5.0
 requests>=2.31.0
+ibind[oauth]>=0.1.23    # headless IBKR OAuth 1.0a

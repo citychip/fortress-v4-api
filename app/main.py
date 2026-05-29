@@ -92,7 +92,7 @@ app = FastAPI(
     redirect_slashes=False,
     title="Fortress Dashboard",
     description="Trading dashboard per Build Spec v1.2 — the trader's portfolio strategy v3.4",
-    version="1.2.0",
+    version="4.0.0",
     lifespan=lifespan,
 )
 

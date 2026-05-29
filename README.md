@@ -1,6 +1,6 @@
 # Fortress Dashboard — API Backend (V4)
 
-> A FastAPI backend for systematic options portfolio management. Connects to Interactive Brokers via ibind OAuth 1.0a (headless) or the IBKR CP Gateway, proxies QuantData market intelligence, and exposes a structured REST API consumed by the [Fortress React frontend](https://github.com/citychip/fortress-app) and the [Fortress MCP server](https://github.com/citychip/fortress-mcp).
+> A FastAPI backend for systematic options portfolio management. Connects to Interactive Brokers via ibind OAuth 1.0a (headless) or the IBKR CP Gateway, proxies QuantData market intelligence, and exposes a structured REST API consumed by the [Fortress React frontend](https://github.com/citychip/fortress-v4-frontend) and the [Fortress MCP server](https://github.com/citychip/fortress-mcp).
 
 ![Dashboard Preview](docs/assets/dashboard_preview.webp)
 
@@ -128,8 +128,7 @@ Configure your QuantData credentials in **Settings → QuantData Auto-Login**. T
 git clone https://github.com/citychip/fortress-v4-api.git /home/ubuntu/fortress-v4-api
 cd /home/ubuntu/fortress-v4-api
 python3 -m venv venv
-venv/bin/pip install -r requirements.txt
-venv/bin/pip install 'ibind[oauth]'   # for headless OAuth support
+venv/bin/pip install -r requirements.txt   # includes ibind[oauth]
 ```
 
 ### systemd Service
@@ -185,25 +184,94 @@ All endpoints require `Authorization: Bearer <token>` except `/api/health`, `/ap
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/health` | Health check — returns `{status: ok, version: ...}` |
-| `GET` | `/api/briefing` | Full portfolio briefing (positions, Greeks, regime, candidates) |
-| `GET` | `/api/positions` | Current option book with Greeks |
-| `POST` | `/api/ibkr/sync` | Trigger IBKR positions sync |
-| `GET` | `/api/ibkr/capability` | IBKR connection status (session, OPRA, account) |
-| `GET` | `/api/market-intelligence?ticker=X` | GEX, DP, drift, order flow for a ticker |
+| `GET` | `/api/health` | Health check |
+| `GET` | `/api/briefing` | Full portfolio briefing — account, Greeks, regime, pacing, actions |
+| `GET` | `/api/positions` | Current option book with per-leg Greeks |
+| `POST` | `/api/ibkr/sync` | Trigger IBKR positions + account sync |
+| `GET` | `/api/ibkr/capability` | IBKR connection status (session, OPRA, active backend) |
+| `GET` | `/api/ibkr/status` | CP Gateway / ibind auth status |
+| `GET` | `/api/ibkr/preview` | Dry-run sync — preview without writing to disk |
+| `GET` | `/api/ibkr/last-sync` | Timestamp and metadata of last sync |
+| `GET` | `/api/pnl` | P&L summary (realized + unrealized, by ticker) |
+| `GET` | `/api/pnl/history` | Daily equity-curve from MySQL portfolio_snapshots |
+| `POST` | `/api/pnl/snapshot` | Write today's portfolio snapshot to MySQL |
 | `GET` | `/api/candidates` | IV crush candidate scanner results |
-| `GET` | `/api/pnl` | P&L summary (realized + unrealized) |
+| `GET` | `/api/market-intelligence?ticker=X` | GEX, dark pool, net drift, order flow for a ticker |
+| `GET` | `/api/market/earnings-volatility/{ticker}` | IV vs HV20/HV30 earnings vol analysis |
 | `GET` | `/api/chart/{ticker}` | OHLCV candles + GEX/DP overlay levels |
-| `GET` | `/api/options/greeks` | Black-Scholes Greeks for a given contract |
-| `POST` | `/api/run/{script_key}` | Execute a workflow script |
-| `GET` | `/api/settings` | Read all settings |
-| `PUT` | `/api/settings/{section}` | Update a settings section |
-| `GET` | `/api/orders/pending` | Pending order approval queue |
-| `POST` | `/api/orders/pending` | Add an order to the approval queue |
-| `PATCH` | `/api/orders/pending/{id}` | Approve or decline a pending order |
-| `GET` | `/api/manage/stop_loss_all` | Stop-loss evaluation for all positions |
+| `GET` | `/api/chart/{ticker}/levels` | GEX + dark pool levels only |
+
+### Risk & Position Management
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/manage/stop_loss_all` | Stop-loss evaluation for all positions (8-signal) |
+| `GET` | `/api/manage/stop_loss/{position_id}` | Stop-loss for a single position |
 | `GET` | `/api/manage/roll_all` | Roll candidate evaluation for all positions |
-| `GET` | `/api/manage/pretrade_all` | Pre-trade gate check for all universe tickers |
+| `GET` | `/api/manage/roll/{position_id}` | Roll evaluation for a single position |
+| `GET` | `/api/manage/pretrade_all` | 8-gate pre-trade check for all universe tickers |
+| `GET` | `/api/manage/pre_trade_check?ticker=X` | Full 8-gate pre-trade check for one ticker |
+| `GET` | `/api/manage/trade_report` | Daily trade report with stop/roll/entry signals |
+| `GET` | `/api/manage/spy_hedge_coverage` | SPY hedge notional vs target band |
+| `POST` | `/api/manage/validate_jade_lizard` | Validate a Jade Lizard structure |
+| `POST` | `/api/manage/monitor_alerts` | Run alert scan across all positions |
+
+### Options Analytics
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/options/greeks` | Black-Scholes Greeks for a contract |
+| `GET` | `/api/options/vol-analytics` | Portfolio-level vega/gamma analytics |
+| `GET` | `/api/options/position-limits` | Position limits vs strategy caps |
+| `POST` | `/api/options/forward-pnl` | Forward P&L projection for a set of legs |
+
+### Portfolio Analytics
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/portfolio/beta` | Beta-weighted portfolio delta vs SPY |
+| `GET` | `/api/portfolio/sector-exposure` | Sector breakdown of portfolio notional |
+| `GET` | `/api/portfolio/capital-efficiency` | Capital usage vs available funds |
+| `GET` | `/api/portfolio/pcs-exposure` | PCS book summary (count, notional, delta) |
+
+### Settings & Configuration
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/settings` | Read all settings |
+| `GET` | `/api/settings/schema` | Field schema for the Settings UI |
+| `PUT` | `/api/settings/{section}` | Update a settings section |
+| `POST` | `/api/settings/reset` | Reset to factory defaults |
+| `GET` | `/api/settings/narrative` | Plain-English strategy state description |
+| `GET` | `/api/settings/trader_presets` | Available trader persona presets |
+| `POST` | `/api/settings/apply_preset` | Apply a trader persona preset |
+| `GET` | `/api/settings/backup` | Download ZIP backup of config + data files |
+| `POST` | `/api/settings/restore` | Restore from ZIP backup |
+| `POST` | `/api/settings/test_quantdata` | Test QuantData credentials live |
+| `POST` | `/api/settings/quantdata_login_refresh` | Re-login to QuantData with email/password |
+| `GET` | `/api/config/backup` | Timestamped JSON config snapshot |
+| `POST` | `/api/config/restore` | Restore config from JSON snapshot |
+
+### Data Management
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/alerts` | All active alerts |
+| `POST` | `/api/alerts` | Create an alert |
+| `PUT` | `/api/alerts/{alert_id}` | Update an alert |
+| `DELETE` | `/api/alerts/{alert_id}` | Delete an alert |
+| `GET` | `/api/journal` | Trade journal entries (MySQL-first, JSON fallback) |
+| `POST` | `/api/journal` | Add a journal entry |
+| `GET` | `/api/journal/suggest` | AI-suggested journal entry for a position |
+| `GET` | `/api/universe` | Ticker universe (Tier 1 / Tier 2 / Macro) |
+| `POST` | `/api/universe/add` | Add ticker to universe |
+| `POST` | `/api/universe/exclude` | Add ticker to exclusion list |
+| `GET` | `/api/calendar` | Earnings calendar |
+| `GET` | `/api/orders/pending` | Pending order approval queue |
+| `POST` | `/api/orders/pending` | Add order to queue |
+| `POST` | `/api/orders/pending/{id}/approve` | Approve a pending order |
+| `POST` | `/api/run/{script_key}` | Execute a workflow script |
+| `GET` | `/api/scheduler/status` | APScheduler job status and next run times |
 
 ### QuantData MCP Proxy (`/api/qd/*`)
 
@@ -218,7 +286,7 @@ These endpoints proxy QuantData data through the VPS for the Fortress MCP server
 | `GET` | `/api/qd/dark-pool/{ticker}` | Dark pool support/resistance levels |
 | `GET` | `/api/qd/oi-change/{ticker}` | Open interest change by strike |
 
-All `/api/qd/*` endpoints return `{error: ..., hint: Settings → QuantData Auto-Login}` if the server-side QuantData JWT is missing or expired. Tool IDs are read from `~/.quantdata-mcp/config.json` and support both dict and list formats.
+All `/api/qd/*` endpoints return `{"error": "...", "hint": "Settings → QuantData Auto-Login"}` if the server-side QuantData JWT is missing or expired. Tool IDs are read from `~/.quantdata-mcp/config.json` and support both dict and list formats.
 
 ---
 
@@ -273,7 +341,7 @@ Changing `ibkr_use_ibind_oauth` takes effect immediately — the ibind client si
 
 | Repository | Description |
 |---|---|
-| [citychip/fortress-app](https://github.com/citychip/fortress-app) | React 19 + tRPC frontend — the dashboard UI |
+| [citychip/fortress-v4-frontend](https://github.com/citychip/fortress-v4-frontend) | React 19 + tRPC frontend — the dashboard UI |
 | [citychip/fortress-mcp](https://github.com/citychip/fortress-mcp) | MCP server — connects Claude to the Fortress API with 64 tools |
 
 ---

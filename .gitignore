@@ -71,3 +71,6 @@ app/static/index.html
 
 # Quant workflow outputs
 quant/*.md
+
+# Runtime config backups
+quant/config_backups/
