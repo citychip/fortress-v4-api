@@ -186,6 +186,11 @@ async def get_capability_endpoint(refresh: bool = False):
         "settings_value": settings.get("greeks_backend"),
         "active_backend": active,
         "fallback_backend": "bs_yfinance",
+        "available_endpoints": {
+            "portfolio": ["GET /api/portfolio/beta","GET /api/portfolio/sector-exposure","GET /api/portfolio/capital-efficiency"],
+            "market": ["GET /api/market/earnings-volatility/{ticker}"],
+            "options": ["GET /api/options/position-limits","POST /api/options/forward-pnl"],
+        },
     }
 
 

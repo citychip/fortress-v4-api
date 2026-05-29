@@ -115,6 +115,48 @@ def get_alerts():
 
 
 def get_journal():
+    """Return journal data. MySQL-first (D-07), falls back to JSON."""
+    try:
+        import pymysql, os
+        conn = pymysql.connect(
+            host=os.getenv("MYSQL_HOST", "localhost"),
+            user=os.getenv("MYSQL_USER", "fortress"),
+            password=os.getenv("MYSQL_PASS", "fortress_v4_pass"),
+            database=os.getenv("MYSQL_DB", "fortress_v4"),
+            connect_timeout=2,
+        )
+        cur = conn.cursor(pymysql.cursors.DictCursor)
+        cur.execute("SELECT * FROM journal ORDER BY timestamp")
+        rows = cur.fetchall()
+        cur.close(); conn.close()
+        if rows:
+            entries = []
+            for r in rows:
+                def _dt(ts):
+                    return (ts.isoformat() + "+00:00") if hasattr(ts, "isoformat") else str(ts)
+                e = {
+                    "id":           r["id"],
+                    "timestamp":    _dt(r["timestamp"]),
+                    "ticker":       r["ticker"],
+                    "action":       r["action"],
+                    "strategy":     r["strategy"],
+                    "description":  r["description"],
+                    "realized_pnl": float(r["realized_pnl"]) if r["realized_pnl"] is not None else None,
+                    "debit_credit": float(r["debit_credit"]) if r["debit_credit"] is not None else None,
+                    "outside_universe": bool(r["outside_universe"]),
+                    "outside_universe_justification": r["outside_universe_justification"],
+                    "notes":        r["notes"],
+                }
+                for opt_key in ("open_entry_id", "close_entry_id"):
+                    if r.get(opt_key): e[opt_key] = r[opt_key]
+                if r.get("iv_crush_realized") is not None:
+                    e["iv_crush_realized"] = float(r["iv_crush_realized"])
+                if r.get("dte_at_close") is not None:
+                    e["dte_at_close"] = r["dte_at_close"]
+                entries.append(e)
+            return {"entries": entries, "_last_updated": None, "_source": "mysql"}
+    except Exception:
+        pass
     return read_json("journal.json", DEFAULT_JOURNAL)
 
 

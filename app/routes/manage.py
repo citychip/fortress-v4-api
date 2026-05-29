@@ -495,7 +495,77 @@ def pre_trade_check(ticker: str):
         "blackout_days": leap_blackout_days,
     }
 
-    gates = [gate_exclusion, gate_earnings, gate_concentration, gate_vix, gate_leap]
+
+    # F-01: PCS count cap
+    from collections import defaultdict as _dd
+    _put_groups = _dd(lambda: {"short": [], "long": []})
+    for _p in (positions_data.get("positions") or []):
+        if (_p.get("right") or "").upper() != "P": continue
+        _k = (_p.get("ticker","").upper(), _p.get("expiry",""))
+        if _p.get("leg_direction") == "short": _put_groups[_k]["short"].append(_p)
+        elif _p.get("leg_direction") == "long": _put_groups[_k]["long"].append(_p)
+    _pcs_spreads = []
+    for (_t, _e), _legs in _put_groups.items():
+        if not _legs["short"] or not _legs["long"]: continue
+        _ms = max(s.get("strike",0) or 0 for s in _legs["short"])
+        _ml = min(l.get("strike",0) or 0 for l in _legs["long"])
+        if _ms > _ml:
+            _contr = abs(_legs["short"][0].get("qty",1) or 1)
+            _pcs_spreads.append({"ticker":_t,"expiry":_e,"notional":_ms*100*_contr})
+    _pcs_count = len(_pcs_spreads)
+    _pcs_count_cap = 5
+    gate_pcs_count = {
+        "name": "pcs_count_cap",
+        "rule": "Strategy §6 — max 5 open PCS/bull-put-spread positions",
+        "passed": _pcs_count < _pcs_count_cap,
+        "detail": "Open PCS spreads: {}/{}".format(_pcs_count, _pcs_count_cap),
+        "pcs_count": _pcs_count,
+        "count_cap": _pcs_count_cap,
+    }
+    # F-02: Put notional cap
+    _pcs_notional = sum(s["notional"] for s in _pcs_spreads)
+    _notional_cap = float(strategy_cfg.get("pcs_notional_cap", 25000))
+    gate_pcs_notional = {
+        "name": "pcs_notional_cap",
+        "rule": "Strategy §6 — total put notional < ${:,.0f}".format(_notional_cap),
+        "passed": _pcs_notional < _notional_cap,
+        "detail": "Total put notional: ${:,.0f} (cap: ${:,.0f})".format(_pcs_notional, _notional_cap),
+        "total_notional": round(_pcs_notional, 2),
+        "notional_cap": _notional_cap,
+    }
+    # F-03: LEAP entry blackout
+    _leap_entry_days = int(strategy_cfg.get("leap_entry_blackout_days", 14))
+    _now2 = datetime.now(timezone.utc)
+    _cutoff2 = _now2.timestamp() - _leap_entry_days * 86400
+    _recent_leap_open = False
+    _recent_leap_entry_date = None
+    try:
+        _jdata = state.get_journal()
+        for _je in (_jdata.get("entries") or []):
+            if _je.get("ticker","").upper() != ticker: continue
+            if _je.get("action") not in ("OPEN","ADD"): continue
+            _desc = (_je.get("description") or "").upper()
+            _strat2 = (_je.get("strategy") or "").upper()
+            if any(s in _desc or s in _strat2 for s in ("PMCC","LEAP","DIAGONAL")):
+                try:
+                    _jts = datetime.fromisoformat(_je["timestamp"].replace("Z","+00:00"))
+                    if _jts.timestamp() >= _cutoff2:
+                        _recent_leap_open = True
+                        _recent_leap_entry_date = _je["timestamp"][:10]
+                except Exception: pass
+    except Exception: pass
+    gate_leap_entry = {
+        "name": "leap_entry_blackout",
+        "rule": "Strategy §4 — no short-leg entry within {}d of opening LEAP/PMCC".format(_leap_entry_days),
+        "passed": not _recent_leap_open,
+        "detail": ("LEAP/PMCC opened on {} ({}d blackout active)".format(_recent_leap_entry_date, _leap_entry_days)
+                   if _recent_leap_open else
+                   "No recent LEAP/PMCC entry on {} within {}d".format(ticker, _leap_entry_days)),
+        "recent_leap_entry": _recent_leap_entry_date,
+        "blackout_days": _leap_entry_days,
+    }
+
+    gates = [gate_exclusion, gate_earnings, gate_concentration, gate_vix, gate_leap, gate_pcs_count, gate_pcs_notional, gate_leap_entry]
     hard_failures = [g for g in gates if not g["passed"]]
     all_passed = len(hard_failures) == 0
 
