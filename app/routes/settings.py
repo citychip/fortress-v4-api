@@ -190,6 +190,8 @@ SCHEMA: dict[str, list[dict]] = {
         # --- Data source toggles ---
         {"key": "use_ibkr_web_api",   "label": "Enable IBKR Web API",  "type": "boolean",
          "description": "Connect to IB Gateway for live positions, Greeks, and account values. When disabled, Greeks are estimated via Black-Scholes (yfinance) and positions are read from the last saved snapshot. NetLiq and account values will be stale."},
+        {"key": "ibkr_use_ibind_oauth", "label": "IBKR Auth: Use ibind OAuth", "type": "boolean",
+         "description": "ON = ibind OAuth 1.0a (fully headless, no daily login — requires IBKR consumer key activation). OFF = CP Gateway session (requires daily browser login at https://srv1321374.hstgr.cloud:5000). Switch to ON once IBKR activates your consumer key."},
         {"key": "use_quantdata",       "label": "Enable QuantData",      "type": "boolean",
          "description": "Power IV rank scanning, dark pool alerts, whale flow, macro regime, and DP/GEX chart overlays via QuantData.us. When disabled, workflow scripts are blocked, the candidate scanner is empty, macro regime shows as unknown, and the price chart shows plain candlesticks only."},
         # --- IBKR auto-sync ---
@@ -537,6 +539,16 @@ def update_section(section: str, body: SectionUpdate):
         raise HTTPException(status_code=400, detail=f"Unknown keys for section {section!r}: {bad}")
     _auto_backup()
     config_store.update_section(section, body.values)
+    # When ibind OAuth toggle changes: reset ibind singleton + invalidate capability cache
+    if section == "security" and "ibkr_use_ibind_oauth" in body.values:
+        try:
+            from app.services.ibkr_web.client import reset_ibind_client
+            reset_ibind_client()
+            from app.services.ibkr_web.capability import invalidate
+            invalidate()
+        except Exception:
+            pass
+
     # Mirror ibkr_account_id to dashboard_settings.json so the sync picks it up immediately
     if section == "security" and "ibkr_account_id" in body.values:
         _new_id = body.values["ibkr_account_id"]

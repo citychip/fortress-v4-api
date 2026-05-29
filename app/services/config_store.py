@@ -71,6 +71,11 @@ DEFAULTS: dict[str, Any] = {
         # Dashboard Bearer token — display hint only; real value lives in FORTRESS_API_TOKEN env var
         "api_token_hint":           "(set via FORTRESS_API_TOKEN env var)",
 
+        # IBKR data source toggles
+        "use_ibkr_web_api":         True,   # enable/disable all IBKR integration
+        "ibkr_use_ibind_oauth":     False,  # True = ibind OAuth 1.0a (headless); False = CP Gateway
+        "use_quantdata":            True,
+
         # CP Gateway (voyz/ibeam) — Web API connection
         "cp_gateway_url":           "https://localhost:5000",
         "cp_gateway_verify_ssl":    False,

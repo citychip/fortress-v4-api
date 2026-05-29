@@ -28,14 +28,14 @@ _QD_BASE = "https://core-lb-prod.quantdata.us/api"
 
 # ── Tool name → QD slug mapping ───────────────────────────────────────────────
 _TOOL_NAMES: Dict[str, List[str]] = {
-    "iv_rank":    ["INTRADAY_IV_RANK", "IV_RANK"],
-    "net_drift":  ["OPTIONS_NET_DRIFT_TABLE", "NET_DRIFT", "OPTIONS_NET_DRIFT"],
-    "max_pain":   ["OPTIONS_MAX_PAIN", "MAX_PAIN", "OPTIONS_MAX_PAIN_TABLE"],
-    "order_flow": ["OPTIONS_ORDER_FLOW_CONSOLIDATED_TABLE",
+    "iv_rank":    ["iv-rank", "INTRADAY_IV_RANK", "IV_RANK"],
+    "net_drift":  ["net-drift", "OPTIONS_NET_DRIFT_TABLE", "NET_DRIFT"],
+    "max_pain":   ["max-pain", "OPTIONS_MAX_PAIN", "MAX_PAIN"],
+    "order_flow": ["order-flow", "OPTIONS_ORDER_FLOW_CONSOLIDATED_TABLE",
                    "OPTIONS_ORDER_FLOW_CONSOLIDATED", "OPTIONS_ORDER_FLOW"],
-    "dark_pool":  ["DARK_POOL_LEVELS_TABLE", "DARK_POOL_LEVELS", "DARK_POOL"],
-    "oi_change":  ["OPTIONS_OPEN_INTEREST_CHANGE_TABLE",
-                   "OPTIONS_OPEN_INTEREST_CHANGE", "OPTIONS_OI_CHANGE"],
+    "dark_pool":  ["dark-pool-levels", "DARK_POOL_LEVELS_TABLE", "DARK_POOL_LEVELS"],
+    "oi_change":  ["oi-change", "OPTIONS_OPEN_INTEREST_CHANGE_TABLE",
+                   "OPTIONS_OPEN_INTEREST_CHANGE"],
 }
 
 # ── Config cache (TTL = 60s) ──────────────────────────────────────────────────
@@ -76,19 +76,37 @@ def _get_auth() -> tuple:
 
 
 def _get_tool_id(key: str) -> str:
-    """Look up tool ID for key. Searches config tools list by name."""
+    """Look up tool ID for key. Handles both dict and list tool formats."""
     cfg = _load_config()
-    tools = cfg.get("tools", [])
+    tools = cfg.get("tools", {})
 
-    # Build name→id map from config
-    name_to_id: Dict[str, str] = {}
-    for t in tools:
-        name = (t.get("toolName") or t.get("name") or t.get("tool_name") or "").upper()
-        tid  = (t.get("toolId")   or t.get("id")   or t.get("tool_id")   or "")
-        if name and tid:
-            name_to_id[name] = tid
+    # New format: tools is a dict {"iv_rank": "uuid", "dark_pool_levels": "uuid", ...}
+    if isinstance(tools, dict):
+        # Direct match
+        if key in tools:
+            return tools[key]
+        # Alias map (route key -> config key)
+        aliases = {"dark_pool": "dark_pool_levels", "dark_pool": "dark_pool_levels"}
+        if key in aliases and aliases[key] in tools:
+            return tools[aliases[key]]
+        # Fuzzy: any config key that starts with the route key
+        for k, v in tools.items():
+            if k.startswith(key) or key.startswith(k.rstrip("s")):
+                return v
 
-    # Also check top-level shorthand keys (legacy format)
+    # Legacy list format: [{"toolName": ..., "toolId": ...}, ...]
+    elif isinstance(tools, list):
+        name_to_id: Dict[str, str] = {}
+        for t in tools:
+            name = (t.get("toolName") or t.get("name") or t.get("tool_name") or "").upper()
+            tid  = (t.get("toolId")   or t.get("id")   or t.get("tool_id")   or "")
+            if name and tid:
+                name_to_id[name] = tid
+        for name in _TOOL_NAMES.get(key, []):
+            if name in name_to_id:
+                return name_to_id[name]
+
+    # Legacy shorthand keys
     shorthand = {
         "iv_rank":    cfg.get("iv_rank_tool_id"),
         "net_drift":  cfg.get("net_drift_tool_id"),
@@ -99,11 +117,6 @@ def _get_tool_id(key: str) -> str:
     }
     if shorthand.get(key):
         return shorthand[key]
-
-    # Search by canonical names
-    for name in _TOOL_NAMES.get(key, []):
-        if name in name_to_id:
-            return name_to_id[name]
 
     raise HTTPException(
         status_code=404,
