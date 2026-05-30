@@ -457,3 +457,26 @@ async def retry_last_upload():
                 },
             )
         raise HTTPException(status_code=500, detail=err_str)
+
+@router.post("/ibkr/gateway/{action}")
+async def gateway_control(action: str):
+    """
+    Control the cp-gateway Docker container.
+    action: start | stop | restart
+    """
+    if action not in ("start", "stop", "restart"):
+        raise HTTPException(status_code=400, detail=f"Invalid action '{action}'. Use start, stop, or restart.")
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["docker", action, "cp-gateway"],
+            capture_output=True, text=True, timeout=30
+        )
+        if result.returncode != 0:
+            raise HTTPException(status_code=500, detail=result.stderr.strip() or f"docker {action} failed")
+        logger.info("Gateway %s: %s", action, result.stdout.strip())
+        return {"action": action, "status": "ok", "output": result.stdout.strip()}
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail=f"docker {action} timed out")
+    except FileNotFoundError:
+        raise HTTPException(status_code=500, detail="docker not found in PATH")
