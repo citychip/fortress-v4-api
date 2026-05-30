@@ -28,13 +28,39 @@ router = APIRouter(tags=["ibkr"])
 @router.get("/ibkr/status")
 async def get_gateway_status():
     """
-    Check whether the IB Gateway Docker container is reachable and connected.
-    Returns connection status, account ID, and any error message.
+    Check IBKR connection status. Supports both ibeam and OAuth auth modes.
     """
     try:
-        loop = asyncio.get_event_loop()
-        status = await loop.run_in_executor(None, gateway_status)
-        return status
+        from app.services import config_store
+        from app.services.ibkr_web import get_session_status, make_client
+        from app.services.ibkr_web import portfolio as web_portfolio
+
+        cfg = config_store.cfg
+        mode = cfg("security.ibkr_auth_mode") or "ibeam"
+        summary = get_session_status(cfg)
+
+        account = None
+        if summary.get("authenticated") and summary.get("established"):
+            try:
+                client = make_client(cfg)
+                accounts = web_portfolio.list_accounts(client)
+                account = accounts[0].get("accountId") if accounts else None
+                client.close()
+            except Exception:
+                pass
+
+        return {
+            "host": cfg("security.cp_gateway_url") if mode == "ibeam" else "https://api.ibkr.com",
+            "auth_mode": mode,
+            "reachable": summary.get("reachable", False),
+            "connected": summary.get("connected", False),
+            "authenticated": summary.get("authenticated", False),
+            "established": summary.get("established", False),
+            "competing": summary.get("competing", False),
+            "account": account,
+            "backend": "web_api",
+            "error": summary.get("error"),
+        }
     except Exception as e:
         logger.error("Gateway status check failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e))

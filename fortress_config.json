@@ -115,5 +115,10 @@
     "currency_display": "USD",
     "date_format": "YYYY-MM-DD",
     "timezone": "America/New_York"
+  },
+  "security": {
+    "ibkr_auth_mode": "oauth",
+    "oauth_consumer_key": "SHARMILAH",
+    "oauth_keys_dir": "/home/ubuntu/ibkr-oauth"
   }
 }

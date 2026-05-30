@@ -6,8 +6,8 @@ services:
     env_file:
       - .env
     ports:
-      - "127.0.0.1:5000:5000"   # CP Gateway HTTPS
-      - "127.0.0.1:5001:5001"   # ibeam health/control endpoint
+      - "127.0.0.1:5000:5000"
+      - "127.0.0.1:5001:5001"
     healthcheck:
       test: ["CMD", "curl", "-fsk", "https://localhost:5000/v1/api/one/user", "-o", "/dev/null"]
       interval: 30s

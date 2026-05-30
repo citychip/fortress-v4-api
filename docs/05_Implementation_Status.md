@@ -1,6 +1,6 @@
 # Fortress Dashboard — Implementation Status
 
-**Snapshot:** May 18, 2026 | **Strategy:** v3.7 | **Dashboard:** Fortress V3 (React/tRPC) | **Build Spec:** v2.0
+**Snapshot:** May 30, 2026 | **Strategy:** v3.7 | **Dashboard:** Fortress V4 (VPS) + Fortress V3 (WSL) | **Build Spec:** v2.0
 
 ---
 
@@ -8,8 +8,9 @@
 
 | Component | Status | Version | Notes |
 |---|---|---|---|
-| **Fortress V3 Frontend** | ✅ Live | React 19 + Tailwind 4 + tRPC 11 | Served on port 3000 via nginx. Source: `/home/ubuntu/fortress-v2/`. |
-| **Python Backend (FastAPI)** | ✅ Live | v1.9.x | `fortress-dashboard.service` on port 8080. |
+| **Fortress V4 Frontend (VPS)** | ✅ Live | React + Vite | Served on port 443 via nginx. Source: `/home/ubuntu/fortress-v4-frontend/`. V3 removed 2026-05-30. |
+| **Fortress V3 Frontend (WSL)** | ✅ Live | React 19 + Tailwind 4 | Local dev on WSL, port 80. |
+| **Python Backend V4 (FastAPI)** | ✅ Live | v1.2.0 | `fortress-dashboard-v4.service` on port 8081 (VPS + WSL). V3 backend removed 2026-05-30. |
 | Bearer token auth | ✅ Live | — | All `/api/*` endpoints require `Authorization: Bearer <token>`. |
 | CP Gateway (voyz/ibeam) | ✅ Live | latest | Docker container. IBKR Web API primary broker path. |
 | IBKR Greeks | ✅ Live | Web API | Δ/Γ/Θ/V live when OPRA subscribed. BS fallback when session expires. |
@@ -37,7 +38,7 @@
 |---|---|---|---|---|
 | K-01 | Medium | QuantData session | `auth_token` and `cookie` expire periodically (days to weeks). When expired, IV Rank Heatmap, Candidates, and chart DP/GEX overlays show no data. | **Mitigated** — Settings → QuantData Credentials UI allows refresh without SSH. |
 | K-02 | Low | IV Crush workflow | Workflow skips tickers where QuantData returns no data (expired session). Generates empty `rows: []`. | **Mitigated** — Candidates All-tab now shows placeholder rows when API returns 0 rows. |
-| K-03 | Low | CP Gateway | Session expires every ~24h. ibeam re-authenticates automatically; requires IBKR Mobile push approval. | **By design** — future OAuth 2.0 migration would eliminate this. |
+| K-03 | Low | CP Gateway | Session expires every ~24h. ibeam re-authenticates automatically; requires IBKR Mobile push approval. | **Partial** — OAuth 1.0a client built; pending IBKR consumer key registration. |
 | K-04 | Low | Market Intel current_price | `current_price` is null outside market hours (yfinance). | **Fixed** — null guard added in Sprint v7.1. Shows `—` instead of crashing. |
 
 ---
@@ -60,7 +61,7 @@
 |---|---|---|
 | P-01 | High | QuantData OAuth 2.0 — eliminate manual credential refresh entirely |
 | P-02 | Medium | Automated IV Crush workflow schedule (cron) — currently manual trigger only |
-| P-03 | Medium | IBKR OAuth 2.0 — eliminate CP Gateway daily push approval |
+| P-03 | Medium | IBKR OAuth — activate consumer key SHARMILAH with IBKR; switch  to  in config |
 | P-04 | Low | Strategy Workspace — scenario planning UI |
 | P-05 | Low | Vol analytics panel — IV term structure, skew chart |
 
@@ -70,6 +71,7 @@
 
 | Date | Version | Summary |
 |---|---|---|
+| 2026-05-30 | Infra | VPS: removed V3 entirely (services, nginx, source). WSL: replaced Java CP Gateway with ibeam Docker. Built OAuth 1.0a client (oauth_client.py). Added ibkr_auth_mode switch. Fixed gateway_status bug on V4 (VPS + WSL). |
 | 2026-05-18 | Sprint v7.1 | Market Intel tooltips/refresh/sort. Candidates fallback. QuantData credentials UI. chart.py fix. |
 | 2026-05-17 | Sprint v7.0 | Candidates All-tab redesign: actionable at top, monitoring below divider. |
 | 2026-05-15 | Sprint v6.x | Market Intel null crash fix. IV Crush workflow debugging. |

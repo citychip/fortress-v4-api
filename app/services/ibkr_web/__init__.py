@@ -51,3 +51,44 @@ SNAPSHOT_FIELDS = [
     FIELD_TAGS["iv_strike"],
     FIELD_TAGS["mark"],
 ]
+
+
+def make_client(cfg_fn=None):
+    """
+    Factory: returns the right IBKR client based on security.ibkr_auth_mode.
+      'ibeam'  → WebApiClient (CP Gateway / ibeam)
+      'oauth'  → OAuthApiClient (OAuth 1.0a direct to api.ibkr.com)
+    """
+    if cfg_fn is None:
+        from app.services.config_store import cfg as cfg_fn
+    mode = cfg_fn('security.ibkr_auth_mode') or 'ibeam'
+    if mode == 'oauth':
+        from app.services.ibkr_web.oauth_client import OAuthApiClient
+        return OAuthApiClient()
+    else:
+        from app.services.ibkr_web.client import WebApiClient
+        gateway_url = cfg_fn('security.cp_gateway_url') or 'https://localhost:5000'
+        verify_ssl  = bool(cfg_fn('security.cp_gateway_verify_ssl') or False)
+        timeout_s   = int(cfg_fn('security.cp_gateway_timeout_s') or 15)
+        return WebApiClient(gateway_url=gateway_url, verify_ssl=verify_ssl, request_timeout_s=timeout_s)
+
+
+def get_session_status(cfg_fn=None):
+    """Return session summary dict regardless of auth mode."""
+    if cfg_fn is None:
+        from app.services.config_store import cfg as cfg_fn
+    mode = cfg_fn('security.ibkr_auth_mode') or 'ibeam'
+    if mode == 'oauth':
+        from app.services.ibkr_web.oauth_client import get_oauth_status
+        return get_oauth_status()
+    else:
+        from app.services.ibkr_web.client import WebApiClient
+        from app.services.ibkr_web import session as web_session
+        gateway_url = cfg_fn('security.cp_gateway_url') or 'https://localhost:5000'
+        verify_ssl  = bool(cfg_fn('security.cp_gateway_verify_ssl') or False)
+        timeout_s   = int(cfg_fn('security.cp_gateway_timeout_s') or 15)
+        client = WebApiClient(gateway_url=gateway_url, verify_ssl=verify_ssl, request_timeout_s=timeout_s)
+        try:
+            return web_session.session_summary(client)
+        finally:
+            client.close()

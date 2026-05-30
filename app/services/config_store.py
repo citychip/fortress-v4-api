@@ -71,10 +71,17 @@ DEFAULTS: dict[str, Any] = {
         # Dashboard Bearer token — display hint only; real value lives in FORTRESS_API_TOKEN env var
         "api_token_hint":           "(set via FORTRESS_API_TOKEN env var)",
 
-        # CP Gateway (voyz/ibeam) — Web API connection
+        # IBKR auth mode: "ibeam" (CP Gateway) or "oauth" (OAuth 1.0a)
+        "ibkr_auth_mode":           "ibeam",
+
+        # CP Gateway (voyz/ibeam) — used when ibkr_auth_mode == "ibeam"
         "cp_gateway_url":           "https://localhost:5000",
         "cp_gateway_verify_ssl":    False,
         "cp_gateway_timeout_s":     15,
+
+        # OAuth 1.0a — used when ibkr_auth_mode == "oauth"
+        "oauth_consumer_key":       "SHARMILAH",
+        "oauth_keys_dir":           "/home/ubuntu/ibkr-oauth",
     },
 
     # ── TECHNICAL ────────────────────────────────────────────────────────────
