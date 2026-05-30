@@ -375,6 +375,17 @@ Configured but pending IBKR activation of the consumer key (happens at their wee
 
 If IBKR session is not established, Greeks fall back to Black-Scholes via yfinance prices. Briefing will show `backend: bs_yfinance`.
 
+### Gateway Control (Docker)
+The CP Gateway runs as a Docker container (`voyz/ibeam:latest`, name: `cp-gateway`).
+Control via the dashboard IBKR panel (Start / Stop / Restart buttons) or directly:
+```bash
+docker start cp-gateway
+docker stop cp-gateway
+docker restart cp-gateway
+```
+API endpoint: `POST /api/ibkr/gateway/{action}` where action ∈ `{start, stop, restart}`.
+The ubuntu user is in the docker group — no sudo needed from the API process.
+
 ---
 
 ## 8. Deployment & Operations
