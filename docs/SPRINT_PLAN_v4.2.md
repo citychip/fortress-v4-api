@@ -168,3 +168,73 @@ These are valid but low-urgency given current operational state:
 ---
 
 *Sprint plan maintained at `docs/SPRINT_PLAN_v4.2.md`. Update as sprints complete.*
+
+---
+
+## Session Fixes — v8.25 (2026-05-30)
+
+| ID | Task | File | Status |
+|---|---|---|---|
+| FIX-01 | Null-guard on account metrics (Net Liq / Excess Liq / Available Funds show `—` when IBKR offline) | `DashboardPage.tsx` | ✅ Done |
+| FIX-02 | IBKR status route switched from `/api/ibkr/status` (buggy) to `/api/ibkr/capability` | `useApi.ts` | ✅ Done |
+| FIX-03 | Duplicate `stroke` attribute on `<Line>` in StrategySandbox removed | `StrategySandbox.tsx` | ✅ Done |
+| FIX-04 | Backend logging audit — `app/` routes already use `logger.*`; CLI scripts use `print` intentionally | — | ✅ Confirmed clean |
+
+---
+
+## Trade Flow Redesign — v8.26–v8.32
+
+Full spec: `docs/TRADE_FLOW_REDESIGN.md`
+
+### v8.26 — Phase 1: Deep-link wiring (P1, ~3h)
+| ID | Task | File | Est. |
+|---|---|---|---|
+| TF-01 | Add Roll / Close / Add buttons to Portfolio position groups | `PortfolioPage.tsx` | 1h |
+| TF-02 | Parse `?ticker`, `?mode`, `?leg` URL params in Trade tab | `TradePage.tsx` | 30m |
+| TF-03 | Ticker dropdown: active positions (urgency-ordered, with context) + undeployed universe below divider | `TradePage.tsx` | 45m |
+| TF-04 | Mode selector: New Entry / Add / Roll / Close — auto-set from URL param | `TradePage.tsx` | 30m |
+| TF-05 | State reset `useEffect` on ticker/mode change — flush leg, preview, proposals, sandbox | `TradePage.tsx` | 15m |
+
+**AC:** Clicking Roll on any position lands in Trade with ticker, mode, and leg pre-set. Zero re-selection.
+
+### v8.27 — Phase 2: Collapsible position groups (P2, ~2h)
+| ID | Task | Est. |
+|---|---|---|
+| TF-10 | Group Portfolio positions by ticker + strategy; collapsible cards | 1.5h |
+| TF-11 | Header: net delta, concentration %, strike range, expiry, alert dot | 30m |
+
+### v8.28 — Phase 3: Move Sandbox to Trade (P1, ~2h)
+| ID | Task | Est. |
+|---|---|---|
+| TF-20 | Extract StrategySandbox from AnalysisPage; mount in Trade tab | 1h |
+| TF-21 | Connect sandbox to selected ticker + mode on arrival | 1h |
+
+### v8.29 — Phase 4: Action Queue in Briefing (P1, ~3h)
+| ID | Task | Est. |
+|---|---|---|
+| TF-30 | Backend: `GET /api/action-queue` — aggregates roll_all + stop_loss_all + candidates | 1h |
+| TF-31 | Backend: `GET /api/action-queue/summary` — cached integer count (60s TTL) | 30m |
+| TF-32 | Frontend: Action Queue panel in Briefing Overview; each row "→ Trade" deep-link | 1h |
+| TF-33 | Sidebar badge: polls `/api/action-queue/summary` only | 30m |
+
+### v8.30 — Phase 5: Roll alternatives engine (P1, ~4h)
+| ID | Task | Est. |
+|---|---|---|
+| TF-40 | Backend: fetch IBKR options chain for ticker + expiry range | 1h |
+| TF-41 | Expiry nearest-match function (round to highest-OI monthly/weekly cycle) | 30m |
+| TF-42 | Score candidates: net credit, OTM buffer, delta, DTE extension → return top 3 | 1.5h |
+| TF-43 | Frontend: proposals panel (Conservative / Balanced / Aggressive) | 1h |
+
+### v8.31 — Phase 6: Strategy selector (P2, ~3h)
+| ID | Task | Est. |
+|---|---|---|
+| TF-50 | Live strategy comparison: PMCC / PCS / diagonal — credit, margin, PoP, IVR suitability | 2h |
+| TF-51 | Add mode: show existing position as context; sandbox models combined result | 1h |
+
+### v8.32 — Phase 7: Conditional alerts system (P2, ~4h)
+| ID | Task | Est. |
+|---|---|---|
+| TF-60 | Alert types: price ≥/≤, P&L %, DTE ≤, delta ≥, conditional entry | 1h |
+| TF-61 | "Set Alert" button on any recommendation in Briefing / Action Queue | 1h |
+| TF-62 | Portfolio: alerts sub-section per position group | 1h |
+| TF-63 | Trade: post-order alert suggestion step | 1h |

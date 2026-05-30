@@ -95,3 +95,36 @@
 | V4-F09 | Low | Standardise backend logging | 2h — print() → logger.* |
 | V4-F10 | Low | Frontend unit tests | 1 day — msw-based hooks |
 | V4-F11 | Low | MySQL migration alerts/journal | 2 days — currently JSON files |
+
+## Completed (Session 2026-05-30 — v8.25)
+
+| ID | Item | Resolved |
+|---|---|---|
+| ✅ FIX-01 | Null-guard on Net Liq / Excess Liq / Available Funds — showed `$NaN` when IBKR offline | `DashboardPage.tsx` — `!= null && !isNaN()` guard on all three StatCard values |
+| ✅ FIX-02 | IBKR panel showed "Disconnected" when IBKR was live — `useIbkrStatus` called broken `/api/ibkr/status` route | `useApi.ts` — switched to `/api/ibkr/capability` |
+| ✅ FIX-03 | Duplicate `stroke` JSX attribute on `<Line>` in StrategySandbox causing build warning | `StrategySandbox.tsx` — removed static `stroke={SB_CYAN}`, kept dynamic version |
+| ✅ FIX-04 | Backend logging audit | All `app/` routes already use `logger.*`. CLI scripts use `print` intentionally. No changes needed. |
+
+## Active Backlog — Trade Flow Redesign (v8.26–v8.32)
+
+Full spec: `docs/TRADE_FLOW_REDESIGN.md`
+
+| ID | Priority | Item | Phase |
+|---|---|---|---|
+| TF-01–05 | P1 | Deep-link wiring — Roll/Close/Add buttons, URL params, mode selector, state reset | Phase 1 |
+| TF-10–11 | P2 | Collapsible position groups in Portfolio | Phase 2 |
+| TF-20–21 | P1 | Move Strategy Sandbox from Analysis to Trade tab | Phase 3 |
+| TF-30–33 | P1 | Action Queue in Briefing + sidebar badge | Phase 4 |
+| TF-40–43 | P1 | Roll alternatives engine (IBKR chain + scoring) | Phase 5 |
+| TF-50–51 | P2 | Strategy selector with live metrics (PMCC/PCS/diagonal comparison) | Phase 6 |
+| TF-60–63 | P2 | Conditional alerts system (price/P&L/DTE/delta triggers) | Phase 7 |
+
+## Carried Over — Still Active
+
+| ID | Priority | Item | Notes |
+|---|---|---|---|
+| V4-F07 | Medium | Split SettingsPage.tsx (1,700+ lines) | Deferred |
+| V4-F08 | Medium | Split AnalysisPage.tsx (1,470+ lines) | Deferred |
+| V4-F10 | Low | Frontend unit tests (msw-based) | Deferred |
+| V4-F11 | Low | MySQL migration alerts/journal | Deferred |
+| V4-QD-TICKER | Low | QuantData per-ticker proxy | Won't fix — architectural limitation |
