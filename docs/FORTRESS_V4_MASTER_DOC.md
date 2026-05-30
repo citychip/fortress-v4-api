@@ -1,5 +1,5 @@
 # Fortress Dashboard — Master Documentation
-**Version: 4.2 | Date: 2026-05-29 | Status: Current**
+**Version: 4.3 | Date: 2026-05-30 | Status: Current**
 
 This is the single authoritative document for the Fortress Trading Dashboard system. It supersedes all versioned sub-documents where they conflict. Read this before making any changes to the system.
 
@@ -444,6 +444,7 @@ sudo systemctl restart fortress-dashboard-v4
 
 | Version | Date | Summary |
 |---|---|---|
+| v4.3 | 2026-05-30 | Market Intelligence page: portfolio/universe split — tickers with active positions shown first with strategy·DTE·Δ badge; server-side 5-min response cache + Refresh All button; MCP `get_market_intelligence` gets `refresh` param; `retry_ibkr_sync()` MCP tool added (K-03) |
 | v4.2 | 2026-05-29 | qd.py: x-instance-id header, iv-rank response parsing (sessionDateToIVRankData), IVR from 52w HV window, dict-format tool ID support; workflow_01/05: yfinance ATM options IV + rolling HV IVR (removes QuantData IVR dependency); workflow_08: yfinance max pain from options chain; all scripts output to quant/; fortress_mcp.py: qd_* tools proxy through server — no local QD credentials needed |
 | v4.1 | 2026-05-29 | WSL local deployment; dual-token middleware; trpc prefs path fix |
 | v4.0 | 2026-05-28 | ibind OAuth 1.0a (headless IBKR); dual-token auth (FORTRESS_API_TOKEN + FORTRESS_MCP_TOKEN); ibkr_use_ibind_oauth toggle; QD proxy fixed (dict tool IDs, correct URL slugs); CP Gateway IP allowlist |

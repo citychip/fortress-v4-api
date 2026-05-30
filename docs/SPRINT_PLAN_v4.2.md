@@ -151,16 +151,17 @@ These are valid but low-urgency given current operational state:
 
 ## Sprint Order Summary
 
-| Sprint | Focus | Priority | Est. |
+| Sprint | Focus | Priority | Status |
 |---|---|---|---|
-| **v8.9** | QuantData per-ticker fix | P1 | ~2h |
-| **v8.10** | IBKR upload retry | P2 | ~45m |
-| **v8.11** | Ticker universe path fix | P1 | ~30m |
-| **v8.12** | Regime label formatting | P2 | ~30m |
-| **v8.13** | Forward P&L panel | P2 | ~1.5h |
-| **v8.14** | QuantData auto-refresh | P2 | ~2h |
-| **v8.15** | IV crush + premarket schedule | P2 | ~30m |
-| **v8.16** | IBKR OAuth follow-through | P1 | ~30m (when ready) |
+| **v8.9** | QuantData per-ticker fix | P1 | ⏳ Pending |
+| **v8.10** | IBKR upload retry | P2 | ✅ Done (2026-05-30) |
+| **v8.11** | Ticker universe path fix | P1 | ⏳ Pending |
+| **v8.12** | Regime label formatting | P2 | ⏳ Pending |
+| **v8.13** | Market Intel cache + Refresh All button | P2 | ✅ Done (2026-05-30) |
+| **v8.14** | Market Intel portfolio/universe split | P2 | ✅ Done (2026-05-30) |
+| **v8.15** | QuantData auto-refresh | P2 | ⏳ Pending |
+| **v8.16** | IV crush + premarket schedule | P2 | ⏳ Pending |
+| **v8.17** | IBKR OAuth follow-through | P1 | ⏳ When ready |
 
 **Total estimated effort: ~8h active work**
 
