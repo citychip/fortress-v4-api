@@ -48,8 +48,9 @@ HEADERS = {
 session = requests.Session(impersonate="chrome110")
 session.headers.update(HEADERS)
 
-EARNINGS_FILE = pathlib.Path.home() / "earnings_blocklist.json"
-POSITIONS_FILE = pathlib.Path.home() / "active_positions.json"
+_QUANT_DIR = pathlib.Path(__file__).parent
+EARNINGS_FILE = _QUANT_DIR / "earnings_blocklist.json"
+POSITIONS_FILE = _QUANT_DIR / "active_positions.json"
 EARNINGS_BLACKOUT_DAYS = 10
 CONCENTRATION_LIMIT_PCT = 50.0  # v3.2 §7: High-Concentration Override threshold
 

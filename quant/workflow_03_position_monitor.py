@@ -19,7 +19,7 @@ def check_position_health(pos, current_price, top_dp):
 
 def main():
     # Controleert op 'stale data' (>24u oud)
-    mtime = pathlib.Path("active_positions.json").stat().st_mtime
+    mtime = (pathlib.Path(__file__).parent / "active_positions.json").stat().st_mtime
     if (datetime.now().timestamp() - mtime) > 86400:
         print("  WARNING: Data is stale (>24h). Upload new IBKR screenshot.")
     # ... rest van de monitor logica ...

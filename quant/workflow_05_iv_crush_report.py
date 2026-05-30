@@ -61,9 +61,10 @@ def get_atm_iv(ticker_symbol: str) -> float:
     except Exception:
         return 0.0
 
-TICKER_UNIVERSE_FILE = pathlib.Path.home() / "ticker_universe.json"
-EARNINGS_FILE = pathlib.Path.home() / "earnings_blocklist.json"
-POSITIONS_FILE = pathlib.Path.home() / "active_positions.json"
+_QUANT_DIR = pathlib.Path(__file__).parent
+TICKER_UNIVERSE_FILE = _QUANT_DIR / "ticker_universe.json"
+EARNINGS_FILE = _QUANT_DIR / "earnings_blocklist.json"
+POSITIONS_FILE = _QUANT_DIR / "active_positions.json"
 EARNINGS_BLACKOUT_DAYS = 10
 CONCENTRATION_LIMIT_PCT = 50.0
 

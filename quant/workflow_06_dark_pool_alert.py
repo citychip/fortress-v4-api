@@ -35,7 +35,7 @@ session = requests.Session(impersonate="chrome110")
 session.headers.update(HEADERS)
 
 # Load active book dynamically from position file
-POSITIONS_FILE = pathlib.Path.home() / "active_positions.json"
+POSITIONS_FILE = pathlib.Path(__file__).parent / "active_positions.json"
 def load_active_book() -> list[dict]:
     """Load active positions from the positions file. Returns list of position dicts."""
     try:
