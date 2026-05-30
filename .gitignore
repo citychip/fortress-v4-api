@@ -33,6 +33,10 @@ quant/fortress_config.json
 quant/uploads/
 quant/backups/
 quant/reports/
+quant/config_backups/
+quant/*.pre-*.json
+quant/script_results.json
+quant/user_prefs.json
 
 # ── Keep the example config ───────────────────────────────────────────────────
 !quant/fortress_config.example.json

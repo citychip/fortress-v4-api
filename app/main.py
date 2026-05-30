@@ -13,7 +13,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -99,7 +99,7 @@ app = FastAPI(
 # CORS — open for local network use. Lock down before exposing publicly.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost", "http://localhost:80", "http://localhost:3000", "http://127.0.0.1", "http://127.0.0.1:80", "http://127.0.0.1:3000"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -137,9 +137,13 @@ app.include_router(market.router, prefix="/api")
 
 
 @app.get("/api/token")
-def get_token():
-    """Return the API token for the browser dashboard. Exempt from bearer auth."""
+def get_token(request: Request):
+    """Return the API token — localhost only. Exempt from bearer auth."""
     import os
+    client_host = request.client.host if request.client else ""
+    if client_host not in ("127.0.0.1", "::1", "localhost"):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="Token endpoint is only accessible from localhost.")
     token = os.environ.get("FORTRESS_API_TOKEN", "")
     return {"token": token}
 
