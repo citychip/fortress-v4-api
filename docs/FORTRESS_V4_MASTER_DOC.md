@@ -266,7 +266,33 @@ All `qd_*` tools proxy through the server (`/api/qd/*`). No local QuantData cred
 
 **Root cause:** QuantData tool instances are saved per-ticker. The `/options/iv-rank/{tool_id}` endpoint returns data for whatever ticker was saved as the default (SPY). Fetching data for a different ticker requires first updating the tool's filter via `PUT /api/tool` with the ticker metadata — the `update_tool` step used in the workflow scripts. This step is not yet implemented in the server proxy (`app/routes/qd.py`).
 
-**Fix needed:** Add `update_tool()` call to `_qd_get()` in `app/routes/qd.py` before fetching, mirroring the pattern in `workflow_05_iv_crush_report.py::get_iv_rank()`.
+**Status: Architectural limitation — will not fix in current form.**
+
+### Root Cause (investigated 2026-05-30)
+
+QuantData tool instances are saved widget states with a frozen ticker. The design intent was that a `PUT /api/tool` call with updated filter metadata would switch the ticker for subsequent fetches ("switchable ticker" pattern, per `qd_create_new_tools.py` comments). **This does not work in practice.**
+
+Testing confirmed: `PUT /api/tool` with `ticker: MSFT` returns HTTP 200 but the subsequent `GET /api/options/iv-rank/{tool_id}` still returns SPY data. The API accepts the update silently but ignores the filter change for cached data. This was verified with `curl_cffi` Chrome impersonation, correct `cookie` + `x-instance-id` headers, and 0.5s sleep between update and fetch.
+
+### Current Behaviour
+
+All `qd_*` MCP tools (`qd_get_iv_rank`, `qd_get_dark_pool_levels`, etc.) return data for the **default ticker (SPY)** regardless of the `ticker` parameter passed. The ticker param is forwarded to the server correctly but the QuantData API ignores it.
+
+### Mitigations in Place
+
+- **IVR**: `qd_get_iv_rank()` is superseded by yfinance ATM options IV + rolling HV IVR, which is accurate per-ticker and already used by workflow_01/05. Use this instead.
+- **Dark pool / order flow**: Access via the QuantData dashboard UI directly. No server-side per-ticker alternative exists.
+
+### Future Fix Path (Option A — Per-Ticker Tool Instances)
+
+A proper fix requires creating **separate QuantData tool instances per ticker** using `POST /api/tool` (not PUT). The script `quant/qd_create_new_tools.py` already demonstrates this pattern. The implementation would:
+
+1. Run `qd_create_new_tools.py` extended for all 18 universe tickers × 6 tool types = ~108 tool UUIDs
+2. Store in config as `{"iv_rank": {"MSFT": "uuid-msft", "NVDA": "uuid-nvda", ...}}`
+3. In `app/routes/qd.py::_get_tool_id()`, look up by `(tool_key, ticker)` instead of just `tool_key`
+4. No `update_tool` step needed — each fetch hits the correct pre-configured instance
+
+**Caveats:** Tool UUIDs tied to the QuantData session — all 108 must be recreated after session refresh. The `qd_refresh_session.py` scheduler job would need to recreate them. Significant maintenance overhead for limited gain given yfinance covers the most important use case (IVR).
 
 ### MCP Configuration
 

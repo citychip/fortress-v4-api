@@ -153,7 +153,7 @@ These are valid but low-urgency given current operational state:
 
 | Sprint | Focus | Priority | Status |
 |---|---|---|---|
-| **v8.9** | QuantData per-ticker fix | P1 | ⏳ Pending |
+| **v8.9** | QuantData per-ticker fix | P1 | ❌ Won't fix — architectural limitation (see FORTRESS_V4_MASTER_DOC.md §6) |
 | **v8.10** | IBKR upload retry | P2 | ✅ Done (2026-05-30) |
 | **v8.11** | Ticker universe path fix | P1 | ⏳ Pending |
 | **v8.12** | Regime label formatting | P2 | ⏳ Pending |
