@@ -67,10 +67,31 @@
 | ✅ V4-P04 | Null guard missing on `current_iv` / `current_theta` in PositionsPage | Hotfix — `!= null` guard applied to both V3 and V4 frontends |
 | ✅ V4-CI | GitHub Actions CI/CD pipeline broken (SSH action CDN failure + GITHUB_TOKEN 403) | Fixed — inline SSH setup + `git pull` on VPS; all 4 repos now have working pipelines |
 
+## Completed (V4 Sprints — May 30, 2026)
+
+| ID | Item | Resolved |
+|---|---|---|
+| ✅ V4-K03 | IBKR upload retry | v8.10 — `POST /api/ibkr/upload/retry` + `retry_ibkr_sync()` MCP tool |
+| ✅ V4-F01 | Forward P&L panel | v8.13 — wired to PositionsPage |
+| ✅ V4-F02 | Regime label formatting | v8.12 — Title Case throughout |
+| ✅ P-02 | Automated IV Crush + premarket schedule | v8.15/v8.16 — APScheduler at 07:00 ET and every 30 min |
+| ✅ V4-QD | QuantData auto-refresh | v8.15 — `qd_refresh_session.py` runs daily at 06:00 ET |
+| ✅ V4-SEC | Security hardening | 2026-05-30 — /api/token localhost-only, CORS restricted, sensitive files gitignored |
+| ✅ V4-THEME | Colour constant deduplication | 2026-05-30 — `lib/theme.ts` single source of truth, 16 files updated |
+| ✅ V4-MI | Market Intel portfolio/universe split | 2026-05-30 — portfolio tickers shown first with position badges |
+| ✅ V4-MI-CACHE | Market Intel server-side cache | 2026-05-30 — 5-min TTL, Refresh All button |
+
 ## Active Backlog — V4 Remaining
 
-| ID | Priority | Item | Sprint |
+| ID | Priority | Item | Notes |
 |---|---|---|---|
-| V4-K03 | Medium | IBKR upload retry — `POST /api/ibkr/upload/retry` Redis-backed retry for failed uploads | v8.9 |
-| V4-F01 | Medium | Forward P&L panel — wire `GET /api/options/forward-pnl` to PositionsPage accordion | v8.10 |
-| V4-F02 | Low | Regime label formatting — replace `SNAKE_CASE` with human-readable labels across 4 pages | v8.11 |
+| V4-QD-TICKER | Low | QuantData per-ticker proxy | Won't fix — architectural limitation. update_tool (PUT) pattern proven broken. Future path: per-ticker tool instances via POST /api/tool. See MASTER_DOC §6 |
+| V4-F03 | Low | `qd_status()` MCP tool | 30m — check if QD credentials are valid before calling qd_* |
+| V4-F04 | Low | Regime badge colour | 30m — red → amber/green based on direction |
+| V4-F05 | Low | DTE countdown on Earnings rows | 30m |
+| V4-F06 | Low | Colour-coded Quick Nav cards | 1h |
+| V4-F07 | Medium | Split SettingsPage.tsx (1,692 lines) | 3h — extract sub-components |
+| V4-F08 | Medium | Split AnalysisPage.tsx (1,469 lines) | 3h — extract sub-components |
+| V4-F09 | Low | Standardise backend logging | 2h — print() → logger.* |
+| V4-F10 | Low | Frontend unit tests | 1 day — msw-based hooks |
+| V4-F11 | Low | MySQL migration alerts/journal | 2 days — currently JSON files |
