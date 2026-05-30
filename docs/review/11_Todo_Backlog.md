@@ -90,6 +90,7 @@
 | V4-F04 | Low | Regime badge colour | 30m — red → amber/green based on direction |
 | V4-F05 | Low | DTE countdown on Earnings rows | 30m |
 | ~~V4-F06~~ | ✅ Done | Colour-coded Quick Nav cards (v8.18) | — |
+| TF-12 | Medium | PMCC sub-clustering within ticker groups — pair long LEAP + short call visually as one spread unit, with heuristic leg-matching | Phase 2 backlog |
 | V4-F07 | Medium | Split SettingsPage.tsx (1,692 lines) | 3h — extract sub-components |
 | V4-F08 | Medium | Split AnalysisPage.tsx (1,469 lines) | 3h — extract sub-components |
 | V4-F09 | Low | Standardise backend logging | 2h — print() → logger.* |
@@ -123,11 +124,19 @@ Full spec: `docs/TRADE_FLOW_REDESIGN.md`
 
 | ID | Priority | Item | Notes |
 |---|---|---|---|
+| TF-12 | Medium | PMCC sub-clustering within ticker groups — pair long LEAP + short call visually as one spread unit, with heuristic leg-matching | Phase 2 backlog |
 | V4-F07 | Medium | Split SettingsPage.tsx (1,700+ lines) | Deferred |
 | V4-F08 | Medium | Split AnalysisPage.tsx (1,470+ lines) | Deferred |
 | V4-F10 | Low | Frontend unit tests (msw-based) | Deferred |
 | V4-F11 | Low | MySQL migration alerts/journal | Deferred |
 | V4-QD-TICKER | Low | QuantData per-ticker proxy | Won't fix — architectural limitation |
+
+## Completed (v8.27 Phase 2 — 2026-05-30)
+
+| ID | Item | Resolved |
+|---|---|---|
+| ✅ TF-10 | Collapsible ticker groups — default collapsed, auto-expand on alerts | `PositionsPage.tsx` — `useState(group.alertCount > 0)` |
+| ✅ TF-11 | Richer group header — alert dot, strike range, nearest short-leg DTE | `PositionsPage.tsx` — derived from option legs per group |
 
 ## Completed (v8.26 Phase 1 — 2026-05-30)
 
