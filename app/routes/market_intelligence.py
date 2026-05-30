@@ -191,6 +191,11 @@ _PAGE_REGISTRY_LOCK  = threading.Lock()
 _PAGE_REGISTRY_TTL   = 86_400  # 24 hours
 _PAGE_REGISTRY_TS    = 0.0
 
+# Response cache — keyed by (ticker, session_date), TTL 5 minutes
+_MI_CACHE: dict[tuple, dict] = {}
+_MI_CACHE_TS: dict[tuple, float] = {}
+_MI_CACHE_TTL = 300  # 5 minutes
+
 # Components we care about when walking the QuantData page layout tree
 _TARGET_COMPONENTS = {
     "OPTIONS_EXPOSURE_BY_STRIKE_CHART": "gex",
@@ -571,13 +576,13 @@ def _synthesize_regime(gex: dict | None, dp: dict | None, drift: dict | None, ma
                         "note": "Positive gamma but bearish net drift — rally is unsupported, likely to fail"})
         score -= 1
 
-    overall = "strongly_bullish" if score >= 3 else \
-              "bullish"          if score == 2 else \
-              "mildly_bullish"   if score == 1 else \
-              "neutral"          if score == 0 else \
-              "mildly_bearish"   if score == -1 else \
-              "bearish"          if score == -2 else \
-              "strongly_bearish"
+    overall = "Strongly Bullish" if score >= 3 else \
+              "Bullish"          if score == 2 else \
+              "Mildly Bullish"   if score == 1 else \
+              "Neutral"          if score == 0 else \
+              "Mildly Bearish"   if score == -1 else \
+              "Bearish"          if score == -2 else \
+              "Strongly Bearish"
 
     # Extract top GEX walls and DP floor/ceiling for direct display in UI
     gex_call_wall = None
@@ -758,7 +763,7 @@ def _risk_checks(positions: list[dict], settings: dict, regime: dict) -> list[di
 
 
 @router.get("/market-intelligence")
-def get_market_intelligence(ticker: str = "SPY", session_date: str | None = None):
+def get_market_intelligence(ticker: str = "SPY", session_date: str | None = None, refresh: bool = False):
     """
     Unified market regime + flow + portfolio intelligence endpoint.
 
@@ -777,7 +782,7 @@ def get_market_intelligence(ticker: str = "SPY", session_date: str | None = None
           "session_date": str,
           "current_price": float | null,
           "regime": {
-            "overall": str,        # strongly_bullish | bullish | mildly_bullish | neutral | mildly_bearish | bearish | strongly_bearish
+            "overall": str,        # Strongly Bullish | Bullish | Mildly Bullish | Neutral | Mildly Bearish | Bearish | Strongly Bearish
             "score": int,          # -4 to +4
             "gamma_regime": str,   # positive | negative | null
             "flip_zone": float,    # GEX zero-crossing price
@@ -823,6 +828,15 @@ def get_market_intelligence(ticker: str = "SPY", session_date: str | None = None
         session_date = _last_trading_day()
 
     ticker = ticker.upper()
+    cache_key = (ticker, session_date)
+
+    # ── Return cached result if fresh and not forced refresh ──────────────────
+    if not refresh:
+        cached = _MI_CACHE.get(cache_key)
+        cached_ts = _MI_CACHE_TS.get(cache_key, 0.0)
+        if cached is not None and (time.time() - cached_ts) < _MI_CACHE_TTL:
+            return {**cached, "cached": True}
+
     as_of  = datetime.now(timezone.utc).isoformat()
 
     # ── Fetch portfolio context ───────────────────────────────────────────────
@@ -935,7 +949,7 @@ def get_market_intelligence(ticker: str = "SPY", session_date: str | None = None
     # ── Risk checks ───────────────────────────────────────────────────────────
     risk_checks = _risk_checks(positions, settings, regime)
 
-    return {
+    result = {
         "as_of":         as_of,
         "ticker":        ticker,
         "session_date":  session_date,
@@ -954,4 +968,8 @@ def get_market_intelligence(ticker: str = "SPY", session_date: str | None = None
         },
         "quantdata_available": bool(_qd_token),
         "source":        qd_source,
+        "cached":        False,
     }
+    _MI_CACHE[cache_key] = result
+    _MI_CACHE_TS[cache_key] = time.time()
+    return result
