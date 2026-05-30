@@ -31,14 +31,18 @@ except ImportError:
     sys.exit(1)
 
 # ── Credentials ───────────────────────────────────────────────────────────────
-QD_EMAIL    = os.environ.get("QD_EMAIL",    "citychip@gmail.com")
-QD_PASSWORD = os.environ.get("QD_PASSWORD", "Stevev55!")
+QD_EMAIL    = os.environ.get("QD_EMAIL",    "")
+QD_PASSWORD = os.environ.get("QD_PASSWORD", "")
+if not QD_EMAIL or not QD_PASSWORD:
+    print("ERROR: QD_EMAIL and QD_PASSWORD environment variables must be set.")
+    sys.exit(1)
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 QD_BASE         = "https://core-lb-prod.quantdata.us/api"
 LOGIN_ENDPOINT  = "user/authentication/login"
-QD_CONFIG_PATH  = pathlib.Path.home() / ".quantdata-mcp" / "config.json"
-SERVICE_NAME    = "fortress-dashboard"
+QD_CONFIG_PATH       = pathlib.Path.home() / ".quantdata-mcp" / "config.json"
+QD_CONFIG_PATH_ROOT  = pathlib.Path("/root/.quantdata-mcp/config.json")
+SERVICE_NAME         = "fortress-dashboard-v4"
 
 BROWSER_HEADERS = {
     "accept":           "application/json, text/plain, */*",
@@ -152,6 +156,14 @@ def update_config(token: str, cookie: str) -> None:
 
     QD_CONFIG_PATH.write_text(json.dumps(cfg, indent=2))
     log(f"Config updated: {QD_CONFIG_PATH}")
+
+    # Sync to root config so systemd service (running as root) also gets fresh creds
+    try:
+        QD_CONFIG_PATH_ROOT.parent.mkdir(parents=True, exist_ok=True)
+        QD_CONFIG_PATH_ROOT.write_text(json.dumps(cfg, indent=2))
+        log(f"Root config synced: {QD_CONFIG_PATH_ROOT}")
+    except Exception as e:
+        log(f"WARN: Could not sync root config: {e}")
 
 
 def restart_service() -> bool:

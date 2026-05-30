@@ -49,6 +49,7 @@ SCRIPTS: dict[str, tuple[str, str]] = {
     "whale_flow":       ("workflow_07_whale_flow_report.py", "Whale Flow"),
     "max_pain":         ("workflow_08_max_pain_report.py",   "Max Pain"),
     "gex_oi":           ("gex_oi_report.py",                 "GEX/OI Update"),
+    "qd_refresh":       ("qd_refresh_session.py",            "QuantData Session Refresh"),
 }
 
 # ---------------------------------------------------------------------------
@@ -171,6 +172,13 @@ def build_scheduler() -> BackgroundScheduler:
       gex_oi          09:05 ET → 13:05 UTC   and  13:00 ET → 17:00 UTC  Mon-Fri
     """
     sched = BackgroundScheduler(timezone="UTC")
+
+    # 0 — QuantData Session Refresh: 06:00 ET → 10:00 UTC (runs before premarket)
+    sched.add_job(
+        _job("qd_refresh"),
+        CronTrigger(hour=10, minute=0, day_of_week="mon-fri", timezone="UTC"),
+        id="qd_refresh", name="QuantData Session Refresh", replace_existing=True,
+    )
 
     # 1 — Premarket Scanner: 07:00 ET → 11:00 UTC
     sched.add_job(
