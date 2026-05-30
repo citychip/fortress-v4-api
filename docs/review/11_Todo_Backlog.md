@@ -89,7 +89,7 @@
 | V4-F03 | Low | `qd_status()` MCP tool | 30m — check if QD credentials are valid before calling qd_* |
 | V4-F04 | Low | Regime badge colour | 30m — red → amber/green based on direction |
 | V4-F05 | Low | DTE countdown on Earnings rows | 30m |
-| V4-F06 | Low | Colour-coded Quick Nav cards | 1h |
+| ~~V4-F06~~ | ✅ Done | Colour-coded Quick Nav cards (v8.18) | — |
 | V4-F07 | Medium | Split SettingsPage.tsx (1,692 lines) | 3h — extract sub-components |
 | V4-F08 | Medium | Split AnalysisPage.tsx (1,469 lines) | 3h — extract sub-components |
 | V4-F09 | Low | Standardise backend logging | 2h — print() → logger.* |

@@ -16,13 +16,12 @@
     "TSM",
     "V",
     "MU",
-    "GEV"
-  ],
-  "tier2": [
+    "GEV",
     "META",
     "AAPL",
-    "NVDA"
+    "NVDIA"
   ],
+  "tier2": [],
   "macro": [
     "SPX",
     "SPY",
@@ -51,5 +50,5 @@
       "note": "Strategy §3.3 — ignored entirely. Display in book, never recommend."
     }
   ],
-  "_last_updated": "2026-05-19"
+  "_last_updated": "2026-05-30"
 }

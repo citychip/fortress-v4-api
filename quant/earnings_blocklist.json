@@ -1,7 +1,7 @@
 {
   "_comment": "Earnings blackout calendar for Portfolio Strategy v3.2. Update before each earnings season.",
   "_rule": "No new entries (PCS, Jade Lizard, PMCC short call) within 10 days of earnings date.",
-  "_last_updated": "2026-05-15",
+  "_last_updated": "2026-05-30",
   "_instructions": "Set 'next_earnings' to the expected earnings date (YYYY-MM-DD). Set 'confirmed' to true once date is confirmed by the company. Update immediately after earnings pass.",
   "tickers": {
     "MSFT": {
@@ -98,10 +98,10 @@
       "_source": "yfinance_auto"
     },
     "GEV": {
-      "next_earnings": "2026-07-29",
+      "next_earnings": "2026-07-22",
       "confirmed": false,
       "notes": "",
-      "_updated_at": "2026-05-15T17:34:13.556211+00:00",
+      "_updated_at": "2026-05-30T15:22:08.760007+00:00",
       "_source": "yfinance_auto"
     },
     "LLY": {
@@ -133,5 +133,5 @@
       "_source": "yfinance_auto"
     }
   },
-  "_last_auto_fetch": "2026-05-15T17:37:23.344733+00:00"
+  "_last_auto_fetch": "2026-05-30T15:22:08.760007+00:00"
 }
