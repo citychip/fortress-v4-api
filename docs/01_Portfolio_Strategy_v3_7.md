@@ -1,7 +1,7 @@
 # Portfolio Management Strategy
-**Version 3.7 — May 18, 2026**
+**Version 3.7.2 — May 29, 2026**
 
-v3.7 documents the Sprint v7.x dashboard evolution: (1) §15.6 tool stack updated to reflect the **Fortress V3 React/tRPC frontend** replacing the legacy Python/Jinja dashboard; (2) §8 workflow updated to reference the new **Candidates tab All-view** (full 19-ticker universe with monitoring fallback), **Market Intelligence sort/refresh/tooltip** enhancements, and **QuantData credentials manager** in Settings; (3) §15.6 QuantData MCP integration formalised — widget-UUID REST endpoints replace deprecated `tool/OPTIONS_*` calls; (4) §14 change log updated.
+v3.7.2 updates §15.6 tool stack to reflect the V4 WSL local deployment (replaces VPS), yfinance-based IVR in workflow scripts (replaces QuantData per-ticker dependency), ibind OAuth 1.0a IBKR auth, and the fortress_mcp.py Claude integration with server-side QuantData proxying. Trading rules §2–§13 unchanged from v3.7.
 
 ---
 
@@ -242,7 +242,7 @@ Live state in `active_positions.json`. Refreshed via CP Gateway Web API sync (pr
 
 ## 12. Open Items & Pipeline
 
-Continue MSFT high-conviction concentration, offset by SPY hedge (§2.D). Maintain `earnings_blocklist.json` — auto-fetcher available via the Earnings page. Review Settings tab thresholds quarterly (`delta_critical_threshold`, `available_funds_min_usd`, etc.) — tunable without code deploy. Refresh QuantData credentials in Settings → QuantData Credentials when the session expires (auth_token + cookie from browser DevTools). Re-run `workflow_05_iv_crush_report.py` after credential refresh to regenerate the Candidates data.
+Continue MSFT high-conviction concentration, offset by SPY hedge (§2.D) — note current MSFT concentration is 97.1% (above the 20% normal threshold; acceptable per §3.1 MSFT exception with active hedge). Maintain `earnings_blocklist.json` — auto-fetcher available via the Earnings page. Review Settings tab thresholds quarterly — tunable without code deploy. Refresh QuantData credentials via **Settings → QuantData Auto-Login** when session expires. Re-run `workflow_05_iv_crush_report.py` to regenerate Candidates data. QuantData per-ticker proxy fix (QD-01) is pending — `qd_*` MCP tools currently return SPY data for all tickers.
 
 ---
 
@@ -254,6 +254,7 @@ Live calendar maintained in `earnings_blocklist.json` and visible in the dashboa
 
 ## 14. Change Log
 
+- **v3.7.2 (May 29, 2026):** §15.6 tool stack updated — V4 WSL local deployment replaces VPS; yfinance ATM options IV + rolling HV replaces QuantData per-ticker IVR in workflow_01/05; workflow_08 max pain from yfinance options chain; ibind OAuth 1.0a IBKR auth added (pending activation); fortress_mcp.py server-side QD proxy. §12 open items updated with QD-01 known issue.
 - **v3.7 (May 18, 2026):** §15.6 tool stack updated — Fortress V3 React/tRPC frontend replaces legacy Python/Jinja dashboard. §8 workflow updated to reference Candidates All-view (full 19-ticker universe with monitoring fallback), Market Intelligence sort/refresh/tooltip enhancements, and QuantData credentials manager in Settings. §15.6 QuantData MCP integration formalised: widget-UUID REST endpoints replace deprecated `tool/OPTIONS_*` calls; `chart.py` fixed (GEX walls, DP levels, order flow now use correct endpoints). §7 Market Regime Filters table added for clarity.
 - **v3.6 (May 5, 2026):** §5 Critical Gamma threshold tightened from 0.40 to **0.35**. §7 margin floors normalised to USD. §15.6 tool stack updated — CP Gateway via voyz/ibeam is the live broker integration.
 - **v3.5 (May 4, 2026):** §2.D SPY hedge MV tracker enforcement; §2.E Jade Lizard credit gate enforcement.
@@ -299,41 +300,52 @@ Tools may add safety beyond what this document requires. They may not subtract s
 
 Strategy document: review quarterly or after significant outcome events. Tool stack: review monthly — tools should evolve faster than strategy. Memory: review weekly.
 
-### 15.6 Tool Stack Inventory (May 2026, Sprint v7.x)
+### 15.6 Tool Stack Inventory (v4.2, May 2026)
 
-**Frontend — Fortress V3 Dashboard (React/tRPC)**
+**Frontend — Fortress V4 Dashboard (React/tRPC)**
 
-The dashboard is a React 19 + TypeScript + Tailwind CSS single-page application served from the VPS. It communicates with the Python backend via a bearer-token REST API. Key pages:
+React 19 + TypeScript + Tailwind CSS SPA. Runs locally on WSL, served via nginx at `https://localhost`. Key pages:
 
 | Page | Function |
 |---|---|
 | Dashboard | Macro Regime Score, Net Liq, Daily P&L, Morning Brief, Priority Orders |
-| Trade → Candidates | IV Rank screener — 19-ticker universe, Actionable/Watch/All tabs with monitoring fallback |
-| Trade → Market Intelligence | Per-ticker GEX walls, dark pool levels, net drift, directional bias — sort/refresh/tooltip |
-| Trade → Analysis | Price chart with position overlays, Greeks summary, position risk context |
+| Trade → Candidates | IV Rank screener — yfinance-based IVR, full universe |
+| Trade → Market Intelligence | Per-ticker GEX walls, dark pool levels, net drift, directional bias |
+| Trade → Analysis | Price chart with position overlays, Greeks summary |
 | Portfolio | Per-leg Greeks, DTE triage, concentration alerts, roll prompts |
 | Earnings | Earnings calendar, blackout windows |
-| Settings | Strategy parameters, ticker universe, QuantData credentials, trader presets |
+| Settings | Strategy parameters, ticker universe, IBKR auth mode, QuantData login |
 
-**Backend — Python/FastAPI on VPS**
+**Backend — Python/FastAPI (WSL)**
 
-REST API served at `http://76.13.138.194:3000/api/`. Bearer token authenticated. Key endpoints: `/api/briefing`, `/api/candidates`, `/api/market-intelligence`, `/api/positions`, `/api/alerts`, `/api/ibkr/preview`, `/api/settings/quantdata-credentials`, `/api/manage/roll_all`, `/api/manage/stop_loss_all`.
+REST API at `http://localhost:8081/api/`. Two tokens accepted: `FORTRESS_API_TOKEN` (browser) and `FORTRESS_MCP_TOKEN` (Claude). Running as `fortress-dashboard-v4.service` (systemd). Key endpoints: `/api/briefing`, `/api/candidates`, `/api/market-intelligence`, `/api/positions`, `/api/alerts`, `/api/manage/roll_all`, `/api/manage/stop_loss_all`, `/api/qd/*` (QuantData proxy).
 
-**QuantData MCP + REST API**
+**QuantData Integration**
 
-QuantData MCP server running at `/home/ubuntu/.quantdata-mcp/` on the VPS. Uses widget-UUID-based REST endpoints (not deprecated `tool/OPTIONS_*` IDs). Three scripts consume it: `market_intelligence.py` (GEX exposure, dark pool levels, net drift), `chart.py` (GEX wall and DP level chart overlays), `iv_crush_scanner.py` (IV rank and IV/HV spread for the Candidates screener). Credentials (auth_token + cookie) are refreshed via Settings → QuantData Credentials in the dashboard.
+Credentials at `~/.quantdata-mcp/config.json` (auth_token, instance_id, page_id, tool UUIDs). Refreshed via **Settings → QuantData Auto-Login**. The `/api/qd/*` proxy endpoints serve QuantData data to the MCP — no client-side QD credentials needed. Note: per-ticker data for MCP `qd_*` tools returns the default ticker (SPY) until the `update_tool` server-side fix is implemented.
 
-**Broker Integration — CP Gateway**
+**IVR / IV Source (v4.2)**
 
-`voyz/ibeam` Docker container at `https://localhost:5000`. Daily IBKR Mobile push approval to refresh session. Replaces the legacy `gnzsnz/ib-gateway` (TWS API), which is stopped. Greeks backend: auto-resolved per `cfg("technical.greeks_backend")` — `web_api` (CP Gateway + OPRA, preferred), `bs_yfinance` (Black-Scholes fallback), `tws_ibkr` (legacy, diagnostics only), `auto` (default).
+workflow_01 and workflow_05 use yfinance ATM options chain IV + 52-week rolling HV for IVR calculation. This replaces the previous QuantData per-ticker dependency. Max pain (workflow_08) also uses yfinance options chain.
+
+**Broker Integration — IBKR**
+
+- **CP Gateway** (active, requires daily browser login): `https://localhost:5000`
+- **ibind OAuth 1.0a** (configured, pending IBKR activation): fully headless, no daily login
+- Toggle in **Settings → Security → IBKR Auth: Use ibind OAuth**
+- Greeks backend: `web_api` (CP Gateway + OPRA, preferred) → `bs_yfinance` (fallback)
+
+**Claude MCP Server**
+
+`fortress_mcp.py` at `C:\Users\cityc.000\fortress_mcp\` (Windows). 64 tools. Start with `get_briefing()`. Write tools enabled by default (`FORTRESS_MCP_ALLOW_WRITES=1`). All `qd_*` tools proxy through the server.
 
 **Workflow Scripts**
 
-`workflow_01` through `workflow_08` in `~/Fortress_Dashboard/quant/`: pre-market scan, daily summary, position monitor, EOD review, IV crush (Candidates data), dark pool alert, whale flow, max pain.
+`workflow_01` through `workflow_08` in `~/fortress-v4-api/quant/`. Reports saved to same directory. Run via dashboard Scripts page, MCP `run_script()`, or APScheduler (automated).
 
 **State Files**
 
-`active_positions.json`, `earnings_blocklist.json`, `ticker_universe.json`, `alerts.json`, `journal.json`, `chart_annotations.json`, `ibkr_uploads.json`, `fortress_config.json` (schema-driven settings).
+All in `~/fortress-v4-api/quant/`: `active_positions.json`, `earnings_blocklist.json`, `ticker_universe.json`, `alerts.json`, `journal.json`, `chart_annotations.json`, `fortress_config.json`.
 
 **TradingView**
 
