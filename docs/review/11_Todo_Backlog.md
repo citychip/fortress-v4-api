@@ -128,3 +128,13 @@ Full spec: `docs/TRADE_FLOW_REDESIGN.md`
 | V4-F10 | Low | Frontend unit tests (msw-based) | Deferred |
 | V4-F11 | Low | MySQL migration alerts/journal | Deferred |
 | V4-QD-TICKER | Low | QuantData per-ticker proxy | Won't fix — architectural limitation |
+
+## Completed (v8.26 Phase 1 — 2026-05-30)
+
+| ID | Item | Resolved |
+|---|---|---|
+| ✅ TF-01 | Roll + Build buttons deep-link to `/trade` with URL params | `PositionsPage.tsx` — two links fixed (leg-level Roll and group-level Build) |
+| ✅ TF-02 | Trade tab reads `?ticker`, `?mode`, `?leg` from URL | `TradePage.tsx` — `useSearch()` + passes props with `key` for clean remount |
+| ✅ TF-03 | Ticker dropdown shows active positions at top, urgency-ordered | `TradeBuilderPage.tsx` — `positionContextMap` built from positions + roll/stop data |
+| ✅ TF-04 | Mode selector (New Entry / Add / Roll / Close) in Trade Builder | `TradeBuilderPage.tsx` — pills auto-set from `initialMode` prop |
+| ✅ TF-05 | State reset on ticker/mode change | `TradeBuilderPage.tsx` — `useEffect` with `isFirstRender` ref guard |

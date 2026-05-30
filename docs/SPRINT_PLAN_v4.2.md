@@ -238,3 +238,22 @@ Full spec: `docs/TRADE_FLOW_REDESIGN.md`
 | TF-61 | "Set Alert" button on any recommendation in Briefing / Action Queue | 1h |
 | TF-62 | Portfolio: alerts sub-section per position group | 1h |
 | TF-63 | Trade: post-order alert suggestion step | 1h |
+
+---
+
+## v8.26 — Phase 1: Deep-link wiring (COMPLETED 2026-05-30)
+
+| ID | Task | Status |
+|---|---|---|
+| TF-01 | Roll / Close / Add buttons on Portfolio position groups | ✅ Roll + Build buttons wired |
+| TF-02 | Parse `?ticker`, `?mode`, `?leg` URL params in Trade tab | ✅ Done via `useSearch()` in TradePage |
+| TF-03 | Ticker dropdown: active positions (urgency-ordered) + undeployed universe below divider | ✅ positionContextMap in TickerSelector |
+| TF-04 | Mode selector: New Entry / Add / Roll / Close — auto-set from URL param | ✅ Done |
+| TF-05 | State reset `useEffect` on ticker/mode change | ✅ Done with `isFirstRender` ref guard |
+
+**Commit:** `5b483e0` on `fortress-v4-frontend`
+
+**Notes:**
+- Found and fixed a second `/trade-builder` link (Build button on ticker group header) during testing
+- `positionContextMap` destructuring bug caught and fixed during QA
+- `/trade-builder` route kept as legacy fallback; primary route is now `/trade?ticker&mode&leg`
