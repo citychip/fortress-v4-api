@@ -1,5 +1,5 @@
 # Fortress Dashboard — Master Documentation
-**Version: 4.3 | Date: 2026-05-30 | Status: Current**
+**Version: 4.4 | Date: 2026-05-31 | Status: Current**
 
 This is the single authoritative document for the Fortress Trading Dashboard system. It supersedes all versioned sub-documents where they conflict. Read this before making any changes to the system.
 
@@ -31,7 +31,7 @@ Fortress is a personal options trading operations platform. It manages a systema
 | Component | Location | Status |
 |---|---|---|
 | FastAPI backend | `~/fortress-v4-api/` (WSL) | ✅ Running as `fortress-dashboard-v4.service` |
-| React frontend | `~/fortress-v4-api/` (built) | ✅ Served by nginx |
+| React frontend | `~/fortress-v4-frontend/` (WSL) | ✅ Served by nginx at localhost:80 |
 | MCP server | `C:\Users\cityc.000\fortress_mcp\fortress_mcp.py` | ✅ Connected to Claude Desktop |
 | IBKR (CP Gateway) | `https://localhost:5000` | ✅ Active (daily login) |
 | IBKR (ibind OAuth) | configured | Pending IBKR activation |
@@ -481,6 +481,7 @@ sudo systemctl restart fortress-dashboard-v4
 
 | Version | Date | Summary |
 |---|---|---|
+| v4.4 | 2026-05-31 | Sprint 10 complete: custom persona editor (fork/edit/diff-apply, per-field override tracking); Strategy tab restructured into 4 zones (Trader Profile, Ticker Universe, Strategy Rules, Regime Playbook); Settings reduced to Connections+System; Config renamed System; sidebar pin/unpin (click logo); regime chip colour tint on status bar; Strategy Rules unified as single 4-group number-input component (no sliders). Frontend commit: `3f64865` |
 | v4.3 | 2026-05-30 | Market Intelligence page: portfolio/universe split — tickers with active positions shown first with strategy·DTE·Δ badge; server-side 5-min response cache + Refresh All button; MCP `get_market_intelligence` gets `refresh` param; `retry_ibkr_sync()` MCP tool added (K-03) |
 | v4.2 | 2026-05-29 | qd.py: x-instance-id header, iv-rank response parsing (sessionDateToIVRankData), IVR from 52w HV window, dict-format tool ID support; workflow_01/05: yfinance ATM options IV + rolling HV IVR (removes QuantData IVR dependency); workflow_08: yfinance max pain from options chain; all scripts output to quant/; fortress_mcp.py: qd_* tools proxy through server — no local QD credentials needed |
 | v4.1 | 2026-05-29 | WSL local deployment; dual-token middleware; trpc prefs path fix |

@@ -1,5 +1,5 @@
 # Fortress v4 — Sprint Plan
-**Updated:** 2026-05-31 | **Current version:** post-Sprint-9
+**Updated:** 2026-05-31 | **Current version:** post-Sprint-10
 
 ---
 
@@ -19,6 +19,7 @@
 | Refactor | post-50 | AnalysisPage 1481→258 lines, SettingsPage 1725→108 lines (11 sub-files) |
 | Sprint 8 | post-50 | 5-tab nav, Candidates in Briefing, lazy loading, Portfolio P&L chips, Analysis panels collapsed, Chart link, bug fixes |
 | Sprint 9 | post-50 | Earnings banner, position sizing, journal prompt, mark actioned, config wiring, floor-anchored strikes, Briefing redesign |
+| Sprint 10 | post-50 | Custom persona editor, Strategy tab restructure, System rename, sidebar pin, regime tint, Strategy Rules unified |
 
 ---
 
@@ -31,32 +32,36 @@
 | S9-02 | Position sizing suggestion (2% NL rule, clickable chip in Step 4) | ✓ Done |
 | S9-03 | Post-trade journal prompt — Step 7 with textarea, POST /api/journal | ✓ Done |
 | S9-04 | Mark actioned on Action Queue (✓ button; API snooze for cond alerts, session-dismiss for roll/stop) | ✓ Done |
-| S9-05 | Sidebar pin/unpin | Deferred → Sprint 10 |
-| S9-06 | Config → Trade Builder wiring (activeStrategies dim, targetDte sync live, deltaBuffer → strike, profitTarget hint) | ✓ Done (added) |
-| S9-07 | Floor/wall-anchored default short strike (snap to DP floor or GEX put wall ±12%, ⚓ label) | ✓ Done (added) |
-
-**Also shipped this session:**
-- Briefing redesign: Priority Orders first, 3-tab layout (removed Candidates tab), MacroRegimeCard extracted
-- Nav: Analysis at bottom, divider Trade/Config
-- /research route restored (hidden from nav)
-- Settings tab crash-fixes (6 files with missing React/hook/theme imports from Sprint 8 page split)
-- Long strike spinner seeds from spot price
+| S9-05 | Sidebar pin/unpin | Deferred → Sprint 10 ✓ |
+| S9-06 | Config → Trade Builder wiring (activeStrategies dim, targetDte sync live, deltaBuffer → strike, profitTarget hint) | ✓ Done |
+| S9-07 | Floor/wall-anchored default short strike (snap to DP floor or GEX put wall ±12%, ⚓ label) | ✓ Done |
 
 ---
 
-## Sprint 10 — Config Restructure + UX Polish
-**Goal:** Fix Config junk-drawer, remove legacy pages, keyboard nav.
+## Sprint 10 — Config Restructure + UX Polish ✓ DONE
+**Shipped:** 2026-05-31
+
+| ID | Task | Status |
+|---|---|---|
+| S10-00 | Sidebar pin/unpin — click Fortress logo, persisted to localStorage | ✓ Done |
+| S10-01 | Strategy tab restructured — Trading sub-tab content moved into Strategy (Zones 2+3) | ✓ Done (revised scope) |
+| S10-02 | Config → rename "System" in nav + ConfigPage | ✓ Done |
+| S10-03 | Keyboard shortcuts | Deferred → Sprint 11 |
+| S10-04 | Status bar regime colour tint (red=bearish, green=bullish, amber=neutral) | ✓ Done |
+| S10-X1 | Custom persona editor — fork built-ins, edit with override tracking, diff/apply dialog | ✓ Done (added) |
+| S10-X2 | Strategy Rules unified — replace slider section with 4-group number-input layout | ✓ Done (added) |
+
+**Sprint 10 scope note:** S10-01b (remove StrategyPage) was replaced by a restructure that keeps StrategyPage but makes it the canonical "how I trade" configuration hub. Settings is now purely technical (Connections + System).
+
+---
+
+## Sprint 11 — Next
 
 | ID | Task | Detail | Priority |
 |---|---|---|---|
-| S10-00 | Sidebar pin/unpin toggle | Click Fortress logo to lock sidebar expanded. State in localStorage | Medium |
-| S10-01b | Remove legacy StrategyPage | StrategyPage.tsx in Config predates Phase 3 — Sandbox is already in Trade. Remove Strategy sub-tab from Config entirely | High |
-| S10-01 | Move Strategy settings out of Config | Delta target, roll DTE, IVR minimums, signal mode → collapsible "Strategy Rules" panel in Portfolio header. Config keeps: Settings · Scripts · Monitor | High |
-| S10-02 | Config → rename "System" | After Strategy removal: Config becomes "System" — Settings · Scripts · Monitor | Medium |
-| S10-03 | Keyboard shortcuts | B → Briefing, P → Portfolio, T → Trade, A → Analysis, C → Config, Esc → close panels. useEffect on keydown, ignore when input focused | Low |
-| S10-04 | Status bar regime colour tint | Subtle background on regime chip (red=Bearish, green=Bullish) | Low |
-
-**Estimated size:** Half session | **Risk:** Low
+| S11-01 | Keyboard shortcuts | B→Briefing, P→Portfolio, T→Trade, A→Analysis, C→System, Esc→close panels. useEffect on keydown, ignore when input focused | Low |
+| S11-02 | Move PersonaEditorPanel → Settings tab | Currently lives in StrategyPage. When further refactoring happens, move to Settings | Medium |
+| S11-03 | Scenario planning (P-04) | Model hypothetical position, see impact on portfolio Greeks/concentration/delta bias before committing | Medium |
 
 ---
 
@@ -69,15 +74,17 @@
 | MySQL migration for alerts/journal | JSON files work fine at current scale |
 | Frontend unit tests (msw-based) | Full day setup, low immediate value |
 | IBKR chain OI (real OI via secdef/info) | Latency cost not worth it; OI=100 placeholder fine |
+| Vol analytics panel (P-05) | IV term structure, skew chart — needs QuantData IV history endpoint |
 
 ---
 
 ## Guiding principles
 
 - **Deep-links first.** Every action (roll, close, new entry, alert) reachable in one click from natural context.
-- **Badge = action required.** Only Trade badge counts urgency. Analysis/Config badges never warranted.
-- **No junk drawers.** Every tab has a single clear purpose.
+- **Badge = action required.** Only Trade badge counts urgency. Analysis/System badges never warranted.
+- **No junk drawers.** Every tab has a single clear purpose. Strategy = how I trade. Settings = technical admin.
 - **Backend zero for UI sprints.** If a sprint requires both, split them.
 - **Page files stay under 400 lines.** Larger files get split before next sprint.
 - **TradeLanding stays.** The active positions + universe candidates landing is the entry point to Trade — do not replace with a minimal empty state.
 - **otmBufferColor lives in TechnicalPanels.tsx** — exported, imported by PriceChart. Don't re-inline.
+- **StrategySection is the single source of truth** for all strategy parameters. No slider version. Lives in `components/settings/StrategySection.tsx`.
