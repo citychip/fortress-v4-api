@@ -116,7 +116,8 @@ Full spec: `docs/TRADE_FLOW_REDESIGN.md`
 | TF-10–11 | P2 | Collapsible position groups in Portfolio | Phase 2 |
 | ~~TF-20–21~~ | ✅ Done | Move Strategy Sandbox from Analysis to Trade tab | Phase 3 — v8.28 |
 | ~~TF-30–31~~ | ✅ Done | Action Queue in Briefing + sidebar badge | Phase 4 — v8.35 |
-| TF-40–43 | P1 | Roll alternatives engine (IBKR chain + scoring) | Phase 5 |
+| ~~TF-40–43~~ | ✅ Done | Roll alternatives engine + IBKR chain + sandbox wiring | Phase 5 — v8.36–v8.40 |
+| ~~TF-40–43~~ | ✅ Done | Roll alternatives engine (IBKR chain + scoring) | Phase 5 — v8.36–v8.40 |
 | TF-50–51 | P2 | Strategy selector with live metrics (PMCC/PCS/diagonal comparison) | Phase 6 |
 | TF-60–63 | P2 | Conditional alerts system (price/P&L/DTE/delta triggers) | Phase 7 |
 
@@ -139,6 +140,21 @@ Full spec: `docs/TRADE_FLOW_REDESIGN.md`
 |---|---|---|
 | ✅ TF-30 | Action Queue deep-links in Briefing Priority Orders panel — each row gets colored Trade button | `DashboardPage.tsx` — stop-loss→close, roll→roll, alert→new mode |
 | ✅ TF-31 | Sidebar Trade icon badge — red count badge shows urgent roll+stop-loss count | `App.tsx` — `useRollAll`+`useStopLossAll` in sidebar, badge on Trade path |
+
+
+## Completed (v8.35–v8.40 Phase 4+5 — 2026-05-31)
+
+| ID | Item | Resolved |
+|---|---|---|
+| ✅ TF-30 | Briefing Priority Orders rows — colored Trade deep-links (close/roll/new mode) | `DashboardPage.tsx` |
+| ✅ TF-31 | Trade sidebar badge — red count of urgent roll+stop-loss actions | `App.tsx` |
+| ✅ TF-40 | Roll alternatives engine backend — `GET /api/options/roll_candidates` | `app/routes/options.py` — Conservative/Balanced/Aggressive proposals |
+| ✅ TF-41 | Roll alternatives panel in Trade tab (mode=roll) — 3 proposals with Use → button | `TradeBuilderPage.tsx` — inline below proposals |
+| ✅ TF-42 | IBKR chain service — `app/services/ibkr_chain.py` — live bid/ask/IV via CP Gateway | IBKR-first, yfinance fallback; conid cache 1h, strikes cache 5min |
+| ✅ TF-43 | Sandbox wired to roll proposal — Use → pre-fills strike + DTE in sandbox | `StrategySandbox.tsx` — `defaultStrike` + `defaultDte` props |
+| ✅ FIX-07 | Sandbox credit per-share vs per-contract mismatch — max profit showed $5 not $500 | `buildPayoffData` — multiply credit by 100 |
+| ✅ FIX-08 | Strike input spinner started from 0+1=1 — should start from effectiveStrike | `StrategySandbox.tsx` — `value={effectiveStrike}`, `step={5}` |
+| ✅ FIX-09 | IBKR secdef/search secType nested in sections, not top-level | `ibkr_chain.py` — check `r.sections` for STK |
 
 ## Completed (v8.28–v8.34 Phase 3 — 2026-05-31)
 
