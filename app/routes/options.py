@@ -607,20 +607,329 @@ def get_roll_candidates(
         targets = [("Conservative", 0.25), ("Balanced", 0.16), ("Aggressive", 0.08)]
 
     proposals = []
-    used_strikes = set()
+    used_strikes: set[float] = set()
     for label, tgt_delta in targets:
+        # Only consider strikes not already used by a prior profile
+        available = [c for c in candidates if c["strike"] not in used_strikes]
+        if not available:
+            break
         # Prefer candidates near target_dte; break ties by delta proximity
         best = min(
-            candidates,
+            available,
             key=lambda c: (abs(c["delta"] - tgt_delta) * 2 + abs(c["dte"] - target_dte) / target_dte)
         )
-        if best["strike"] not in used_strikes:
-            proposals.append({"label": label, **best})
-            used_strikes.add(best["strike"])
+        proposals.append({"label": label, **best})
+        used_strikes.add(best["strike"])
 
     return {
         "ticker":    ticker.upper(),
         "spot":      round(spot, 2),
         "right":     right_up,
         "proposals": proposals,
+    }
+
+
+# ── Strategy Metrics ───────────────────────────────────────────────────────────
+
+@router.get("/options/strategy_metrics")
+def get_strategy_metrics(
+    ticker: str,
+    mode: str = "new",          # 'new' | 'add'
+    target_dte: int = 45,
+):
+    """
+    Compute live metrics for each available strategy given the current ticker's IV,
+    spot, IVR, earnings distance, and regime.  Used by Phase 6 Strategy Selector.
+
+    Returns a ranked list of strategies with:
+      estimated_credit, pop, max_loss, capital_required, regime_score, recommended
+    """
+    import math as _math
+    import logging as _log_mod
+    _log = _log_mod.getLogger("fortress.options.strategy_metrics")
+
+    ticker = ticker.upper()
+    from app.services import chain as chain_svc
+
+    spot = chain_svc.get_spot(ticker) or 0
+    if not spot or spot <= 0:
+        raise HTTPException(status_code=404, detail="Cannot fetch spot price")
+
+    # ── Pull market intelligence for IVR, earnings, regime ───────────────────
+    iv: float = 0.30        # fallback
+    ivr: float = 50.0
+    days_to_earnings: int = 999
+    regime_overall: str = "neutral"
+    gex_regime: str = "neutral"
+
+    try:
+        from app.routes.market import get_market_intelligence  # type: ignore
+        intel = get_market_intelligence(ticker)
+        iv  = (intel.get("current_iv") or 0) / 100 if (intel.get("current_iv") or 0) > 1 else (intel.get("current_iv") or 0.30)
+        ivr = intel.get("iv_rank") or 50.0
+        days_to_earnings = intel.get("days_to_earnings") or 999
+        regime_overall   = (intel.get("regime") or {}).get("overall", "neutral")
+        gex_regime       = (intel.get("regime") or {}).get("gex_regime", "neutral")
+    except Exception as e:
+        _log.debug("market intel unavailable for %s: %s", ticker, e)
+
+    if iv <= 0:
+        iv = 0.30
+
+    # ── BS helpers ────────────────────────────────────────────────────────────
+    def bs_price_call(S: float, K: float, t_years: float, sigma: float) -> float:
+        if t_years <= 0 or sigma <= 0:
+            return max(S - K, 0)
+        d1 = (_math.log(S / K) + (_RISK_FREE + 0.5 * sigma**2) * t_years) / (sigma * _math.sqrt(t_years))
+        d2 = d1 - sigma * _math.sqrt(t_years)
+        from app.services.bs_fallback import _norm_cdf
+        return S * _norm_cdf(d1) - K * _math.exp(-_RISK_FREE * t_years) * _norm_cdf(d2)
+
+    def bs_price_put(S: float, K: float, t_years: float, sigma: float) -> float:
+        call = bs_price_call(S, K, t_years, sigma)
+        # put-call parity
+        return call - S + K * _math.exp(-_RISK_FREE * t_years)
+
+    def norm_cdf(x: float) -> float:
+        from app.services.bs_fallback import _norm_cdf
+        return _norm_cdf(x)
+
+    def pop_short_put(S: float, K: float, t_years: float, sigma: float) -> float:
+        """P(S_T >= K) = N(d2) for short put."""
+        if t_years <= 0 or sigma <= 0:
+            return 1.0 if S >= K else 0.0
+        d2 = (_math.log(S / K) + (_RISK_FREE - 0.5 * sigma**2) * t_years) / (sigma * _math.sqrt(t_years))
+        return norm_cdf(d2)
+
+    def pop_short_call(S: float, K: float, t_years: float, sigma: float) -> float:
+        """P(S_T <= K) = N(-d2) for short call."""
+        return 1 - pop_short_put(S, K, t_years, sigma)
+
+    def target_strike_by_delta(delta_target: float, right: str = "C") -> float:
+        """Approximate strike where abs(delta) ≈ delta_target using log-normal inversion."""
+        t = target_dte / 365.0
+        if t <= 0 or iv <= 0:
+            return spot
+        # For call: delta = N(d1), so d1 = N_inv(delta_target)
+        # For put: delta = N(d1) - 1, so d1 = N_inv(delta_target + 1)
+        from app.services.bs_fallback import _norm_cdf
+        # Simple bisection — fast enough for a small search
+        lo, hi = spot * 0.5, spot * 2.0
+        for _ in range(40):
+            mid = (lo + hi) / 2
+            d1 = (_math.log(spot / mid) + (_RISK_FREE + 0.5 * iv**2) * t) / (iv * _math.sqrt(t))
+            if right.upper() == "C":
+                d = norm_cdf(d1)
+            else:
+                d = norm_cdf(d1) - 1.0
+            if abs(d) < delta_target:
+                lo = mid  # need to move strike closer (lower for call, higher for put)
+            else:
+                hi = mid
+            if abs(abs(d) - delta_target) < 0.001:
+                break
+        return round(mid / 5) * 5  # round to nearest 5
+
+    t = target_dte / 365.0
+    t_long = 365.0 / 365.0  # ~1 year LEAP
+
+    # ── Scoring helpers ───────────────────────────────────────────────────────
+    def regime_score(ideal_ivr: float, bias: str) -> int:
+        """0-5 regime fit score."""
+        score = 0
+        if ivr >= ideal_ivr:
+            score += 2
+        elif ivr >= ideal_ivr * 0.75:
+            score += 1
+        bull = regime_overall in ("bullish", "BULLISH")
+        bear = regime_overall in ("bearish", "BEARISH")
+        neutral = not bull and not bear
+        if bias == "bullish" and bull:     score += 2
+        elif bias == "neutral" and neutral: score += 2
+        elif bias == "bearish" and bear:    score += 2
+        elif bias in ("bullish", "neutral") and neutral: score += 1
+        # Earnings penalty
+        if days_to_earnings <= 7:
+            score = max(0, score - 2)
+        elif days_to_earnings <= 14:
+            score = max(0, score - 1)
+        return min(5, score)
+
+    strategies = []
+
+    # ── 1. PCS (Put Credit Spread) ─────────────────────────────────────────
+    short_put_strike = target_strike_by_delta(0.20, "P")
+    long_put_strike  = max(short_put_strike - round(spot * 0.05 / 5) * 5, 1.0)
+    short_put_price  = bs_price_put(spot, short_put_strike, t, iv)
+    long_put_price   = bs_price_put(spot, long_put_strike,  t, iv)
+    pcs_credit       = max(short_put_price - long_put_price, 0) * 100
+    pcs_width        = (short_put_strike - long_put_strike) * 100
+    pcs_max_loss     = max(pcs_width - pcs_credit, 0)
+    pcs_pop          = pop_short_put(spot, short_put_strike, t, iv)
+    pcs_score        = regime_score(40, "bullish")
+    strategies.append({
+        "id":               "pcs",
+        "name":             "Put Credit Spread",
+        "short_name":       "PCS",
+        "description":      f"Sell ${short_put_strike:.0f}P / Buy ${long_put_strike:.0f}P · {target_dte}d",
+        "short_strike":     short_put_strike,
+        "long_strike":      long_put_strike,
+        "estimated_credit": round(pcs_credit, 2),
+        "pop":              round(pcs_pop, 3),
+        "max_loss":         round(pcs_max_loss, 2),
+        "capital_required": round(pcs_max_loss, 2),
+        "regime_score":     pcs_score,
+        "max_loss_type":    "defined",
+        "bias":             "bullish",
+        "ideal_ivr":        40,
+        "min_dte":          30,
+        "max_dte":          60,
+        "legs":             2,
+        "earnings_safe":    days_to_earnings > 10,
+    })
+
+    # ── 2. CSP (Cash-Secured Put) ──────────────────────────────────────────
+    csp_strike  = short_put_strike  # same delta target
+    csp_credit  = bs_price_put(spot, csp_strike, t, iv) * 100
+    csp_max_loss = csp_strike * 100  # if assigned (conceptual)
+    csp_pop     = pop_short_put(spot, csp_strike, t, iv)
+    csp_capital = csp_strike * 100
+    csp_score   = regime_score(30, "bullish")
+    strategies.append({
+        "id":               "csp",
+        "name":             "Cash-Secured Put",
+        "short_name":       "CSP",
+        "description":      f"Sell ${csp_strike:.0f}P · {target_dte}d",
+        "short_strike":     csp_strike,
+        "long_strike":      None,
+        "estimated_credit": round(csp_credit, 2),
+        "pop":              round(csp_pop, 3),
+        "max_loss":         round(csp_max_loss, 2),
+        "capital_required": round(csp_capital, 2),
+        "regime_score":     csp_score,
+        "max_loss_type":    "limited",
+        "bias":             "bullish",
+        "ideal_ivr":        30,
+        "min_dte":          30,
+        "max_dte":          60,
+        "legs":             1,
+        "earnings_safe":    days_to_earnings > 10,
+    })
+
+    # ── 3. PMCC (Poor Man's Covered Call) ─────────────────────────────────
+    short_call_strike   = target_strike_by_delta(0.20, "C")
+    leap_strike         = round(spot * 0.75 / 5) * 5   # deep ITM ~delta 0.75
+    short_call_price    = bs_price_call(spot, short_call_strike, t, iv)
+    leap_price          = bs_price_call(spot, leap_strike, t_long, iv)
+    pmcc_monthly_credit = short_call_price * 100
+    pmcc_max_spread     = (short_call_strike - leap_strike) * 100
+    pmcc_max_profit     = pmcc_max_spread  # per contract, ignoring LEAP cost
+    pmcc_max_loss       = leap_price * 100 - pmcc_monthly_credit  # approx
+    pmcc_capital        = leap_price * 100
+    pmcc_pop            = pop_short_call(spot, short_call_strike, t, iv)
+    pmcc_score          = regime_score(25, "bullish")
+    strategies.append({
+        "id":               "pmcc",
+        "name":             "Poor Man's Covered Call",
+        "short_name":       "PMCC",
+        "description":      f"Long ${leap_strike:.0f}C (1yr LEAP) + Sell ${short_call_strike:.0f}C · {target_dte}d",
+        "short_strike":     short_call_strike,
+        "long_strike":      leap_strike,
+        "estimated_credit": round(pmcc_monthly_credit, 2),
+        "pop":              round(pmcc_pop, 3),
+        "max_loss":         round(max(pmcc_max_loss, 0), 2),
+        "capital_required": round(pmcc_capital, 2),
+        "regime_score":     pmcc_score,
+        "max_loss_type":    "limited",
+        "bias":             "bullish",
+        "ideal_ivr":        25,
+        "min_dte":          30,
+        "max_dte":          60,
+        "legs":             2,
+        "earnings_safe":    days_to_earnings > 14,
+    })
+
+    # ── 4. Iron Condor ─────────────────────────────────────────────────────
+    short_call_ic = target_strike_by_delta(0.15, "C")
+    long_call_ic  = short_call_ic + round(spot * 0.05 / 5) * 5
+    short_put_ic  = target_strike_by_delta(0.15, "P")
+    long_put_ic   = max(short_put_ic - round(spot * 0.05 / 5) * 5, 1.0)
+    call_credit   = max(bs_price_call(spot, short_call_ic, t, iv) - bs_price_call(spot, long_call_ic, t, iv), 0) * 100
+    put_credit    = max(bs_price_put(spot, short_put_ic, t, iv)   - bs_price_put(spot, long_put_ic,  t, iv), 0) * 100
+    ic_credit     = call_credit + put_credit
+    ic_width      = (long_call_ic - short_call_ic) * 100
+    ic_max_loss   = max(ic_width - ic_credit, 0)
+    ic_pop        = pop_short_put(spot, short_put_ic, t, iv) * pop_short_call(spot, short_call_ic, t, iv)
+    ic_score      = regime_score(55, "neutral")
+    strategies.append({
+        "id":               "iron_condor",
+        "name":             "Iron Condor",
+        "short_name":       "IC",
+        "description":      f"${short_put_ic:.0f}/${long_put_ic:.0f}P + ${short_call_ic:.0f}/${long_call_ic:.0f}C · {target_dte}d",
+        "short_strike":     short_put_ic,
+        "long_strike":      short_call_ic,
+        "estimated_credit": round(ic_credit, 2),
+        "pop":              round(ic_pop, 3),
+        "max_loss":         round(ic_max_loss, 2),
+        "capital_required": round(ic_max_loss, 2),
+        "regime_score":     ic_score,
+        "max_loss_type":    "defined",
+        "bias":             "neutral",
+        "ideal_ivr":        55,
+        "min_dte":          30,
+        "max_dte":          60,
+        "legs":             4,
+        "earnings_safe":    days_to_earnings > 10,
+    })
+
+    # ── 5. Diagonal (call diagonal / calendar spread variant) ─────────────
+    diag_short_strike = short_call_strike  # same delta 0.20 call at 45d
+    diag_long_strike  = round(spot * 0.95 / 5) * 5  # slight OTM long call at 90d
+    diag_short_price  = bs_price_call(spot, diag_short_strike, t, iv)
+    diag_long_price   = bs_price_call(spot, diag_long_strike,  90 / 365.0, iv)
+    diag_credit       = max(diag_short_price - diag_long_price, 0) * 100
+    diag_debit        = max(diag_long_price - diag_short_price, 0) * 100
+    diag_net          = diag_short_price * 100 - diag_long_price * 100
+    diag_max_loss     = diag_long_price * 100  # approx cost of long leg
+    diag_capital      = diag_long_price * 100
+    diag_pop          = pop_short_call(spot, diag_short_strike, t, iv)
+    diag_score        = regime_score(30, "bullish")
+    strategies.append({
+        "id":               "diagonal",
+        "name":             "Call Diagonal",
+        "short_name":       "Diagonal",
+        "description":      f"Long ${diag_long_strike:.0f}C (90d) + Sell ${diag_short_strike:.0f}C · {target_dte}d",
+        "short_strike":     diag_short_strike,
+        "long_strike":      diag_long_strike,
+        "estimated_credit": round(diag_short_price * 100, 2),
+        "net_debit_credit": round(diag_net, 2),
+        "pop":              round(diag_pop, 3),
+        "max_loss":         round(diag_max_loss, 2),
+        "capital_required": round(diag_capital, 2),
+        "regime_score":     diag_score,
+        "max_loss_type":    "limited",
+        "bias":             "bullish",
+        "ideal_ivr":        30,
+        "min_dte":          30,
+        "max_dte":          60,
+        "legs":             2,
+        "earnings_safe":    days_to_earnings > 10,
+    })
+
+    # ── Rank + flag recommended ────────────────────────────────────────────
+    strategies.sort(key=lambda s: s["regime_score"], reverse=True)
+    best_score = strategies[0]["regime_score"] if strategies else 0
+    for s in strategies:
+        s["recommended"] = (s["regime_score"] == best_score and s["earnings_safe"])
+
+    return {
+        "ticker":           ticker,
+        "spot":             round(spot, 2),
+        "iv":               round(iv * 100, 1),
+        "ivr":              round(ivr, 1),
+        "days_to_earnings": days_to_earnings,
+        "regime":           regime_overall,
+        "gex_regime":       gex_regime,
+        "mode":             mode,
+        "strategies":       strategies,
     }
