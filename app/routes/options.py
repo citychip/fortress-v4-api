@@ -10,9 +10,7 @@ import math
 import json as _json
 from typing import Optional
 
-import logging
 from fastapi import APIRouter, HTTPException
-logger = logging.getLogger("fortress.options")
 from pydantic import BaseModel, Field
 
 from app.services.bs_fallback import (
@@ -507,15 +505,35 @@ def get_roll_candidates(
     - target_dte: preferred DTE for the new leg (default 45)
     - min_oi: minimum open interest filter
     """
+    import logging as _logging
+    _log = _logging.getLogger("fortress.options.roll")
     from app.services import chain as chain_svc
     from datetime import datetime as _dt, timezone as _tz
 
-    data = chain_svc.get_chain(ticker.upper(), max_expiries=12)
-    spot = data.get("spot") or 0
+    # Spot price first (fast — cached)
+    spot = chain_svc.get_spot(ticker.upper()) or 0
     if not spot or spot <= 0:
         raise HTTPException(status_code=404, detail="Could not fetch spot price")
 
-    expirations = data.get("expirations", {})
+    # Try IBKR live chain; fall back to yfinance
+    chain_data = None
+    try:
+        from app.services import ibkr_chain as _ibkr_chain
+        chain_data = _ibkr_chain.get_ibkr_chain(
+            ticker.upper(), right=right.upper(), spot=spot,
+            target_dte=target_dte, max_expiries=3,
+        )
+        if chain_data and chain_data.get("expirations"):
+            _log.info("roll_candidates: IBKR live chain for %s (%d expiries)",
+                      ticker, len(chain_data["expirations"]))
+    except Exception as _e:
+        _log.debug("IBKR chain unavailable, using yfinance: %s", _e)
+
+    if not chain_data or not chain_data.get("expirations"):
+        chain_data = chain_svc.get_chain(ticker.upper(), max_expiries=5)
+        _log.info("roll_candidates: yfinance chain for %s", ticker)
+
+    expirations = chain_data.get("expirations", {})
     today = _dt.now(_tz.utc).date()
     right_up = right.upper()
 
