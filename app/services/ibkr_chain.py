@@ -126,7 +126,7 @@ def _get_opt_conid(client, conid: int, expiry: str, strike: float, right: str) -
                 _cache_set(_OPTCONID_CACHE, key, int(opt_conid))
                 return int(opt_conid)
     except Exception as e:
-        logger.info("[ibkr_chain] opt conid lookup failed conid=%s expiry=%s strike=%s right=%s: %s", conid, expiry, strike, right, e)
+        logger.debug("[ibkr_chain] opt conid lookup failed conid=%s expiry=%s strike=%s right=%s: %s", conid, expiry, strike, right, e)
     return None
 
 
@@ -269,11 +269,13 @@ def get_ibkr_chain(
                 mid    = snap.get("mid")
 
                 # After-hours / closed market: quotes are zero — fall back to BS estimate
+                _bs_iv_used = None
                 if not mid or mid <= 0:
                     try:
                         from app.services.bs_fallback import _bs_d1d2, _norm_cdf, _RISK_FREE
                         import math as _math
                         _iv = iv if iv > 0.01 else 0.30
+                        _bs_iv_used = _iv
                         _t  = max(dte, 1) / 365.0
                         d1, d2 = _bs_d1d2(spot, s, _t, _iv, _RISK_FREE)
                         if d1 is not None:
@@ -291,18 +293,13 @@ def get_ibkr_chain(
                     "bid":            bid or 0,
                     "ask":            ask or 0,
                     "mid":            mid,
-                    "iv":             iv or 0,
+                    "iv":             iv if iv > 0.01 else (_bs_iv_used or 0.30),
                     "open_interest":  100,   # placeholder — OI not in snapshot
                     "volume":         0,
                     "source":         "ibkr_live" if (bid and bid > 0) else "ibkr_bs_fallback",
                 })
 
-            logger.info("[ibkr_chain] %s %s %s: %d rows built, sample mid=%s iv=%s",
-                    ticker, expiry_str, right_up,
-                    len(rows),
-                    rows[0].get("mid") if rows else None,
-                    rows[0].get("iv") if rows else None)
-        if rows:
+            if rows:
                 key = "calls" if right_up == "C" else "puts"
                 out_expirations[expiry_str] = {key: rows}
 
