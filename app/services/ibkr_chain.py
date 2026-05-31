@@ -77,7 +77,7 @@ def _get_underlying_conid(client, ticker: str) -> Optional[int]:
 # ── Step 2: strikes for a month ────────────────────────────────────────────────
 
 def _get_strikes(client, conid: int, month: str, right: str) -> list[float]:
-    """month: 'YYYYMM' e.g. '202606'. right: 'C' or 'P'."""
+    """month: 'MMMYY' e.g. 'JUN26'. right: 'C' or 'P'."""
     key = (conid, month)
     cached = _cache_get(_STRIKES_CACHE, key, _TTL_STRIKES)
     if cached is not None:
@@ -88,7 +88,9 @@ def _get_strikes(client, conid: int, month: str, right: str) -> list[float]:
             "conid": str(conid),
             "sectype": "OPT",
             "month": month,
+            "exchange": "SMART",
         })
+        logger.info("[ibkr_chain] secdef/strikes conid=%s month=%s → %s", conid, month, str(data)[:200])
         if isinstance(data, dict):
             _cache_set(_STRIKES_CACHE, key, data)
             return data.get("call" if right == "C" else "put", [])
@@ -107,9 +109,13 @@ def _get_opt_conid(client, conid: int, expiry: str, strike: float, right: str) -
         return cached
 
     try:
+        # month must be MMMYY format (e.g. JUN26)
+        from datetime import datetime as _dt2
+        month_str = _dt2.strptime(expiry[:8], "%Y%m%d").strftime("%b%y").upper()
         results = client.get("/iserver/secdef/info", params={
             "conid": str(conid),
             "sectype": "OPT",
+            "month": month_str,
             "expiry": expiry,
             "strike": str(strike),
             "right": right,
