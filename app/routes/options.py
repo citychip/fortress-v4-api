@@ -483,3 +483,124 @@ def get_forward_pnl(
         "curve": curve,
         **limits,
     }
+
+
+# ── Roll Candidates ────────────────────────────────────────────────────────────
+
+from datetime import date as _date_cls
+
+@router.get("/options/roll_candidates")
+def get_roll_candidates(
+    ticker: str,
+    right: str = "C",
+    current_strike: float = 0,
+    target_dte: int = 45,
+    min_oi: int = 10,
+):
+    """
+    Return Conservative / Balanced / Aggressive roll proposals for a short option leg.
+
+    - right: 'C' (short call, e.g. PMCC) or 'P' (short put, e.g. PCS)
+    - current_strike: existing short strike to roll FROM
+    - target_dte: preferred DTE for the new leg (default 45)
+    - min_oi: minimum open interest filter
+    """
+    from app.services import chain as chain_svc
+    from datetime import datetime as _dt, timezone as _tz
+
+    data = chain_svc.get_chain(ticker.upper(), max_expiries=12)
+    spot = data.get("spot") or 0
+    if not spot or spot <= 0:
+        raise HTTPException(status_code=404, detail="Could not fetch spot price")
+
+    expirations = data.get("expirations", {})
+    today = _dt.now(_tz.utc).date()
+    right_up = right.upper()
+
+    def days_to(exp_str: str) -> int:
+        try:
+            return (_dt.strptime(exp_str[:10], "%Y-%m-%d").date() - today).days
+        except ValueError:
+            return 0
+
+    # Collect all candidate strikes across expiries near target_dte
+    candidates = []
+    sorted_exps = sorted(expirations.keys(), key=days_to)
+
+    for exp in sorted_exps:
+        exp_dte = days_to(exp)
+        if exp_dte < 14 or exp_dte > target_dte + 60:
+            continue
+
+        chain = expirations[exp]
+        options = chain.get("calls" if right_up == "C" else "puts", [])
+
+        for opt in options:
+            strike = opt.get("strike", 0)
+            mid    = opt.get("mid")
+            iv     = opt.get("iv", 0) or 0
+            oi     = opt.get("open_interest", 0) or 0
+
+            if not strike or not mid or mid <= 0:
+                continue
+            if oi < min_oi:
+                continue
+
+            # OTM filter
+            if right_up == "C" and strike <= spot:
+                continue
+            if right_up == "P" and strike >= spot:
+                continue
+
+            # Must be above current strike for calls (rolling up or out)
+            if right_up == "C" and current_strike > 0 and strike < current_strike:
+                continue
+
+            # Compute BS delta
+            t_years = max(exp_dte, 1) / 365.0
+            call_delta = chain_svc.bs_call_delta(spot, strike, t_years, iv) if iv > 0.01 else None
+            if call_delta is None:
+                continue
+            delta = call_delta if right_up == "C" else (call_delta - 1.0)
+
+            otm_pct = (strike - spot) / spot * 100 if right_up == "C" else (spot - strike) / spot * 100
+
+            candidates.append({
+                "strike":   round(strike, 2),
+                "expiry":   exp,
+                "dte":      exp_dte,
+                "credit":   round(mid * 100, 2),
+                "mid":      round(mid, 2),
+                "delta":    round(abs(delta), 3),
+                "otm_pct":  round(otm_pct, 1),
+                "oi":       oi,
+                "iv_pct":   round(iv * 100, 1),
+            })
+
+    if not candidates:
+        return {"ticker": ticker.upper(), "spot": round(spot, 2), "proposals": []}
+
+    # Target abs(delta) by profile
+    if right_up == "C":
+        targets = [("Conservative", 0.30), ("Balanced", 0.20), ("Aggressive", 0.10)]
+    else:
+        targets = [("Conservative", 0.25), ("Balanced", 0.16), ("Aggressive", 0.08)]
+
+    proposals = []
+    used_strikes = set()
+    for label, tgt_delta in targets:
+        # Prefer candidates near target_dte; break ties by delta proximity
+        best = min(
+            candidates,
+            key=lambda c: (abs(c["delta"] - tgt_delta) * 2 + abs(c["dte"] - target_dte) / target_dte)
+        )
+        if best["strike"] not in used_strikes:
+            proposals.append({"label": label, **best})
+            used_strikes.add(best["strike"])
+
+    return {
+        "ticker":    ticker.upper(),
+        "spot":      round(spot, 2),
+        "right":     right_up,
+        "proposals": proposals,
+    }
