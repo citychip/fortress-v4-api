@@ -212,3 +212,37 @@ Full spec: `docs/TRADE_FLOW_REDESIGN.md`
 | V4-F10 | Low | Frontend unit tests | Deferred |
 | V4-F11 | Low | MySQL migration alerts/journal | Deferred |
 | V4-IBKR-CHAIN | Low | IBKR chain strikes month format + secdef/info verification | Deferred |
+
+## Completed (post-v8.50 — 2026-05-31)
+
+| ID | Item | Resolved |
+|---|---|---|
+| ✅ FIX-13 | IBKR chain month format — missing exchange=SMART param caused silent failure | `ibkr_chain.py` — added `exchange=SMART`, widened strike window 8→20, BS fallback pricing when market closed (iv=0 → delta calc skipped) |
+| ✅ TF-12 | PMCC + PCS sub-clustering in Portfolio | `PositionsPage.tsx` — `groupAllLegs()` unified clustering: IC · PMCC · BCS · CCS · PCS · STR/STD · CC. `SubClusterRow` base component, % NL column on all cluster rows |
+| ✅ V4-F07 | Split SettingsPage.tsx (1,725→108 lines) | 8 sub-files in `components/settings/`: SettingsShared, ApiSection, TickerSection, StrategySection, SystemSection, ConnectionSection, QuantDataSection, SecuritySection |
+| ✅ V4-F08 | Split AnalysisPage.tsx (1,481→258 lines) | 3 sub-files in `components/analysis/`: PriceChart, TechnicalPanels, IntelPanels |
+| ✅ PLAN-01 | Sprint planning + design review | `docs/SPRINT_PLAN.md` — sprints 8/9/10 with UX audit findings folded in |
+
+## Carried Over — Still Active
+
+| ID | Priority | Item | Sprint |
+|---|---|---|---|
+| S8-01 | High | Nav restructure (Option A v2) — 5 tabs, Research removed, Candidates into Briefing | Sprint 8 |
+| S8-02 | High | Retire MorningBriefPage (1069 lines, fully duplicated by Briefing post-restructure) | Sprint 8 |
+| S8-03 | High | Intraday P&L column on sub-cluster rows (`daily_pnl` field) | Sprint 8 |
+| S8-04 | Medium | P&L stat chips on Portfolio header | Sprint 8 |
+| S8-05 | Medium | Technical panels collapsed by default in Analysis | Sprint 8 |
+| S8-06 | Medium | Code splitting with React.lazy for heavy pages | Sprint 8 |
+| S8-07 | Medium | Smarter badge poll (30s market hours, 60s otherwise) | Sprint 8 |
+| S9-01 | High | Earnings warning banner in Trade Builder (before Step 1) | Sprint 9 |
+| S9-02 | High | Position sizing suggestion in risk calculator | Sprint 9 |
+| S9-03 | High | Post-trade journal prompt (Step 7) | Sprint 9 |
+| S9-04 | Medium | "Mark actioned" on Action Queue rows (4h snooze) | Sprint 9 |
+| S9-05 | Medium | Sidebar pin/unpin toggle | Sprint 9 |
+| S10-01 | High | Move Strategy section out of Config → Portfolio header | Sprint 10 |
+| S10-02 | Medium | Config → rename "System" (Settings · Scripts · Monitor) | Sprint 10 |
+| S10-03 | Low | Keyboard shortcuts (B/P/T/A/C + Esc) | Sprint 10 |
+| S10-04 | Low | Status bar regime color tint | Sprint 10 |
+| V4-F10 | Low | Frontend unit tests | Deferred |
+| V4-F11 | Low | MySQL migration alerts/journal | Deferred |
+| V4-IBKR-TICKLE | Low | IBKR session auto-tickle (55min scheduler job) | Deferred |
