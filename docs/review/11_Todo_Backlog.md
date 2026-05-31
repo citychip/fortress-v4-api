@@ -118,8 +118,8 @@ Full spec: `docs/TRADE_FLOW_REDESIGN.md`
 | ~~TF-30–31~~ | ✅ Done | Action Queue in Briefing + sidebar badge | Phase 4 — v8.35 |
 | ~~TF-40–43~~ | ✅ Done | Roll alternatives engine + IBKR chain + sandbox wiring | Phase 5 — v8.36–v8.40 |
 | ~~TF-40–43~~ | ✅ Done | Roll alternatives engine (IBKR chain + scoring) | Phase 5 — v8.36–v8.40 |
-| TF-50–51 | P2 | Strategy selector with live metrics (PMCC/PCS/diagonal comparison) | Phase 6 |
-| TF-60–63 | P2 | Conditional alerts system (price/P&L/DTE/delta triggers) | Phase 7 |
+| ~~TF-50–51~~ | ✅ Done | Strategy selector with live metrics | Phase 6 — v8.41–v8.43 |
+| ~~TF-60–63~~ | ✅ Done | Conditional alerts system | Phase 7 — v8.44–v8.50 |
 
 ## Carried Over — Still Active
 
@@ -186,3 +186,29 @@ Full spec: `docs/TRADE_FLOW_REDESIGN.md`
 | ✅ TF-03 | Ticker dropdown shows active positions at top, urgency-ordered | `TradeBuilderPage.tsx` — `positionContextMap` built from positions + roll/stop data |
 | ✅ TF-04 | Mode selector (New Entry / Add / Roll / Close) in Trade Builder | `TradeBuilderPage.tsx` — pills auto-set from `initialMode` prop |
 | ✅ TF-05 | State reset on ticker/mode change | `TradeBuilderPage.tsx` — `useEffect` with `isFirstRender` ref guard |
+
+## Completed (v8.41–v8.50 — 2026-05-31)
+
+| ID | Item | Resolved |
+|---|---|---|
+| ✅ FIX-10 | Roll Balanced proposal deduped to same strike as Conservative | `options.py` — filter `available` candidates per profile before `min()` |
+| ✅ FIX-11 | PMCC payoff shows unbounded loss above short strike | `StrategySandbox.tsx` — diagonal model: `leapIntrinsic - shortCallLoss + credit`; capped at `(sStrike-leapStrike)*100+credit` |
+| ✅ FIX-12 | `setStrikeManual` undefined ref in delta slider `onValueChange` | `StrategySandbox.tsx` — replaced with `setSandboxStrike(0)` |
+| ✅ TF-50 | Phase 6: Strategy Selector with Live Metrics | Backend: `GET /api/options/strategy_metrics` — BS pricing at Δ0.20 for PCS/CSP/PMCC/IC/Diagonal; regime score 0–5; recommended flag. Frontend: `StrategySelector` component in TradeBuilderPage Step 3 for new/add modes |
+| ✅ TF-60 | Phase 7: Conditional Alerts backend | `app/routes/conditional_alerts.py` — CRUD on `conditional_alerts.json`; evaluate endpoint checks spot/P&L/DTE/delta; `/api/action-queue/summary` cached badge count |
+| ✅ TF-61 | Phase 7: Sidebar badge uses summary endpoint | `App.tsx` — `useActionQueueSummary()` polls `/api/action-queue/summary` every 60s |
+| ✅ TF-62 | Phase 7: `SetAlertButton` component | Inline popover with type/threshold/message fields; auto-message generation; toast feedback |
+| ✅ TF-63 | Phase 7: Three alert UI surfaces | Briefing TopOrders (triggered alerts as rows + inline SetAlertButton), Portfolio TickerAlertsPanel (per-ticker list + snooze/delete), Trade Builder Step 6 (post-order alert suggestions) |
+| ✅ TF-64 | Phase 7: Alert evaluation in APScheduler | `scheduler/runner.py` — in-process `_evaluate_conditional_alerts()` every 5min market hours, 30min off-hours/weekends |
+| ✅ TF-65 | Phase 7: Evaluate Alerts in Scripts tab | `run.py` — `alert_eval` in-process entry; `ScriptsPage.tsx` — metadata + Run button |
+
+## Carried Over — Still Active
+
+| ID | Priority | Item | Notes |
+|---|---|---|---|
+| TF-12 | Medium | PMCC sub-clustering in Portfolio | Deferred |
+| V4-F07 | Medium | Split SettingsPage.tsx (1,700+ lines) | Deferred |
+| V4-F08 | Medium | Split AnalysisPage.tsx (1,470+ lines) | Deferred |
+| V4-F10 | Low | Frontend unit tests | Deferred |
+| V4-F11 | Low | MySQL migration alerts/journal | Deferred |
+| V4-IBKR-CHAIN | Low | IBKR chain strikes month format + secdef/info verification | Deferred |
