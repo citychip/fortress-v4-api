@@ -261,20 +261,39 @@ def get_ibkr_chain(
             rows = []
             for s, oc in strike_to_conid.items():
                 snap = live.get(oc, {})
-                mid = snap.get("mid")
+                bid    = snap.get("bid")
+                ask    = snap.get("ask")
                 iv_raw = snap.get("iv_raw")
-                iv = (iv_raw / 100.0) if iv_raw and iv_raw > 1 else iv_raw  # normalise %→decimal
+                iv     = (iv_raw / 100.0) if iv_raw and iv_raw > 1 else (iv_raw or 0)
+                mid    = snap.get("mid")
 
-                # Compute OI from yfinance as IBKR snapshot doesn't include OI
+                # After-hours / closed market: quotes are zero — fall back to BS estimate
+                if not mid or mid <= 0:
+                    try:
+                        from app.services.bs_fallback import _bs_d1d2, _norm_cdf, _RISK_FREE
+                        import math as _math
+                        _iv = iv if iv > 0.01 else 0.30
+                        _t  = max(dte, 1) / 365.0
+                        d1, d2 = _bs_d1d2(spot, s, _t, _iv, _RISK_FREE)
+                        if d1 is not None:
+                            disc = _math.exp(-_RISK_FREE * _t)
+                            if right_up == "C":
+                                mid = spot * _norm_cdf(d1) - s * disc * _norm_cdf(d2)
+                            else:
+                                mid = s * disc * _norm_cdf(-d2) - spot * _norm_cdf(-d1)
+                            mid = max(round(mid, 4), 0.01)
+                    except Exception:
+                        pass
+
                 rows.append({
                     "strike":         s,
-                    "bid":            snap.get("bid") or 0,
-                    "ask":            snap.get("ask") or 0,
+                    "bid":            bid or 0,
+                    "ask":            ask or 0,
                     "mid":            mid,
                     "iv":             iv or 0,
                     "open_interest":  100,   # placeholder — OI not in snapshot
                     "volume":         0,
-                    "source":         "ibkr_live",
+                    "source":         "ibkr_live" if (bid and bid > 0) else "ibkr_bs_fallback",
                 })
 
             if rows:
