@@ -246,3 +246,42 @@ Full spec: `docs/TRADE_FLOW_REDESIGN.md`
 | V4-F10 | Low | Frontend unit tests | Deferred |
 | V4-F11 | Low | MySQL migration alerts/journal | Deferred |
 | V4-IBKR-TICKLE | Low | IBKR session auto-tickle (55min scheduler job) | Deferred |
+
+## Completed (Sprint 8 — 2026-05-31)
+
+| ID | Item | Resolved |
+|---|---|---|
+| ✅ S8-01 | 5-tab nav — Research removed, Candidates into Briefing Overview\|Candidates sub-tabs | `App.tsx` NAV_ITEMS, `DashboardPage.tsx` ResearchPage embedded as Candidates tab |
+| ✅ S8-02 | Retire MorningBriefPage (1069 lines, content duplicated by Briefing) | Routes /morning-brief and /research removed; lazy() for AnalysisPage + MorningBriefPage |
+| ✅ S8-03 | Intraday P&L column on all sub-cluster rows | `PositionsPage.tsx` — `netDayPnl()` helper, Day P&L column in SubClusterRow |
+| ✅ S8-04 | Day P&L + Unrealized P&L stat chips on Portfolio header | `PositionsPage.tsx` — totalDayPnl + totalUnrlPnl chips in PageHeader |
+| ✅ S8-05 | Technical panels (Bollinger/RSI/MACD) collapsed by default | `TechnicalPanels.tsx` — expanded state, "Click to expand" render |
+| ✅ S8-06 | Code splitting — AnalysisPage + MorningBriefPage lazy-loaded | `App.tsx` — React lazy() + Suspense; AnalysisPage now separate 95KB chunk |
+| ✅ S8-07 | Smarter badge poll — 30s during market hours, 60s otherwise | `useApi.ts` — isMarketHours() helper in useActionQueueSummary |
+| ✅ S8-08 | Chart → /analysis?ticker=X link on Portfolio group headers | `PositionsPage.tsx` — BarChart2 icon link per ticker group |
+| ✅ BUG-01 | AnalysisPage shell missing cn, useEffect, useCallback (black screen) | `AnalysisPage.tsx` — added to imports |
+| ✅ BUG-02 | TechnicalPanels.tsx contained duplicate PriceChart (wrong extraction range) | Removed 414 lines of dead code; otmBufferColor exported from TechnicalPanels, imported by PriceChart |
+| ✅ BUG-03 | IntelPanels.tsx missing useChartData import (PositionRiskContextPanel) | Added to useApi import block |
+| ✅ BUG-04 | PriceChart.tsx missing LineChart from recharts imports | Added LineChart to recharts import |
+| ✅ BUG-05 | Multiple missing lucide imports across extracted settings/analysis components | Fixed across ApiSection, SecuritySection, TickerSection (Shield, TrendingUp, AlertCircle etc.) |
+| ✅ BUG-06 | Redirect not exported from wouter v3 / duplicate React import | Removed Redirect + React default import; used lazy() named import instead |
+
+## Active Backlog — Sprint 9
+
+| ID | Priority | Item | Notes |
+|---|---|---|---|
+| S9-01 | High | Earnings warning banner in Trade Builder (before Step 1) | Show ⚠ when earnings < 14d (PMCC) or < 10d (PCS/CSP) at top of builder |
+| S9-02 | High | Position sizing suggestion in risk calculator | "Suggested: N contracts (X% NL / $Y margin)" using excess_liq + maxSingleNamePct |
+| S9-03 | High | Post-trade journal prompt (Step 7) | Pre-filled journal entry after "Add to Pending Orders" — same pattern as alert suggestions |
+| S9-04 | Medium | "Mark actioned" on Action Queue rows | 4h snooze stored in sessionStorage |
+| S9-05 | Medium | Sidebar pin/unpin toggle | Click logo to lock expanded; state in localStorage |
+
+## Active Backlog — Sprint 10
+
+| ID | Priority | Item | Notes |
+|---|---|---|---|
+| S10-01b | High | Remove legacy StrategyPage.tsx from Config | Pre-Phase-3 page, Sandbox already in Trade since v8.28. Remove Strategy sub-tab from Config |
+| S10-01 | High | Move Strategy settings out of Config → Portfolio header | Delta target, roll DTE, IVR minimums, signal mode as collapsible panel near positions |
+| S10-02 | Medium | Config → rename "System" (Settings · Scripts · Monitor) | After Strategy removal |
+| S10-03 | Low | Keyboard shortcuts (B/P/T/A/C + Esc) | useEffect on keydown, ignore when input focused |
+| S10-04 | Low | Status bar regime colour tint | Subtle background on regime chip |
