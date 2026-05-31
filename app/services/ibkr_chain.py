@@ -54,6 +54,7 @@ def _get_underlying_conid(client, ticker: str) -> Optional[int]:
             "name": False,
             "secType": "STK",
         })
+        logger.info("[ibkr_chain] secdef/search result for %s: %s", ticker, str(results)[:200])
         if not results or not isinstance(results, list):
             return None
         # Pick first STK result on a major exchange
@@ -181,10 +182,12 @@ def get_ibkr_chain(
 
     try:
         # Resolve underlying conid
+        logger.info("[ibkr_chain] Resolving conid for %s", ticker)
         conid = _get_underlying_conid(client, ticker)
         if not conid:
-            logger.warning("Could not resolve conid for %s", ticker)
+            logger.warning("[ibkr_chain] Could not resolve conid for %s — secdef/search returned nothing", ticker)
             return None
+        logger.info("[ibkr_chain] conid=%s for %s", conid, ticker)
 
         # Determine target months
         today = datetime.now(timezone.utc)
@@ -280,7 +283,7 @@ def get_ibkr_chain(
         }
 
     except Exception as e:
-        logger.warning("IBKR chain fetch failed for %s: %s", ticker, e)
+        logger.warning("[ibkr_chain] Chain fetch FAILED for %s: %s", ticker, e, exc_info=True)
         return None
     finally:
         try:
