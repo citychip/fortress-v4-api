@@ -225,9 +225,9 @@ def get_ibkr_chain(
             if not otm:
                 continue
 
-            # Pick 8 strikes bracketing the target delta range
+            # Take up to 20 OTM strikes — enough to cover current_strike when rolling up
             otm_sorted = sorted(otm) if right_up == "C" else sorted(otm, reverse=True)
-            target_strikes = otm_sorted[:8]
+            target_strikes = otm_sorted[:20]
 
             # Convert month YYYYMM to expiry candidates: 3rd Friday
             year, mon = int(month[:4]), int(month[4:])
