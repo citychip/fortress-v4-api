@@ -126,7 +126,7 @@ def _get_opt_conid(client, conid: int, expiry: str, strike: float, right: str) -
                 _cache_set(_OPTCONID_CACHE, key, int(opt_conid))
                 return int(opt_conid)
     except Exception as e:
-        logger.debug("opt conid lookup failed %s %s %s %s: %s", conid, expiry, strike, right, e)
+        logger.info("[ibkr_chain] opt conid lookup failed conid=%s expiry=%s strike=%s right=%s: %s", conid, expiry, strike, right, e)
     return None
 
 
@@ -252,6 +252,7 @@ def get_ibkr_chain(
                     strike_to_conid[s] = oc
 
             if not strike_to_conid:
+                logger.info("[ibkr_chain] no opt conids resolved for %s %s %s — skipping", ticker, expiry_str, right_up)
                 continue
 
             # Snapshot live data
@@ -296,7 +297,12 @@ def get_ibkr_chain(
                     "source":         "ibkr_live" if (bid and bid > 0) else "ibkr_bs_fallback",
                 })
 
-            if rows:
+            logger.info("[ibkr_chain] %s %s %s: %d rows built, sample mid=%s iv=%s",
+                    ticker, expiry_str, right_up,
+                    len(rows),
+                    rows[0].get("mid") if rows else None,
+                    rows[0].get("iv") if rows else None)
+        if rows:
                 key = "calls" if right_up == "C" else "puts"
                 out_expirations[expiry_str] = {key: rows}
 
