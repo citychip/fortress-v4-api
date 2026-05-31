@@ -59,7 +59,11 @@ def _get_underlying_conid(client, ticker: str) -> Optional[int]:
             return None
         # Pick first STK result on a major exchange
         for r in results:
-            if r.get("secType") == "STK":
+            # secType may be top-level or nested inside 'sections'
+            sections = r.get("sections") or []
+            has_stk = (r.get("secType") == "STK" or
+                       any(s.get("secType") == "STK" for s in sections))
+            if has_stk:
                 conid = r.get("conid")
                 if conid:
                     _cache_set(_CONID_CACHE, key, int(conid))
