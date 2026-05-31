@@ -114,7 +114,7 @@ Full spec: `docs/TRADE_FLOW_REDESIGN.md`
 |---|---|---|---|
 | TF-01–05 | P1 | Deep-link wiring — Roll/Close/Add buttons, URL params, mode selector, state reset | Phase 1 |
 | TF-10–11 | P2 | Collapsible position groups in Portfolio | Phase 2 |
-| TF-20–21 | P1 | Move Strategy Sandbox from Analysis to Trade tab | Phase 3 |
+| ~~TF-20–21~~ | ✅ Done | Move Strategy Sandbox from Analysis to Trade tab | Phase 3 — v8.28 |
 | TF-30–33 | P1 | Action Queue in Briefing + sidebar badge | Phase 4 |
 | TF-40–43 | P1 | Roll alternatives engine (IBKR chain + scoring) | Phase 5 |
 | TF-50–51 | P2 | Strategy selector with live metrics (PMCC/PCS/diagonal comparison) | Phase 6 |
@@ -130,6 +130,21 @@ Full spec: `docs/TRADE_FLOW_REDESIGN.md`
 | V4-F10 | Low | Frontend unit tests (msw-based) | Deferred |
 | V4-F11 | Low | MySQL migration alerts/journal | Deferred |
 | V4-QD-TICKER | Low | QuantData per-ticker proxy | Won't fix — architectural limitation |
+
+
+## Completed (v8.28–v8.34 Phase 3 — 2026-05-31)
+
+| ID | Item | Resolved |
+|---|---|---|
+| ✅ TF-20 | Strategy Sandbox moved from Analysis tab to Trade tab as Step 5 | `TradeBuilderPage.tsx` — sandbox below RiskCalculator, live-wired to `selectedTicker` |
+| ✅ TF-21 | Sandbox enriched: GEX call/put walls + DP floor + flip zone on payoff chart | `StrategySandbox.tsx` — scalar scalars from `regime.*`; `type="number"` on XAxis |
+| ✅ TF-22 | Sandbox ticker selector hidden when Trade tab controls it (`hideTickerSelect` prop) | `StrategySandbox.tsx` — strategy selector spans full width when ticker hidden |
+| ✅ TF-23 | Sandbox default strategy auto-set from mode (roll→PMCC, new+PMCC position→PMCC) | `TradeBuilderPage.tsx` — `sandboxDefault` computed from `positionContextMap` + `mode` |
+| ✅ TF-24 | Strike inputs added to sandbox — short + long strike, live payoff/PoP/metrics update | `StrategySandbox.tsx` — `effectiveStrike` derived value; auto from delta, override by typing |
+| ✅ TF-25 | Trade tab landing page — active positions panel + universe candidates panel | `TradeBuilderPage.tsx` — `TradeLanding` component replaces empty state |
+| ✅ TF-26 | IVR shown for active positions in ticker dropdown | `TradeBuilderPage.tsx` — `positionContextMap` cross-references candidatesData for IVR |
+| ✅ FIX-05 | Analysis page crash — `BarChart2` not imported, replaced with `BarChart3` | `AnalysisPage.tsx` — icon swap |
+| ✅ FIX-06 | Sandbox TDZ crash — `useEffect` deps array referenced `sbSpot` before declaration | `StrategySandbox.tsx` — replaced with `effectiveStrike` useMemo after `sbSpot` |
 
 ## Completed (v8.27 Phase 2 — 2026-05-30)
 
