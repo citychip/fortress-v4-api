@@ -46,7 +46,9 @@ WORKFLOW_SCRIPTS = {
     "eod_review": "workflow_04_eod_review.py",
     "max_pain": "workflow_08_max_pain_report.py",
     "entry_scoring": "workflow_02_entry_scoring.py",
-    "gex_oi": "gex_oi_report.py",
+    "gex_oi":      "gex_oi_report.py",
+    # In-process jobs (no script file — handled directly)
+    "alert_eval":  "__inprocess__",
 }
 
 # Safety: limit subprocess execution time
@@ -67,7 +69,7 @@ def list_scripts():
     """List the whitelisted scripts that can be run."""
     return {
         "scripts": [
-            {"key": key, "filename": filename}
+            {"key": key, "filename": filename, "inprocess": filename == "__inprocess__"}
             for key, filename in WORKFLOW_SCRIPTS.items()
         ]
     }
@@ -102,6 +104,39 @@ def run_script(script_key: str):
             status_code=403,
             detail=f"Script '{script_key}' is not whitelisted. Available: {list(WORKFLOW_SCRIPTS.keys())}"
         )
+
+    # In-process jobs — run directly without subprocess
+    if WORKFLOW_SCRIPTS.get(script_key) == "__inprocess__":
+        started = datetime.now(timezone.utc)
+        try:
+            if script_key == "alert_eval":
+                from app.routes.conditional_alerts import evaluate_conditional_alerts
+                result_data = evaluate_conditional_alerts()
+                fired = result_data.get("count", 0)
+                output = f"Alert evaluation complete. {fired} alert(s) triggered."
+            else:
+                output = f"In-process job '{script_key}' has no handler."
+            finished = datetime.now(timezone.utc)
+            run_result = {
+                "script": script_key,
+                "filename": "__inprocess__",
+                "exit_code": 0,
+                "duration_seconds": round((finished - started).total_seconds(), 2),
+                "started_at": started.isoformat(),
+                "finished_at": finished.isoformat(),
+                "stdout": output,
+                "stderr": "",
+            }
+            try:
+                existing = state.read_json("script_results.json", default={})
+                existing[script_key] = run_result
+                existing["_last_updated"] = finished.isoformat()
+                state.write_json("script_results.json", existing)
+            except Exception:
+                pass
+            return run_result
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"In-process job failed: {e}")
 
     # Guard: QuantData-dependent scripts are blocked when the toggle is off
     if script_key in QUANTDATA_REQUIRED_SCRIPTS and not config_store.cfg("security.use_quantdata", True):
