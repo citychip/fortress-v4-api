@@ -242,7 +242,43 @@ def build_scheduler() -> BackgroundScheduler:
         id="gex_oi_pm", name="GEX/OI Update (PM)", replace_existing=True,
     )
 
+    # 9 — Conditional alert evaluation
+    #   Market hours (13:30-20:00 UTC Mon-Fri): every 5 min
+    sched.add_job(
+        _evaluate_conditional_alerts,
+        CronTrigger(minute="*/5", hour="13-19", day_of_week="mon-fri", timezone="UTC"),
+        id="alert_eval_market", name="Alert Eval (market hours)", replace_existing=True,
+    )
+    #   Off-hours: every 30 min (for price-based alerts that fire on gaps/premarket)
+    sched.add_job(
+        _evaluate_conditional_alerts,
+        CronTrigger(minute="*/30", hour="0-12,20-23", day_of_week="mon-fri", timezone="UTC"),
+        id="alert_eval_offhours", name="Alert Eval (off-hours)", replace_existing=True,
+    )
+    sched.add_job(
+        _evaluate_conditional_alerts,
+        CronTrigger(minute="*/30", day_of_week="sat,sun", timezone="UTC"),
+        id="alert_eval_weekend", name="Alert Eval (weekend)", replace_existing=True,
+    )
+
     return sched
+
+
+# ---------------------------------------------------------------------------
+# Direct in-process job — alert evaluation (no subprocess)
+# ---------------------------------------------------------------------------
+
+def _evaluate_conditional_alerts() -> None:
+    """Evaluate all active conditional alerts against live data. In-process."""
+    log = _get_logger()
+    try:
+        from app.routes.conditional_alerts import evaluate_conditional_alerts
+        result = evaluate_conditional_alerts()
+        fired = result.get("count", 0)
+        if fired:
+            log.info("[alert_eval] %d alert(s) triggered", fired)
+    except Exception as exc:
+        log.warning("[alert_eval] Evaluation error: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -277,12 +313,16 @@ def shutdown() -> None:
 
 def get_status() -> dict:
     """Return job status dict for /api/scheduler/status."""
+    # Synthetic entries for direct-function jobs (not in SCRIPTS registry)
+    _direct_jobs = {
+        "alert_eval": {"label": "Conditional Alert Evaluation", "status": "pending", "last_run": None},
+    }
     out = {}
-    for key, info in _job_status.items():
+    for key, info in {**_job_status, **_direct_jobs}.items():
         next_run = None
         if _scheduler and _scheduler.running:
             # gex_oi has two APScheduler job IDs; report the earlier next_run
-            for jid in (key, f"{key}_am", f"{key}_pm"):
+            for jid in (key, f"{key}_am", f"{key}_pm", f"{key}_market", f"{key}_offhours", f"{key}_weekend"):
                 job = _scheduler.get_job(jid)
                 if job and job.next_run_time:
                     candidate = job.next_run_time.isoformat()
