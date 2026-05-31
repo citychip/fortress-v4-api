@@ -115,7 +115,7 @@ Full spec: `docs/TRADE_FLOW_REDESIGN.md`
 | TF-01–05 | P1 | Deep-link wiring — Roll/Close/Add buttons, URL params, mode selector, state reset | Phase 1 |
 | TF-10–11 | P2 | Collapsible position groups in Portfolio | Phase 2 |
 | ~~TF-20–21~~ | ✅ Done | Move Strategy Sandbox from Analysis to Trade tab | Phase 3 — v8.28 |
-| TF-30–33 | P1 | Action Queue in Briefing + sidebar badge | Phase 4 |
+| ~~TF-30–31~~ | ✅ Done | Action Queue in Briefing + sidebar badge | Phase 4 — v8.35 |
 | TF-40–43 | P1 | Roll alternatives engine (IBKR chain + scoring) | Phase 5 |
 | TF-50–51 | P2 | Strategy selector with live metrics (PMCC/PCS/diagonal comparison) | Phase 6 |
 | TF-60–63 | P2 | Conditional alerts system (price/P&L/DTE/delta triggers) | Phase 7 |
@@ -131,6 +131,14 @@ Full spec: `docs/TRADE_FLOW_REDESIGN.md`
 | V4-F11 | Low | MySQL migration alerts/journal | Deferred |
 | V4-QD-TICKER | Low | QuantData per-ticker proxy | Won't fix — architectural limitation |
 
+
+
+## Completed (v8.35 Phase 4 — 2026-05-31)
+
+| ID | Item | Resolved |
+|---|---|---|
+| ✅ TF-30 | Action Queue deep-links in Briefing Priority Orders panel — each row gets colored Trade button | `DashboardPage.tsx` — stop-loss→close, roll→roll, alert→new mode |
+| ✅ TF-31 | Sidebar Trade icon badge — red count badge shows urgent roll+stop-loss count | `App.tsx` — `useRollAll`+`useStopLossAll` in sidebar, badge on Trade path |
 
 ## Completed (v8.28–v8.34 Phase 3 — 2026-05-31)
 
