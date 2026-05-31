@@ -508,7 +508,7 @@ def get_roll_candidates(
     from app.services import chain as chain_svc
     from datetime import datetime as _dt, timezone as _tz
 
-    data = chain_svc.get_chain(ticker.upper(), max_expiries=12)
+    data = chain_svc.get_chain(ticker.upper(), max_expiries=5)
     spot = data.get("spot") or 0
     if not spot or spot <= 0:
         raise HTTPException(status_code=404, detail="Could not fetch spot price")
