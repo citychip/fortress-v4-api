@@ -1,7 +1,7 @@
 # Portfolio Management Strategy
-**Version 3.7.2 — May 29, 2026**
+**Version 3.7.3 — May 31, 2026**
 
-v3.7.2 updates §15.6 tool stack to reflect the V4 WSL local deployment (replaces VPS), yfinance-based IVR in workflow scripts (replaces QuantData per-ticker dependency), ibind OAuth 1.0a IBKR auth, and the fortress_mcp.py Claude integration with server-side QuantData proxying. Trading rules §2–§13 unchanged from v3.7.
+v3.7.3 adds §5 and §2C strike anchoring rule (DP floor / GEX put wall), §8 Trade Builder workflow updated to reflect Sprint 9 UI enhancements. Trading rules otherwise unchanged from v3.7.2.
 
 ---
 
@@ -27,7 +27,7 @@ Entry trigger: morning after earnings, when IV crush ≥ 25% AND stock gap withi
 
 ### C. Put Credit Spreads — income
 
-Structure: sell OTM put + buy further-OTM put as protection. Short strike: delta 0.15–0.20 (80–85% probability of expiring worthless). DTE: 30–45 days at entry.
+Structure: sell OTM put + buy further-OTM put as protection. Short strike: delta 0.15–0.20 (80–85% probability of expiring worthless), anchored below the nearest DP floor or GEX put wall when one falls within 12% of the delta-computed strike. This ensures the short put is sold below structural support — if price holds above the floor, the spread expires worthless. DTE: 30–45 days at entry.
 
 ### D. SPY Hedge — protective
 
@@ -93,7 +93,9 @@ Bid/ask spread ≤ 10% of mid on both legs. Open interest > 100 per leg. Underly
 
 ### Strike Selection
 
-Primary rule: delta 0.20–0.25 on short call at entry. Chart override: if a strike within the target delta range sits at or just above a well-defined chart resistance level, prefer the chart-aligned strike. Chart undershoot: if the natural delta strike is in clear air, consider moving one strike closer only if the chart shows a clean rejection level there.
+Primary rule: delta 0.20–0.25 on short call at entry. GEX/DP override (short calls): if a GEX call wall falls within 12% above the delta-computed strike, prefer a strike just below the wall — price tends to pin at GEX call walls, maximising probability of the short expiring worthless. Chart override: if a strike within the target delta range sits at or just above a well-defined chart resistance level, prefer the chart-aligned strike. Chart undershoot: if the natural delta strike is in clear air, consider moving one strike closer only if the chart shows a clean rejection level there.
+
+For short puts (PCS/CSP): anchor strike $5 below the nearest DP floor or GEX put wall within 12% of the delta strike. The dashboard Trade Builder auto-suggests this level with an ⚓ indicator.
 
 ### Management Rules
 
@@ -254,6 +256,7 @@ Live calendar maintained in `earnings_blocklist.json` and visible in the dashboa
 
 ## 14. Change Log
 
+- **v3.7.3 (May 31, 2026):** §2C and §5 strike selection updated — short put strikes now anchored $5 below nearest DP floor or GEX put wall (within 12% of delta strike). Trade Builder auto-suggests and labels anchored strikes with ⚓. §8 Trade Builder workflow updated: earnings warning banner (red ≤10d, amber ≤14d), position sizing suggestion (2% NL rule), post-trade journal prompt (Step 7), action queue mark-as-done.
 - **v3.7.2 (May 29, 2026):** §15.6 tool stack updated — V4 WSL local deployment replaces VPS; yfinance ATM options IV + rolling HV replaces QuantData per-ticker IVR in workflow_01/05; workflow_08 max pain from yfinance options chain; ibind OAuth 1.0a IBKR auth added (pending activation); fortress_mcp.py server-side QD proxy. §12 open items updated with QD-01 known issue.
 - **v3.7 (May 18, 2026):** §15.6 tool stack updated — Fortress V3 React/tRPC frontend replaces legacy Python/Jinja dashboard. §8 workflow updated to reference Candidates All-view (full 19-ticker universe with monitoring fallback), Market Intelligence sort/refresh/tooltip enhancements, and QuantData credentials manager in Settings. §15.6 QuantData MCP integration formalised: widget-UUID REST endpoints replace deprecated `tool/OPTIONS_*` calls; `chart.py` fixed (GEX walls, DP levels, order flow now use correct endpoints). §7 Market Regime Filters table added for clarity.
 - **v3.6 (May 5, 2026):** §5 Critical Gamma threshold tightened from 0.40 to **0.35**. §7 margin floors normalised to USD. §15.6 tool stack updated — CP Gateway via voyz/ibeam is the live broker integration.

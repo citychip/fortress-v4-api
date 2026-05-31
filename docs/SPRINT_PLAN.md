@@ -1,5 +1,5 @@
 # Fortress v4 — Sprint Plan
-**Updated:** 2026-05-31 | **Current version:** post-Sprint-8
+**Updated:** 2026-05-31 | **Current version:** post-Sprint-9
 
 ---
 
@@ -18,21 +18,29 @@
 | Clustering | post-50 | Sub-clustering: PMCC, PCS, BCS, CCS, IC, STR/STD, CC + % NL + Day P&L columns |
 | Refactor | post-50 | AnalysisPage 1481→258 lines, SettingsPage 1725→108 lines (11 sub-files) |
 | Sprint 8 | post-50 | 5-tab nav, Candidates in Briefing, lazy loading, Portfolio P&L chips, Analysis panels collapsed, Chart link, bug fixes |
+| Sprint 9 | post-50 | Earnings banner, position sizing, journal prompt, mark actioned, config wiring, floor-anchored strikes, Briefing redesign |
 
 ---
 
-## Sprint 9 — Trade Builder Intelligence
-**Goal:** Make Trade Builder smarter about risk, earnings, and post-trade actions.
+## Sprint 9 — Trade Builder Intelligence ✓ DONE
+**Shipped:** 2026-05-31
 
-| ID | Task | Detail | Priority |
-|---|---|---|---|
-| S9-01 | Earnings warning banner | Prominent banner at top of Trade Builder when earnings < 14d (PMCC) or < 10d (PCS/CSP). Shows before Step 1 | High |
-| S9-02 | Position sizing suggestion | In Step 4 risk calculator: "Suggested: N contracts (X% NL / $Y margin)" using excess_liq, net_liq, maxSingleNamePct, current concentration | High |
-| S9-03 | Post-trade journal prompt | After "Add to Pending Orders": Step 7 offers pre-filled journal entry (ticker, strategy, strikes, credit). One-click confirm or skip | High |
-| S9-04 | Mark actioned on Action Queue | Snooze button on each Briefing Action Queue row. Hides for 4h (sessionStorage). Reduces morning re-checking noise | Medium |
-| S9-05 | Sidebar pin/unpin toggle | Click Fortress logo to lock sidebar expanded. State in localStorage | Medium |
+| ID | Task | Status |
+|---|---|---|
+| S9-01 | Earnings warning banner (red ≤10d, amber ≤14d/≤21d, before Step 1) | ✓ Done |
+| S9-02 | Position sizing suggestion (2% NL rule, clickable chip in Step 4) | ✓ Done |
+| S9-03 | Post-trade journal prompt — Step 7 with textarea, POST /api/journal | ✓ Done |
+| S9-04 | Mark actioned on Action Queue (✓ button; API snooze for cond alerts, session-dismiss for roll/stop) | ✓ Done |
+| S9-05 | Sidebar pin/unpin | Deferred → Sprint 10 |
+| S9-06 | Config → Trade Builder wiring (activeStrategies dim, targetDte sync live, deltaBuffer → strike, profitTarget hint) | ✓ Done (added) |
+| S9-07 | Floor/wall-anchored default short strike (snap to DP floor or GEX put wall ±12%, ⚓ label) | ✓ Done (added) |
 
-**Estimated size:** 1 session | **Risk:** Low
+**Also shipped this session:**
+- Briefing redesign: Priority Orders first, 3-tab layout (removed Candidates tab), MacroRegimeCard extracted
+- Nav: Analysis at bottom, divider Trade/Config
+- /research route restored (hidden from nav)
+- Settings tab crash-fixes (6 files with missing React/hook/theme imports from Sprint 8 page split)
+- Long strike spinner seeds from spot price
 
 ---
 
@@ -41,6 +49,7 @@
 
 | ID | Task | Detail | Priority |
 |---|---|---|---|
+| S10-00 | Sidebar pin/unpin toggle | Click Fortress logo to lock sidebar expanded. State in localStorage | Medium |
 | S10-01b | Remove legacy StrategyPage | StrategyPage.tsx in Config predates Phase 3 — Sandbox is already in Trade. Remove Strategy sub-tab from Config entirely | High |
 | S10-01 | Move Strategy settings out of Config | Delta target, roll DTE, IVR minimums, signal mode → collapsible "Strategy Rules" panel in Portfolio header. Config keeps: Settings · Scripts · Monitor | High |
 | S10-02 | Config → rename "System" | After Strategy removal: Config becomes "System" — Settings · Scripts · Monitor | Medium |
