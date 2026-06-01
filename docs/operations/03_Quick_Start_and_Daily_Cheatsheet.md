@@ -1,6 +1,6 @@
 # Fortress Dashboard — Quick-Start & Daily Cheatsheet
 
-**Version 1.6 — 2026-06-01**
+**Version 1.7 — 2026-06-01**
 
 One-page operational reference for live sessions. Open this first each morning.
 
@@ -39,9 +39,11 @@ MCP: *"Run my morning preflight: briefing, SPY hedge coverage, today's calendar,
 MCP: `run_script("max_pain")` + `refresh_iv_data()` — max pain pinning direction for full universe (~5s), fresh IV scan (~15s). Run both before looking at candidates.
 
 **4. Macro + per-ticker intel (entry days only)**
-MCP: *"SPY market intel, net drift, dark pool. Then per candidate: market intel, GEX walls, vol analytics, earnings volatility."*
-- SPY-level: `get_market_intelligence("SPY")` + `qd_get_net_drift` + `qd_get_dark_pool_levels`
-- Per-ticker: `get_market_intelligence(t)` + `get_dp_floors_and_gex(t)` + `get_vol_analytics(t)` + `get_earnings_volatility(t)`
+MCP: *"SPY market intel, net drift, dark pool. Then per candidate: market intel, GEX walls, vol analytics, IV rank, earnings volatility."*
+- SPY-level (fortress MCP): `get_market_intelligence("SPY")`
+- SPY-level (quantdata MCP): `qd_get_net_drift("SPY")` + `qd_get_dark_pool_levels("SPY")` + `qd_get_order_flow("SPY", min_premium=100000)`
+- Per-ticker (fortress MCP): `get_market_intelligence(t)` + `get_dp_floors_and_gex(t)` + `get_vol_analytics(t)` + `get_earnings_volatility(t)`
+- Per-ticker (quantdata MCP): `qd_get_iv_rank(t)` + `qd_get_volatility_skew(t)` + `qd_get_exposure_by_strike(t)`
 
 ---
 
@@ -100,6 +102,8 @@ sudo cp -r dist/public/* /var/www/fortress-v4/ && sudo nginx -s reload
 3. After refresh: `sudo cp ~/.quantdata-mcp/config.json /root/.quantdata-mcp/config.json`
 4. Restart service: `sudo systemctl restart fortress-dashboard-v4`
 
+> The standalone `quantdata-mcp` server reads `~/.quantdata-mcp/config.json` directly. After a credential refresh, restart Claude Desktop to pick up the updated token.
+
 ---
 
 ## Incident Quick-Reference
@@ -112,33 +116,38 @@ sudo cp -r dist/public/* /var/www/fortress-v4/ && sudo nginx -s reload
 | IV Rank / Market Intel blank | Run QuantData credential refresh (above) |
 | Candidates shows 0 rows | MCP: `refresh_iv_data()` or run `workflow_05_iv_crush_report.py` |
 | Positions empty after sync | Check CP Gateway session at `https://localhost:5000` |
-| MCP not connecting | Fully quit and relaunch Claude Desktop |
+| Fortress MCP not connecting | Fully quit and relaunch Claude Desktop |
+| quantdata MCP not connecting | Check `~/.quantdata-mcp/config.json` token; restart Claude Desktop |
 
 ---
 
 ## Data Sources Quick Reference
 
-| What you need | Use this | Source |
-|---|---|---|
-| Per-ticker IV rank | `get_candidates()` or `refresh_iv_data()` | yfinance ✓ |
-| Max pain + pin direction | `run_script("max_pain")` | yfinance ✓ |
-| Per-ticker GEX walls | `get_dp_floors_and_gex(ticker)` | daily report (~12h) |
-| Per-ticker IV skew | `get_vol_analytics(ticker)` | yfinance ✓ |
-| SPY dark pool floors | `qd_get_dark_pool_levels("SPY")` | QuantData live |
-| SPY order flow bias | `qd_get_net_drift("SPY")` | QuantData live |
-| Institutional sweeps | `qd_get_order_flow("SPY")` | QuantData live |
+| What you need | Use this | MCP | Source |
+|---|---|---|---|
+| Per-ticker IV rank | `qd_get_iv_rank(ticker)` | quantdata | QuantData live ✓ |
+| Per-ticker vol skew | `qd_get_volatility_skew(ticker)` | quantdata | QuantData live ✓ |
+| Per-ticker GEX by strike | `qd_get_exposure_by_strike(ticker)` | quantdata | QuantData live ✓ |
+| Per-ticker order flow | `qd_get_order_flow(ticker)` | quantdata | QuantData live ✓ |
+| Per-ticker dark pool floors | `qd_get_dark_pool_levels(ticker)` | quantdata | QuantData live ✓ |
+| Per-ticker net drift | `qd_get_net_drift(ticker)` | quantdata | QuantData live ✓ |
+| Per-ticker GEX walls (daily) | `get_dp_floors_and_gex(ticker)` | fortress | daily report (~12h) |
+| Per-ticker IV skew (yfinance) | `get_vol_analytics(ticker)` | fortress | yfinance ✓ |
+| Max pain + pin direction | `run_script("max_pain")` | fortress | yfinance ✓ |
+| IV crush candidates | `get_candidates()` / `refresh_iv_data()` | fortress | yfinance ✓ |
 
-> qd_* tools return SPY data only — per-ticker filter is broken. Use yfinance-based tools for all per-ticker signals.
+---
 
 ## MCP Order Workflow (quick reference)
 
 ```
-refresh_iv_data()                          # fresh IV scan
-→ get_candidates()                         # find actionable tickers
-→ pretrade_check(ticker, "CSP")            # run pre-trade gate
-→ stage_order(ticker, strategy, legs, ...) # create in Build Center
-→ preview_order(order_id)                  # IBKR whatif (no submission)
-→ approve_order(order_id)                  # submit to IBKR
+refresh_iv_data()                  # fresh IV scan
+→ get_candidates()                 # find actionable tickers
+→ qd_get_iv_rank(ticker)           # confirm IV rank via QuantData
+→ pretrade_check(ticker, "CSP")    # run pre-trade gate
+→ stage_order(ticker, strategy, legs, ...)  # create in Build Center
+→ preview_order(order_id)          # IBKR whatif (no submission)
+→ approve_order(order_id)          # submit to IBKR
 ```
 
 All write tools require `FORTRESS_MCP_ALLOW_WRITES=1` in Claude Desktop config.
@@ -149,6 +158,7 @@ All write tools require `FORTRESS_MCP_ALLOW_WRITES=1` in Claude Desktop config.
 
 | Version | Date | Changes |
 |---|---|---|
+| 1.7 | 2026-06-01 | Standalone quantdata-mcp registered. Per-ticker QuantData tools now work. Data sources table updated. qd_* SPY-only caveat removed. |
 | 1.6 | 2026-06-01 | Added run_script("max_pain") to morning preflight. Data sources table. Two-layer market intel (SPY qd_* + per-ticker yfinance). |
 | 1.5 | 2026-06-01 | Added refresh_iv_data, stage_order/preview_order/approve_order workflow. IBKR auto-sync note. |
 | 1.4 | 2026-05-30 | Full rewrite for V4 WSL deployment. Removed VPS references. Updated paths, ports, token, commands. Added auto-refresh note. |

@@ -1,0 +1,995 @@
+{
+  "_last_updated": "2026-06-01T15:05:48.445827+00:00",
+  "orders": [
+    {
+      "id": "7bcfac48-49b2-47b1-bb58-f88367e0c9f1",
+      "created_at": "2026-06-01T14:31:13.521688+00:00",
+      "status": "declined",
+      "ticker": "GOOGL",
+      "strategy": "CSP",
+      "legs": [
+        {
+          "ticker": "GOOGL",
+          "sec_type": "OPT",
+          "right": "P",
+          "strike": 340.0,
+          "expiry": "20260717",
+          "action": "SELL",
+          "ratio": 1,
+          "exchange": "CBOE",
+          "conid": null
+        }
+      ],
+      "order_type": "LMT",
+      "action": "SELL",
+      "quantity": 1,
+      "limit_price": 2.5,
+      "tif": "DAY",
+      "notes": "MCP test order — decline immediately",
+      "submitted_by": "MCP",
+      "pop": 0.79,
+      "max_profit": 250.0,
+      "max_loss": -33750.0,
+      "whatif_result": null,
+      "ibkr_order_id": null,
+      "error": null,
+      "declined_at": "2026-06-01T14:31:22.636350+00:00"
+    },
+    {
+      "id": "e2ee5236-e7b5-4004-92cc-424bccecb200",
+      "created_at": "2026-06-01T14:41:45.122044+00:00",
+      "status": "failed",
+      "ticker": "TSM",
+      "strategy": "SHORT_STRANGLE",
+      "legs": [
+        {
+          "ticker": "TSM",
+          "sec_type": "OPT",
+          "right": "P",
+          "strike": 390.0,
+          "expiry": "20260717",
+          "action": "SELL",
+          "ratio": 1,
+          "exchange": "CBOE",
+          "conid": 885501003,
+          "conid_resolved": true
+        },
+        {
+          "ticker": "TSM",
+          "sec_type": "OPT",
+          "right": "C",
+          "strike": 525.0,
+          "expiry": "20260717",
+          "action": "SELL",
+          "ratio": 1,
+          "exchange": "CBOE",
+          "conid": null,
+          "conid_resolved": false
+        }
+      ],
+      "order_type": "LMT",
+      "action": "SELL",
+      "quantity": 1,
+      "limit_price": 16.0,
+      "tif": "DAY",
+      "notes": "Short strangle. IVR 97, IV 49.1% vs HV 40.3%, +8.8pp edge. Spot $441.49. Put 390 (0.20Δ), Call 525 (0.19Δ). 46 DTE. Profit target 50% at ~23 DTE. Stop 2x credit.",
+      "submitted_by": "MCP",
+      "pop": 0.77,
+      "max_profit": 1600.0,
+      "max_loss": -3200.0,
+      "whatif_result": {
+        "ok": true,
+        "raw": {
+          "amount": {
+            "amount": "NA",
+            "commission": "1.59 USD",
+            "total": "NA"
+          },
+          "equity": {
+            "current": "96,326",
+            "change": "0",
+            "after": "96,326"
+          },
+          "initial": {
+            "current": "65,786",
+            "change": "2,971",
+            "after": "68,757"
+          },
+          "maintenance": {
+            "current": "59,806",
+            "change": "2,321",
+            "after": "62,127"
+          },
+          "position": {
+            "current": "0",
+            "change": "-1",
+            "after": "-1"
+          },
+          "warn": "4/The \"Percentage\" price check as configured in the Precautionary Settings \ncannot be performed because market data is not available.",
+          "error": null,
+          "warns": [
+            "4/The \"Percentage\" price check as configured in the Precautionary Settings \ncannot be performed because market data is not available.",
+            "20/You are trying to submit an order without having market data for this instrument. \nIB strongly recommends against this kind of blind trading which may result in \nerroneous or unexpected trades.",
+            "25/<h4>Confirm Mandatory Cap Price</h4>To avoid trading at a price that is not consistent with a fair and orderly market, IB may set a cap (for a buy order) or floor (for a sell order). THIS MAY CAUSE AN ORDER THAT WOULD OTHERWISE BE MARKETABLE NOT TO BE TRADED."
+          ],
+          "accruedInterest": null
+        },
+        "payload_sent": {
+          "acctId": "U7453366",
+          "conid": 885501003,
+          "secType": "BAG",
+          "cOID": "e2ee5236-e7b5-4004-92cc-424bccecb200",
+          "orderType": "LMT",
+          "side": "SELL",
+          "quantity": 1,
+          "tif": "DAY",
+          "price": 16.0,
+          "comboLegs": [
+            {
+              "conid": 885501003,
+              "ratio": 1,
+              "side": "SELL",
+              "exchange": "CBOE"
+            },
+            {
+              "conid": null,
+              "ratio": 1,
+              "side": "SELL",
+              "exchange": "CBOE"
+            }
+          ],
+          "listingExchange": "CBOE"
+        }
+      },
+      "ibkr_order_id": null,
+      "error": "Could not resolve IBKR conids for: TSM. Verify ticker/expiry/strike."
+    },
+    {
+      "id": "bd8c11c2-0241-4590-95ff-ee564f0093b3",
+      "created_at": "2026-06-01T14:41:55.482627+00:00",
+      "status": "declined",
+      "ticker": "META",
+      "strategy": "IC",
+      "legs": [
+        {
+          "ticker": "META",
+          "sec_type": "OPT",
+          "right": "P",
+          "strike": 550.0,
+          "expiry": "20260717",
+          "action": "SELL",
+          "ratio": 1,
+          "exchange": "CBOE",
+          "conid": 885447158,
+          "conid_resolved": true
+        },
+        {
+          "ticker": "META",
+          "sec_type": "OPT",
+          "right": "P",
+          "strike": 535.0,
+          "expiry": "20260717",
+          "action": "BUY",
+          "ratio": 1,
+          "exchange": "CBOE",
+          "conid": 885446998,
+          "conid_resolved": true
+        },
+        {
+          "ticker": "META",
+          "sec_type": "OPT",
+          "right": "C",
+          "strike": 695.0,
+          "expiry": "20260717",
+          "action": "SELL",
+          "ratio": 1,
+          "exchange": "CBOE",
+          "conid": 885874324,
+          "conid_resolved": true
+        },
+        {
+          "ticker": "META",
+          "sec_type": "OPT",
+          "right": "C",
+          "strike": 710.0,
+          "expiry": "20260717",
+          "action": "BUY",
+          "ratio": 1,
+          "exchange": "CBOE",
+          "conid": 885874456,
+          "conid_resolved": true
+        }
+      ],
+      "order_type": "LMT",
+      "action": "SELL",
+      "quantity": 2,
+      "limit_price": 4.5,
+      "tif": "DAY",
+      "notes": "Iron condor. IVR 50.4, IV 34.7% vs HV 23.1%, +11.7pp edge — PRIME CRUSH. Spot $610.89 (dropped $22 today). Short put 550 (0.17Δ), short call 695 (0.17Δ), $15 wide wings. 46 DTE. Target 50% credit at ~21 DTE.",
+      "submitted_by": "MCP",
+      "pop": 0.8,
+      "max_profit": 900.0,
+      "max_loss": -2100.0,
+      "whatif_result": {
+        "ok": true,
+        "raw": {
+          "amount": {
+            "amount": "NA",
+            "commission": "3.13 USD",
+            "total": "NA"
+          },
+          "equity": {
+            "current": "96,412",
+            "change": "0",
+            "after": "96,412"
+          },
+          "initial": {
+            "current": "65,808",
+            "change": "18,719",
+            "after": "84,527"
+          },
+          "maintenance": {
+            "current": "59,826",
+            "change": "16,080",
+            "after": "75,906"
+          },
+          "position": {
+            "current": "0",
+            "change": "-2",
+            "after": "-2"
+          },
+          "warn": "4/The \"Percentage\" price check as configured in the Precautionary Settings \ncannot be performed because market data is not available.",
+          "error": null,
+          "warns": [
+            "4/The \"Percentage\" price check as configured in the Precautionary Settings \ncannot be performed because market data is not available.",
+            "20/You are trying to submit an order without having market data for this instrument. \nIB strongly recommends against this kind of blind trading which may result in \nerroneous or unexpected trades.",
+            "25/<h4>Confirm Mandatory Cap Price</h4>To avoid trading at a price that is not consistent with a fair and orderly market, IB may set a cap (for a buy order) or floor (for a sell order). THIS MAY CAUSE AN ORDER THAT WOULD OTHERWISE BE MARKETABLE NOT TO BE TRADED."
+          ],
+          "accruedInterest": null
+        },
+        "payload_sent": {
+          "acctId": "U7453366",
+          "conid": 885447158,
+          "secType": "BAG",
+          "cOID": "bd8c11c2-0241-4590-95ff-ee564f0093b3",
+          "orderType": "LMT",
+          "side": "SELL",
+          "quantity": 2,
+          "tif": "DAY",
+          "price": 4.5,
+          "comboLegs": [
+            {
+              "conid": 885447158,
+              "ratio": 1,
+              "side": "SELL",
+              "exchange": "CBOE"
+            },
+            {
+              "conid": 885446998,
+              "ratio": 1,
+              "side": "BUY",
+              "exchange": "CBOE"
+            },
+            {
+              "conid": 885874324,
+              "ratio": 1,
+              "side": "SELL",
+              "exchange": "CBOE"
+            },
+            {
+              "conid": 885874456,
+              "ratio": 1,
+              "side": "BUY",
+              "exchange": "CBOE"
+            }
+          ],
+          "listingExchange": "CBOE"
+        }
+      },
+      "ibkr_order_id": null,
+      "error": null,
+      "declined_at": "2026-06-01T14:48:30.657726+00:00"
+    },
+    {
+      "id": "80a2c259-067a-408c-8fd8-71e9cf10a347",
+      "created_at": "2026-06-01T14:42:06.852515+00:00",
+      "status": "declined",
+      "ticker": "V",
+      "strategy": "PCS",
+      "legs": [
+        {
+          "ticker": "V",
+          "sec_type": "OPT",
+          "right": "P",
+          "strike": 300.0,
+          "expiry": "20260717",
+          "action": "SELL",
+          "ratio": 1,
+          "exchange": "CBOE",
+          "conid": 885507345,
+          "conid_resolved": true
+        },
+        {
+          "ticker": "V",
+          "sec_type": "OPT",
+          "right": "P",
+          "strike": 295.0,
+          "expiry": "20260717",
+          "action": "BUY",
+          "ratio": 1,
+          "exchange": "CBOE",
+          "conid": 885507326,
+          "conid_resolved": true
+        }
+      ],
+      "order_type": "LMT",
+      "action": "SELL",
+      "quantity": 5,
+      "limit_price": 1.2,
+      "tif": "DAY",
+      "notes": "Bull put spread. IVR 72.9, IV 27.2% vs HV 16.6%, +10.6pp edge — PRIME CRUSH. Spot $321.81. Short 300P (0.22Δ), long 295P, $5 wide. 5 contracts. 46 DTE. Max risk $1,900, target 50% at ~21 DTE.",
+      "submitted_by": "MCP",
+      "pop": 0.8,
+      "max_profit": 600.0,
+      "max_loss": -1900.0,
+      "whatif_result": {
+        "ok": true,
+        "raw": {
+          "amount": {
+            "amount": "975.48 USD",
+            "commission": "NA",
+            "total": "NA"
+          },
+          "equity": {
+            "current": "96,376",
+            "change": "-330",
+            "after": "96,046"
+          },
+          "initial": {
+            "current": "65,807",
+            "change": "30,620",
+            "after": "96,427"
+          },
+          "maintenance": {
+            "current": "59,825",
+            "change": "26,987",
+            "after": "86,812"
+          },
+          "position": {
+            "current": "0",
+            "change": "-5",
+            "after": "-5"
+          },
+          "warn": "4/The limit price exceeds the market price by 38.49%; the current limit is 3%.",
+          "error": "We are unable to accept your order. Your Available Funds are in sufficient to cover the change in the account's margin requirements if this order executes. In order to obtain the desired position your Equity with Loan Value [96045.97 EUR] must exceed the new total Initial Margin of  [96427.28 EUR].",
+          "warns": [
+            "4/The limit price exceeds the market price by 38.49%; the current limit is 3%.",
+            "6/The price exceeds the \"Number of ticks\" constraint; the current limit is 20.",
+            "20/You are trying to submit an order without having market data for this instrument. \nIB strongly recommends against this kind of blind trading which may result in \nerroneous or unexpected trades.",
+            "25/<h4>Confirm Mandatory Cap Price</h4>To avoid trading at a price that is not consistent with a fair and orderly market, IB may set a cap (for a buy order) or floor (for a sell order). THIS MAY CAUSE AN ORDER THAT WOULD OTHERWISE BE MARKETABLE NOT TO BE TRADED."
+          ],
+          "errors": [
+            "We are unable to accept your order. Your Available Funds are in sufficient to cover the change in the account's margin requirements if this order executes. In order to obtain the desired position your Equity with Loan Value [96045.97 EUR] must exceed the new total Initial Margin of  [96427.28 EUR]."
+          ],
+          "accruedInterest": null,
+          "action": "order_submit_issue",
+          "order_id": "004f3ae5.00013f73.6a1d0aca.0001",
+          "cqe": {
+            "post_payload": {
+              "snapshots": [
+                {
+                  "balances": {
+                    "EUR": "421.49",
+                    "USD": "-10520.7",
+                    "BASE": "-8634.4945"
+                  }
+                }
+              ],
+              "side": "s",
+              "rejections": [
+                "YOUR ORDER IS NOT ACCEPTED. IN ORDER TO OBTAIN THE DESIRED POSITION YOUR EQUITY WITH LOAN VALUE [96045.97 EUR] MUST EXCEED THE INITIAL MARGIN [96427.28 EUR]"
+              ],
+              "account_id": "U7453366",
+              "order_currency": "USD",
+              "sec_type": "OPT",
+              "clams_tags": [
+                "B__^YOUR_ORDER_IS_NOT_ACCEPTED\\._IN_ORDER_TO_OBTAIN_THE_DESIRED_POSITION_YOUR_EQUITY_WITH_LOAN_VALUE_\\[([0-9.+e-]+)_([A-Z]{3})\\]_MUST_EXCEED_THE_INITIAL_MARGIN_\\[([0-9.+e-]+)_([A-Z]{3})\\]$"
+              ],
+              "order_total": "600.0",
+              "conid": "885507345",
+              "exchange": "CBOE",
+              "order_id": "004f3ae5.00013f73.6a1d0aca.0001"
+            },
+            "request_method": "POST"
+          },
+          "suggestedSize": 4.0,
+          "suggestedCashSize": 1.7976931348623157e+308
+        },
+        "payload_sent": {
+          "acctId": "U7453366",
+          "conid": 885507345,
+          "secType": "BAG",
+          "cOID": "80a2c259-067a-408c-8fd8-71e9cf10a347",
+          "orderType": "LMT",
+          "side": "SELL",
+          "quantity": 5,
+          "tif": "DAY",
+          "price": 1.2,
+          "comboLegs": [
+            {
+              "conid": 885507345,
+              "ratio": 1,
+              "side": "SELL",
+              "exchange": "CBOE"
+            },
+            {
+              "conid": 885507326,
+              "ratio": 1,
+              "side": "BUY",
+              "exchange": "CBOE"
+            }
+          ],
+          "listingExchange": "CBOE"
+        }
+      },
+      "ibkr_order_id": null,
+      "error": null,
+      "declined_at": "2026-06-01T14:48:36.510860+00:00"
+    },
+    {
+      "id": "9be47f9c-6eaf-4def-b7a7-2b1c30a21bd3",
+      "created_at": "2026-06-01T14:44:14.958549+00:00",
+      "status": "submitted",
+      "ticker": "META",
+      "strategy": "IC",
+      "legs": [
+        {
+          "ticker": "META",
+          "sec_type": "OPT",
+          "right": "P",
+          "strike": 550.0,
+          "expiry": "20260717",
+          "action": "SELL",
+          "ratio": 1,
+          "exchange": "CBOE",
+          "conid": 885447158,
+          "conid_resolved": true
+        },
+        {
+          "ticker": "META",
+          "sec_type": "OPT",
+          "right": "P",
+          "strike": 535.0,
+          "expiry": "20260717",
+          "action": "BUY",
+          "ratio": 1,
+          "exchange": "CBOE",
+          "conid": 885446998,
+          "conid_resolved": true
+        },
+        {
+          "ticker": "META",
+          "sec_type": "OPT",
+          "right": "C",
+          "strike": 695.0,
+          "expiry": "20260717",
+          "action": "SELL",
+          "ratio": 1,
+          "exchange": "CBOE",
+          "conid": 885874324,
+          "conid_resolved": true
+        },
+        {
+          "ticker": "META",
+          "sec_type": "OPT",
+          "right": "C",
+          "strike": 710.0,
+          "expiry": "20260717",
+          "action": "BUY",
+          "ratio": 1,
+          "exchange": "CBOE",
+          "conid": 885874456,
+          "conid_resolved": true
+        }
+      ],
+      "order_type": "LMT",
+      "action": "SELL",
+      "quantity": 1,
+      "limit_price": 4.0,
+      "tif": "DAY",
+      "notes": "Iron condor — resized to 1 contract (margin). IVR 50.4, IV 34.7% vs HV 23.1%, +11.7pp PRIME CRUSH. Spot $610.89. Short put 550 (0.17Δ), short call 695 (0.17Δ), $15 wide wings. 46 DTE. Target 50% at ~21 DTE.",
+      "submitted_by": "MCP",
+      "pop": 0.8,
+      "max_profit": 400.0,
+      "max_loss": -1100.0,
+      "whatif_result": {
+        "ok": true,
+        "raw": {
+          "amount": {
+            "amount": "408.79 USD",
+            "commission": "1.56 USD",
+            "total": "407.23 USD"
+          },
+          "equity": {
+            "current": "96,419",
+            "change": "-3",
+            "after": "96,416"
+          },
+          "initial": {
+            "current": "65,909",
+            "change": "6,874",
+            "after": "72,783"
+          },
+          "maintenance": {
+            "current": "59,917",
+            "change": "5,780",
+            "after": "65,697"
+          },
+          "position": {
+            "current": "0",
+            "change": "-1",
+            "after": "-1"
+          },
+          "warn": "4/The \"Percentage\" price check as configured in the Precautionary Settings \ncannot be performed because market data is not available.",
+          "error": null,
+          "warns": [
+            "4/The \"Percentage\" price check as configured in the Precautionary Settings \ncannot be performed because market data is not available.",
+            "20/You are trying to submit an order without having market data for this instrument. \nIB strongly recommends against this kind of blind trading which may result in \nerroneous or unexpected trades.",
+            "25/<h4>Confirm Mandatory Cap Price</h4>To avoid trading at a price that is not consistent with a fair and orderly market, IB may set a cap (for a buy order) or floor (for a sell order). THIS MAY CAUSE AN ORDER THAT WOULD OTHERWISE BE MARKETABLE NOT TO BE TRADED."
+          ],
+          "accruedInterest": null
+        },
+        "payload_sent": {
+          "acctId": "U7453366",
+          "conid": 885447158,
+          "secType": "BAG",
+          "cOID": "9be47f9c-6eaf-4def-b7a7-2b1c30a21bd3",
+          "orderType": "LMT",
+          "side": "SELL",
+          "quantity": 1,
+          "tif": "DAY",
+          "price": 4.0,
+          "comboLegs": [
+            {
+              "conid": 885447158,
+              "ratio": 1,
+              "side": "SELL",
+              "exchange": "CBOE"
+            },
+            {
+              "conid": 885446998,
+              "ratio": 1,
+              "side": "BUY",
+              "exchange": "CBOE"
+            },
+            {
+              "conid": 885874324,
+              "ratio": 1,
+              "side": "SELL",
+              "exchange": "CBOE"
+            },
+            {
+              "conid": 885874456,
+              "ratio": 1,
+              "side": "BUY",
+              "exchange": "CBOE"
+            }
+          ],
+          "listingExchange": "CBOE"
+        }
+      },
+      "ibkr_order_id": null,
+      "error": null,
+      "submitted_at": "2026-06-01T14:47:44.598909+00:00",
+      "ibkr_response": [
+        {
+          "id": "b5a3e3e2-087e-4e86-859b-6ae0ba15768c",
+          "message": [
+            "<h4>Confirm Mandatory Cap Price</h4>To avoid trading at a price that is not consistent with a fair and orderly market, IB may set a cap (for a buy order) or floor (for a sell order). THIS MAY CAUSE AN ORDER THAT WOULD OTHERWISE BE MARKETABLE NOT TO BE TRADED."
+          ],
+          "isSuppressed": false,
+          "messageIds": [
+            "o10153"
+          ],
+          "isSuppressible": true,
+          "defaultSuppressionOption": "Accept and Continue",
+          "messageOptions": [
+            "Decline",
+            "Accept and Continue"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "4aa3fbfb-fb65-4764-babc-089bb5e99350",
+      "created_at": "2026-06-01T14:44:24.829326+00:00",
+      "status": "pending",
+      "ticker": "V",
+      "strategy": "PCS",
+      "legs": [
+        {
+          "ticker": "V",
+          "sec_type": "OPT",
+          "right": "P",
+          "strike": 300.0,
+          "expiry": "20260717",
+          "action": "SELL",
+          "ratio": 1,
+          "exchange": "CBOE",
+          "conid": 885507345,
+          "conid_resolved": true
+        },
+        {
+          "ticker": "V",
+          "sec_type": "OPT",
+          "right": "P",
+          "strike": 295.0,
+          "expiry": "20260717",
+          "action": "BUY",
+          "ratio": 1,
+          "exchange": "CBOE",
+          "conid": 885507326,
+          "conid_resolved": true
+        }
+      ],
+      "order_type": "LMT",
+      "action": "SELL",
+      "quantity": 4,
+      "limit_price": 0.87,
+      "tif": "DAY",
+      "notes": "Bull put spread — resized to 4 contracts (IBKR margin limit). IVR 72.9, IV 27.2% vs HV 16.6%, +10.6pp PRIME CRUSH. Spot $321.81. Short 300P (0.22Δ), long 295P, $5 wide. 46 DTE. Target 50% at ~21 DTE.",
+      "submitted_by": "MCP",
+      "pop": 0.8,
+      "max_profit": 348.0,
+      "max_loss": -1652.0,
+      "whatif_result": {
+        "ok": true,
+        "raw": {
+          "amount": {
+            "amount": "744.08 USD",
+            "commission": "6.23 USD",
+            "total": "737.85 USD"
+          },
+          "equity": {
+            "current": "96,952",
+            "change": "-123",
+            "after": "96,829"
+          },
+          "initial": {
+            "current": "66,027",
+            "change": "23,340",
+            "after": "89,367"
+          },
+          "maintenance": {
+            "current": "60,024",
+            "change": "20,516",
+            "after": "80,540"
+          },
+          "position": {
+            "current": "0",
+            "change": "-4",
+            "after": "-4"
+          },
+          "warn": "4/The limit price exceeds the market price by 53.23%; the current limit is 3%.",
+          "error": null,
+          "warns": [
+            "4/The limit price exceeds the market price by 53.23%; the current limit is 3%.",
+            "6/The price exceeds the \"Number of ticks\" constraint; the current limit is 20.",
+            "20/You are trying to submit an order without having market data for this instrument. \nIB strongly recommends against this kind of blind trading which may result in \nerroneous or unexpected trades.",
+            "25/<h4>Confirm Mandatory Cap Price</h4>To avoid trading at a price that is not consistent with a fair and orderly market, IB may set a cap (for a buy order) or floor (for a sell order). THIS MAY CAUSE AN ORDER THAT WOULD OTHERWISE BE MARKETABLE NOT TO BE TRADED."
+          ],
+          "accruedInterest": null
+        },
+        "payload_sent": {
+          "acctId": "U7453366",
+          "conid": 885507345,
+          "secType": "BAG",
+          "cOID": "4aa3fbfb-fb65-4764-babc-089bb5e99350",
+          "orderType": "LMT",
+          "side": "SELL",
+          "quantity": 4,
+          "tif": "DAY",
+          "price": 0.87,
+          "comboLegs": [
+            {
+              "conid": 885507345,
+              "ratio": 1,
+              "side": "SELL",
+              "exchange": "CBOE"
+            },
+            {
+              "conid": 885507326,
+              "ratio": 1,
+              "side": "BUY",
+              "exchange": "CBOE"
+            }
+          ],
+          "listingExchange": "CBOE"
+        }
+      },
+      "ibkr_order_id": null,
+      "error": null
+    },
+    {
+      "id": "735cb74f-8c51-43a6-a427-de91944f4ab5",
+      "created_at": "2026-06-01T14:48:48.549822+00:00",
+      "status": "submitted",
+      "ticker": "TSM",
+      "strategy": "SHORT_STRANGLE",
+      "legs": [
+        {
+          "ticker": "TSM",
+          "sec_type": "OPT",
+          "right": "P",
+          "strike": 390.0,
+          "expiry": "20260717",
+          "action": "SELL",
+          "ratio": 1,
+          "exchange": "CBOE",
+          "conid": 885501003,
+          "conid_resolved": true
+        },
+        {
+          "ticker": "TSM",
+          "sec_type": "OPT",
+          "right": "C",
+          "strike": 520.0,
+          "expiry": "20260717",
+          "action": "SELL",
+          "ratio": 1,
+          "exchange": "CBOE",
+          "conid": 885876921,
+          "conid_resolved": true
+        }
+      ],
+      "order_type": "LMT",
+      "action": "SELL",
+      "quantity": 1,
+      "limit_price": 16.0,
+      "tif": "DAY",
+      "notes": "Short strangle v2 — restaged with $520C (conid fix). IVR 97, IV 49.1% vs HV 40.3%, +8.8pp edge. Spot $441.49. Put 390 (0.20Δ), Call 520 (~0.21Δ). 46 DTE. Target 50% at ~23 DTE. Stop 2x credit.",
+      "submitted_by": "MCP",
+      "pop": 0.77,
+      "max_profit": 1600.0,
+      "max_loss": -3200.0,
+      "whatif_result": {
+        "ok": true,
+        "raw": {
+          "amount": {
+            "amount": "1,600 USD",
+            "commission": "1.59 USD",
+            "total": "1,598.41 USD"
+          },
+          "equity": {
+            "current": "97,116",
+            "change": "0",
+            "after": "97,116"
+          },
+          "initial": {
+            "current": "66,082",
+            "change": "2,987",
+            "after": "69,068"
+          },
+          "maintenance": {
+            "current": "60,074",
+            "change": "2,339",
+            "after": "62,414"
+          },
+          "position": {
+            "current": "0",
+            "change": "-1",
+            "after": "-1"
+          },
+          "warn": "20/You are trying to submit an order without having market data for this instrument. \nIB strongly recommends against this kind of blind trading which may result in \nerroneous or unexpected trades.",
+          "error": null,
+          "warns": [
+            "20/You are trying to submit an order without having market data for this instrument. \nIB strongly recommends against this kind of blind trading which may result in \nerroneous or unexpected trades.",
+            "25/<h4>Confirm Mandatory Cap Price</h4>To avoid trading at a price that is not consistent with a fair and orderly market, IB may set a cap (for a buy order) or floor (for a sell order). THIS MAY CAUSE AN ORDER THAT WOULD OTHERWISE BE MARKETABLE NOT TO BE TRADED."
+          ],
+          "accruedInterest": null
+        },
+        "payload_sent": {
+          "acctId": "U7453366",
+          "conid": 885501003,
+          "secType": "BAG",
+          "cOID": "735cb74f-8c51-43a6-a427-de91944f4ab5",
+          "orderType": "LMT",
+          "side": "SELL",
+          "quantity": 1,
+          "tif": "DAY",
+          "price": 16.0,
+          "comboLegs": [
+            {
+              "conid": 885501003,
+              "ratio": 1,
+              "side": "SELL",
+              "exchange": "CBOE"
+            },
+            {
+              "conid": 885876921,
+              "ratio": 1,
+              "side": "SELL",
+              "exchange": "CBOE"
+            }
+          ],
+          "listingExchange": "CBOE"
+        }
+      },
+      "ibkr_order_id": null,
+      "error": null,
+      "submitted_at": "2026-06-01T14:49:11.035951+00:00",
+      "ibkr_response": [
+        {
+          "id": "87528874-a2aa-423c-9adb-bcbc7c3f5bba",
+          "message": [
+            "<h4>Confirm Mandatory Cap Price</h4>To avoid trading at a price that is not consistent with a fair and orderly market, IB may set a cap (for a buy order) or floor (for a sell order). THIS MAY CAUSE AN ORDER THAT WOULD OTHERWISE BE MARKETABLE NOT TO BE TRADED."
+          ],
+          "isSuppressed": false,
+          "messageIds": [
+            "o10153"
+          ],
+          "isSuppressible": true,
+          "defaultSuppressionOption": "Accept and Continue",
+          "messageOptions": [
+            "Decline",
+            "Accept and Continue"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fb6d810e-2cc5-4dd6-9a4e-14eae5206491",
+      "created_at": "2026-06-01T15:05:22.819980+00:00",
+      "status": "submitted",
+      "ticker": "TSM",
+      "strategy": "SHORT_STRANGLE",
+      "legs": [
+        {
+          "ticker": "TSM",
+          "sec_type": "OPT",
+          "right": "P",
+          "strike": 390.0,
+          "expiry": "20260717",
+          "action": "SELL",
+          "ratio": 1,
+          "exchange": "CBOE",
+          "conid": 885501003,
+          "conid_resolved": true
+        },
+        {
+          "ticker": "TSM",
+          "sec_type": "OPT",
+          "right": "C",
+          "strike": 520.0,
+          "expiry": "20260717",
+          "action": "SELL",
+          "ratio": 1,
+          "exchange": "CBOE",
+          "conid": 885876921,
+          "conid_resolved": true
+        }
+      ],
+      "order_type": "LMT",
+      "action": "SELL",
+      "quantity": 1,
+      "limit_price": 16.0,
+      "tif": "DAY",
+      "notes": "Short strangle v3 — resubmit after iBeam restart. IVR 97, IV 49.1% vs HV 40.3%. Spot $441+. Put 390 (0.20Δ), Call 520 (~0.21Δ). 46 DTE. Target 50% at ~23 DTE.",
+      "submitted_by": "MCP",
+      "pop": 0.77,
+      "max_profit": 1600.0,
+      "max_loss": -3200.0,
+      "whatif_result": null,
+      "ibkr_order_id": null,
+      "error": null,
+      "submitted_at": "2026-06-01T15:05:40.221292+00:00",
+      "ibkr_response": [
+        {
+          "id": "44d1f18c-6503-4a63-851f-5782517d5356",
+          "message": [
+            "<h4>Confirm Mandatory Cap Price</h4>To avoid trading at a price that is not consistent with a fair and orderly market, IB may set a cap (for a buy order) or floor (for a sell order). THIS MAY CAUSE AN ORDER THAT WOULD OTHERWISE BE MARKETABLE NOT TO BE TRADED."
+          ],
+          "isSuppressed": false,
+          "messageIds": [
+            "o10153"
+          ],
+          "isSuppressible": true,
+          "defaultSuppressionOption": "Accept and Continue",
+          "messageOptions": [
+            "Decline",
+            "Accept and Continue"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "e9c61dcd-a389-451c-b83c-c7233af55437",
+      "created_at": "2026-06-01T15:05:33.124109+00:00",
+      "status": "submitted",
+      "ticker": "META",
+      "strategy": "IC",
+      "legs": [
+        {
+          "ticker": "META",
+          "sec_type": "OPT",
+          "right": "P",
+          "strike": 550.0,
+          "expiry": "20260717",
+          "action": "SELL",
+          "ratio": 1,
+          "exchange": "CBOE",
+          "conid": 885447158,
+          "conid_resolved": true
+        },
+        {
+          "ticker": "META",
+          "sec_type": "OPT",
+          "right": "P",
+          "strike": 535.0,
+          "expiry": "20260717",
+          "action": "BUY",
+          "ratio": 1,
+          "exchange": "CBOE",
+          "conid": 885446998,
+          "conid_resolved": true
+        },
+        {
+          "ticker": "META",
+          "sec_type": "OPT",
+          "right": "C",
+          "strike": 695.0,
+          "expiry": "20260717",
+          "action": "SELL",
+          "ratio": 1,
+          "exchange": "CBOE",
+          "conid": 885874324,
+          "conid_resolved": true
+        },
+        {
+          "ticker": "META",
+          "sec_type": "OPT",
+          "right": "C",
+          "strike": 710.0,
+          "expiry": "20260717",
+          "action": "BUY",
+          "ratio": 1,
+          "exchange": "CBOE",
+          "conid": 885874456,
+          "conid_resolved": true
+        }
+      ],
+      "order_type": "LMT",
+      "action": "SELL",
+      "quantity": 1,
+      "limit_price": 4.0,
+      "tif": "DAY",
+      "notes": "IC v2 — resubmit after iBeam restart. IVR 50.4, IV 34.7% vs HV 23.1%, +11.7pp PRIME CRUSH. Short put 550, short call 695, $15 wide wings. 46 DTE.",
+      "submitted_by": "MCP",
+      "pop": 0.8,
+      "max_profit": 400.0,
+      "max_loss": -1100.0,
+      "whatif_result": null,
+      "ibkr_order_id": null,
+      "error": null,
+      "submitted_at": "2026-06-01T15:05:48.445807+00:00",
+      "ibkr_response": [
+        {
+          "id": "f15b3f09-ff3f-4c40-bc66-1e2c0e6d7929",
+          "message": [
+            "<h4>Confirm Mandatory Cap Price</h4>To avoid trading at a price that is not consistent with a fair and orderly market, IB may set a cap (for a buy order) or floor (for a sell order). THIS MAY CAUSE AN ORDER THAT WOULD OTHERWISE BE MARKETABLE NOT TO BE TRADED."
+          ],
+          "isSuppressed": false,
+          "messageIds": [
+            "o10153"
+          ],
+          "isSuppressible": true,
+          "defaultSuppressionOption": "Accept and Continue",
+          "messageOptions": [
+            "Decline",
+            "Accept and Continue"
+          ]
+        }
+      ]
+    }
+  ]
+}
