@@ -933,3 +933,195 @@ def get_strategy_metrics(
         "mode":             mode,
         "strategies":       strategies,
     }
+
+
+# ─── Scenario Estimate ────────────────────────────────────────────────────────
+
+class ScenarioLeg(BaseModel):
+    ticker:   str
+    strategy: str    # 'PMCC' | 'CSP' | 'COVERED_CALL' | 'IRON_CONDOR' | 'JADE_LIZARD' | etc.
+    qty:      int    = 1
+    dte:      int    = 45
+
+class ScenarioRequest(BaseModel):
+    positions: list[ScenarioLeg]
+
+@router.post("/scenario/estimate")
+def scenario_estimate(req: ScenarioRequest):
+    """
+    For each hypothetical position, estimate delta/theta/vega/notional using BS
+    at a standard entry point (Δ0.20 short leg, same logic as strategy_metrics).
+    Returns per-position estimates + aggregate portfolio impact.
+    """
+    import math as _m
+    import logging as _log_mod
+    _log = _log_mod.getLogger("fortress.scenario")
+
+    results = []
+    agg_delta = agg_theta = agg_vega = 0.0
+
+    for leg in req.positions:
+        ticker = leg.ticker.upper()
+        dte = max(1, leg.dte)
+        t = dte / 365.0
+
+        # ── Spot + IV ────────────────────────────────────────────────────────
+        spot: float = 0.0
+        iv: float = 0.30
+        try:
+            spot = chain_svc.get_spot(ticker) or 0.0
+        except Exception:
+            pass
+        if not spot:
+            results.append({
+                "ticker": ticker, "strategy": leg.strategy, "qty": leg.qty,
+                "error": "spot unavailable",
+                "delta": 0.0, "theta": 0.0, "vega": 0.0, "notional": 0.0,
+            })
+            continue
+
+        try:
+            from app.routes.market import get_market_intelligence  # type: ignore
+            intel = get_market_intelligence(ticker)
+            raw_iv = intel.get("current_iv") or 30.0
+            iv = raw_iv / 100.0 if raw_iv > 1 else raw_iv
+        except Exception:
+            pass
+        if iv <= 0:
+            iv = 0.30
+
+        # ── BS helpers ───────────────────────────────────────────────────────
+        rf = _RISK_FREE
+        sq_t = _m.sqrt(t)
+
+        def d1d2(S, K):
+            if K <= 0 or S <= 0 or iv <= 0 or t <= 0:
+                return 0.0, 0.0
+            d1 = (_m.log(S / K) + (rf + 0.5 * iv**2) * t) / (iv * sq_t)
+            return d1, d1 - iv * sq_t
+
+        def put_delta(S, K):
+            d1, _ = d1d2(S, K)
+            return _norm_cdf(d1) - 1.0
+
+        def call_delta(S, K):
+            d1, _ = d1d2(S, K)
+            return _norm_cdf(d1)
+
+        def theta_put(S, K):
+            d1, d2 = d1d2(S, K)
+            term1 = -(S * _norm_pdf(d1) * iv) / (2 * sq_t)
+            term2 = rf * K * _m.exp(-rf * t) * _norm_cdf(-d2)
+            return (term1 + term2) / 365.0  # per day
+
+        def theta_call(S, K):
+            d1, d2 = d1d2(S, K)
+            term1 = -(S * _norm_pdf(d1) * iv) / (2 * sq_t)
+            term2 = -rf * K * _m.exp(-rf * t) * _norm_cdf(d2)
+            return (term1 + term2) / 365.0
+
+        def vega_any(S, K):
+            d1, _ = d1d2(S, K)
+            return S * _norm_pdf(d1) * sq_t * 0.01  # per 1% IV move
+
+        # ── Strike approximation at Δ0.20 ───────────────────────────────────
+        def strike_at_delta(target_delta: float, right: str = "P") -> float:
+            lo, hi = spot * 0.3, spot * 1.8
+            for _ in range(40):
+                mid = (lo + hi) / 2.0
+                d = put_delta(spot, mid) if right == "P" else call_delta(spot, mid)
+                if abs(d) < target_delta:
+                    hi = mid
+                else:
+                    lo = mid
+            return (lo + hi) / 2.0
+
+        strat = leg.strategy.upper()
+        delta = theta = vega = notional = 0.0
+
+        try:
+            if strat in ("CSP", "CASH_SECURED_PUT"):
+                K = strike_at_delta(0.20, "P")
+                delta    = put_delta(spot, K) * 100 * leg.qty
+                theta    = -theta_put(spot, K) * 100 * leg.qty  # positive theta for short
+                vega     = -vega_any(spot, K) * 100 * leg.qty
+                notional = K * 100 * leg.qty
+
+            elif strat in ("COVERED_CALL", "CC"):
+                K = strike_at_delta(0.20, "C")
+                delta    = (1.0 - call_delta(spot, K)) * 100 * leg.qty  # long stock - short call
+                theta    = -theta_call(spot, K) * 100 * leg.qty
+                vega     = -vega_any(spot, K) * 100 * leg.qty
+                notional = spot * 100 * leg.qty
+
+            elif strat == "PMCC":
+                # Long LEAP (deep ITM ~0.80 delta) + short call (0.20 delta)
+                K_leap  = spot * 0.75   # approx 0.80 delta strike
+                K_short = strike_at_delta(0.20, "C")
+                d_leap  = call_delta(spot, K_leap)
+                d_short = call_delta(spot, K_short)
+                delta    = (d_leap - d_short) * 100 * leg.qty
+                theta    = (-theta_call(spot, K_leap) - theta_call(spot, K_short)) * 100 * leg.qty
+                vega     = (vega_any(spot, K_leap) - vega_any(spot, K_short)) * 100 * leg.qty
+                notional = K_leap * 100 * leg.qty  # LEAP cost proxy
+
+            elif strat in ("IRON_CONDOR", "IC"):
+                K_put  = strike_at_delta(0.16, "P")
+                K_call = strike_at_delta(0.16, "C")
+                wing   = spot * 0.04
+                delta  = 0.0   # roughly delta-neutral
+                theta  = (-theta_put(spot, K_put) - theta_call(spot, K_call)) * 100 * leg.qty
+                vega   = (-vega_any(spot, K_put) - vega_any(spot, K_call)) * 100 * leg.qty
+                notional = wing * 100 * leg.qty  # max loss proxy
+
+            elif strat in ("JADE_LIZARD", "JL"):
+                K_put  = strike_at_delta(0.20, "P")
+                K_call = strike_at_delta(0.20, "C")
+                delta  = (put_delta(spot, K_put) + call_delta(spot, K_call)) * 100 * leg.qty
+                theta  = (-theta_put(spot, K_put) - theta_call(spot, K_call)) * 100 * leg.qty
+                vega   = (-vega_any(spot, K_put) - vega_any(spot, K_call)) * 100 * leg.qty
+                notional = K_put * 100 * leg.qty
+
+            elif strat in ("BULL_CALL_SPREAD", "BCS"):
+                K1 = spot  # ATM long
+                K2 = spot * 1.05  # OTM short
+                delta    = (call_delta(spot, K1) - call_delta(spot, K2)) * 100 * leg.qty
+                theta    = (theta_call(spot, K1) - theta_call(spot, K2)) * 100 * leg.qty
+                vega     = (vega_any(spot, K1) - vega_any(spot, K2)) * 100 * leg.qty
+                notional = (K2 - K1) * 100 * leg.qty  # max profit
+
+            else:
+                # Generic short put fallback
+                K = strike_at_delta(0.20, "P")
+                delta    = put_delta(spot, K) * 100 * leg.qty
+                theta    = -theta_put(spot, K) * 100 * leg.qty
+                vega     = -vega_any(spot, K) * 100 * leg.qty
+                notional = K * 100 * leg.qty
+
+        except Exception as e:
+            _log.warning("BS estimate failed for %s %s: %s", ticker, strat, e)
+
+        results.append({
+            "ticker":   ticker,
+            "strategy": leg.strategy,
+            "qty":      leg.qty,
+            "dte":      dte,
+            "spot":     round(spot, 2),
+            "iv":       round(iv * 100, 1),
+            "delta":    round(delta, 1),
+            "theta":    round(theta, 2),
+            "vega":     round(vega, 1),
+            "notional": round(notional, 0),
+        })
+        agg_delta += delta
+        agg_theta += theta
+        agg_vega  += vega
+
+    return {
+        "positions": results,
+        "aggregate": {
+            "delta": round(agg_delta, 1),
+            "theta": round(agg_theta, 2),
+            "vega":  round(agg_vega, 1),
+        },
+    }
