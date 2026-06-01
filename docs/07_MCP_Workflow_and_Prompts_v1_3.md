@@ -1,10 +1,12 @@
 # Fortress MCP — Workflow and Prompts Playbook
 
-**Version 1.6 — 2026-06-01**
+**Version 1.7 — 2026-06-01**
 
 A practical companion to the MCP server. Maps every phase of Strategy v3.7's daily/weekly routine to concrete Claude prompts that exercise the MCP tools.
 
-**v1.6 changes from v1.5:** Standalone `quantdata-mcp` server registered in Claude Desktop alongside `fortress-dashboard`. All 6 legacy `qd_*` proxy tools removed from `fortress_mcp.py` (v4.2.0) — they returned SPY data only regardless of ticker. QuantData tools now called directly via the `quantdata` MCP: full per-ticker support, 50 tools available. Tool reference and all phase prompts updated accordingly.
+**v1.7 changes from v1.6:** Updated for Strategy v3.8.0. Phase 2 per-ticker deep dive adds dual IV rank confirmation and vol skew gate. §2.7 pre-trade adds vol skew check. §2.8 strike selection updated — live GEX by strike as primary anchor (pending market-hours confirmation). MSFT de-risking noted in weekly routine. Advisory framing explicit throughout.
+
+**v1.6 changes from v1.5:** Standalone `quantdata-mcp` server registered in Claude Desktop alongside `fortress-dashboard`. All 6 legacy `qd_*` proxy tools removed from `fortress_mcp.py` (v4.2.0). QuantData tools now called directly via the `quantdata` MCP (26 widget tools available). **Tested status (2026-06-01):** `qd_get_iv_rank(ticker)` confirmed working per-ticker. `qd_get_dark_pool_levels` and `qd_get_order_flow` remain SPX widget-locked — still market-level signals only. `qd_get_volatility_skew` and `qd_get_exposure_by_strike` return no data outside market hours — untested; retest tomorrow during market hours.
 
 **v1.5 changes from v1.4:** Two-layer Phase 2 (SPY qd_* + per-ticker yfinance). Data source table clarifying which tools are accurate per-ticker.
 
@@ -56,7 +58,13 @@ Once the Fortress MCP and QuantData MCP are installed in Claude Desktop, every p
 **QuantData MCP — 50 tools (full per-ticker support, live data):**
 `qd_get_market_snapshot`, `qd_get_net_drift`, `qd_get_dark_pool_levels`, `qd_get_exposure_by_strike`, `qd_get_exposure_by_expiration`, `qd_get_order_flow`, `qd_get_unconsolidated_flow`, `qd_get_heat_map`, `qd_get_interval_map`, `qd_get_gainers_losers`, `qd_get_volatility_skew`, `qd_get_term_structure`, `qd_get_volatility_drift`, `qd_get_oi_change`, `qd_get_oi_by_expiration`, `qd_get_oi_by_strike`, `qd_get_oi_over_time`, `qd_get_max_pain`, `qd_get_max_pain_over_time`, `qd_get_iv_rank`, `qd_get_contract_price`, `qd_get_contract_statistics`, `qd_get_equity_prints`, `qd_get_stock_price_time`, `qd_get_net_flow`, `qd_get_trade_side_stats`, `qd_get_news_articles`, plus page and filter management tools.
 
-> **Data source guidance:** For per-ticker IV rank, use `qd_get_iv_rank(ticker)` [quantdata]. For per-ticker GEX walls (structural levels), `get_dp_floors_and_gex(ticker)` [fortress] uses the daily report (~12h old) and is stable intraday. For vol skew and term structure, use `qd_get_volatility_skew` / `qd_get_term_structure` [quantdata]. For IV crush candidate ranking, `get_candidates()` / `refresh_iv_data()` [fortress] use yfinance and are fast across the full universe.
+> **Data source guidance (tested status 2026-06-01):**
+> - `qd_get_iv_rank(ticker)` [quantdata] ✓ confirmed per-ticker — use as live cross-check on yfinance IV from `get_candidates()`
+> - `qd_get_dark_pool_levels` [quantdata] ✗ widget locked to SPX — market-level only, same as before
+> - `qd_get_order_flow` [quantdata] ✗ widget locked to SPX — market-level only, same as before
+> - `qd_get_volatility_skew`, `qd_get_exposure_by_strike` [quantdata] ⏱ return empty outside market hours — retest during market hours
+> - `get_dp_floors_and_gex(ticker)` [fortress] — still best source for per-ticker GEX walls (daily report, ~12h old, stable intraday)
+> - `get_candidates()` / `refresh_iv_data()` [fortress] — fastest for full-universe IV crush ranking (yfinance batch)
 
 > **QuantData credential note:** If QuantData tools return 401/403 or empty data, the session has expired. Refresh at **Dashboard → Settings → QuantData Auto-Login**, then copy `~/.quantdata-mcp/config.json` and restart Claude Desktop. See `operations/04_Incident_Recovery_Playbook.md` §5.
 
@@ -94,11 +102,11 @@ Once the Fortress MCP and QuantData MCP are installed in Claude Desktop, every p
 > `get_market_intelligence("SPY")` [fortress] → `qd_get_net_drift("SPY")` [quantdata] → `qd_get_dark_pool_levels("SPY")` [quantdata] → `qd_get_order_flow("SPY", min_premium=100000)` [quantdata]
 >
 > **tools (per-ticker):**
-> `get_candidates()` [fortress] → for each valid candidate: `get_market_intelligence(ticker)` [fortress] → `get_dp_floors_and_gex(ticker)` [fortress] → `get_vol_analytics(ticker)` [fortress] → `qd_get_iv_rank(ticker)` [quantdata] → `qd_get_volatility_skew(ticker)` [quantdata] → `get_earnings_volatility(ticker)` [fortress]
+> `get_candidates()` [fortress] → for each valid candidate: `qd_get_iv_rank(ticker)` [quantdata] → `qd_get_volatility_skew(ticker)` [quantdata] → `get_market_intelligence(ticker)` [fortress] → `get_dp_floors_and_gex(ticker)` [fortress] → `get_earnings_volatility(ticker)` [fortress]
 >
-> **response:** Two-layer picture: (1) SPY macro context — regime score, GEX flip zone, institutional flow bias, dark pool floors. (2) Per-candidate structural levels — GEX call/put walls to anchor short strikes, IV skew shape, term structure steepness, earnings risk ratio, live IV rank.
+> **response:** Two-layer picture: (1) SPY macro context — regime score, GEX flip zone, institutional flow bias, dark pool floors. (2) Per-candidate structural levels — GEX walls (daily report), IV skew shape, earnings risk ratio, live QuantData IV rank as cross-check on yfinance.
 >
-> **notes:** `get_dp_floors_and_gex(ticker)` pulls from the daily report file (~12h old) but structural GEX levels are stable intraday. `qd_get_volatility_skew(ticker)` gives live IV skew — useful for understanding whether front-month IV is elevated vs back-month. `qd_get_iv_rank(ticker)` is now per-ticker live data from QuantData. The `get_market_intelligence` response includes a `regime_score` field (-4 to +4) and `sort_key` — use these to prioritise which tickers to analyse first.
+> **notes:** `qd_get_dark_pool_levels` and `qd_get_order_flow` are currently SPX widget-locked — pass `"SPY"` or `"SPX"` only. `qd_get_iv_rank(ticker)` is confirmed working per-ticker. `qd_get_volatility_skew(ticker)` and `qd_get_exposure_by_strike(ticker)` are pending market-hours test — add to this workflow once confirmed. The `get_market_intelligence` response includes a `regime_score` field (-4 to +4) and `sort_key` — use these to prioritise which tickers to analyse first.
 
 ### Phase 3 — Intraday Triggers (Event-driven, not scheduled)
 
@@ -152,21 +160,21 @@ Once the Fortress MCP and QuantData MCP are installed in Claude Desktop, every p
 
 > **prompt:** *"I'm thinking AMD PMCC. Run the pre-trade gates."*
 >
-> **tools:** `pretrade_check("AMD", "PMCC")` [fortress] → `qd_get_order_flow("AMD", min_premium=50000)` [quantdata]
+> **tools:** `pretrade_check("AMD", "PMCC")` [fortress] → `qd_get_iv_rank("AMD")` [quantdata] → `qd_get_volatility_skew("AMD")` [quantdata] → `qd_get_order_flow("SPY", min_premium=50000)` [quantdata]
 >
-> **response:** All five gates with verdict + reason: §3.3 exclusion, §4 earnings blackout, §7 concentration, §7 VIX, and the LEAP blackout gate. If all PASS, checks recent QuantData order flow for large sweeps/blocks confirming the directional thesis (Gate 6). If flow contradicts thesis, warns the trader.
+> **response:** All five gates with verdict + reason: §3.3 exclusion, §4 earnings blackout, §7 concentration, §7 VIX, and the LEAP blackout gate. Then: (1) dual IV rank confirmation — yfinance IVR from candidates vs live QuantData IVR; flag if divergence > 15pp. (2) vol skew check — steep put skew flags elevated downside risk; document if proceeding. (3) SPY order flow for broad market context.
 >
-> **notes:** Per Strategy §15.1, a failing gate doesn't block — but Claude should make the trader explicitly acknowledge any override.
+> **notes:** Per Strategy §15.1, all gates are advisory — a failing gate doesn't block but requires explicit acknowledgement and journal entry.
 
 #### 2.8 Strike selection prep
 
 > **prompt:** *"For AMD PMCC, where should I be looking for the short strike? Pull the structural levels."*
 >
-> **tools:** `get_chart_data("AMD", period="6mo")` [fortress] → `qd_get_dark_pool_levels("AMD")` [quantdata] → `qd_get_exposure_by_strike("AMD")` [quantdata]
+> **tools:** `get_chart_data("AMD", period="6mo")` [fortress] → `qd_get_exposure_by_strike("AMD")` [quantdata] → `qd_get_dark_pool_levels("SPY")` [quantdata]
 >
-> **response:** Current spot, 50-day SMA, 200-day SMA. Dark pool floors and GEX call/put walls from live QuantData (per-ticker). Suggests strike zones per §5: 7–10% OTM for the short call, ideally aligned with a GEX call wall or first chart resistance above current price.
+> **response:** Current spot, 50-day SMA, 200-day SMA. Live GEX call/put walls by strike from QuantData (primary anchor per §5 — ⏱ pending market-hours confirmation). SPY dark pool for broad structural context. Suggests short strike zone: just below the nearest GEX call wall above current price, confirmed by delta 0.25–0.30 check.
 >
-> **notes:** Reminder per §15.1: Claude can suggest, but the trader decides. Don't prescribe an exact strike — describe the band.
+> **notes:** `qd_get_exposure_by_strike` returns empty outside market hours — fall back to `get_dp_floors_and_gex("AMD")` [fortress] (daily report). `qd_get_dark_pool_levels` is SPX-level only. Reminder per §15.1: Claude suggests zones, trader decides exact strike.
 
 #### 2.9 Post-earnings playbook
 
@@ -270,7 +278,8 @@ When the strategy changes, this doc updates in this order:
 
 | Version | Date | Changes |
 |---|---|---|
-| 1.6 | 2026-06-01 | Standalone quantdata-mcp registered. Legacy qd_* proxy tools removed from fortress_mcp.py (v4.2.0). All phase prompts updated to use [fortress]/[quantdata] labels. Per-ticker QuantData tools now work (qd_get_iv_rank, qd_get_volatility_skew, qd_get_exposure_by_strike, qd_get_dark_pool_levels, qd_get_order_flow). |
+| 1.7 | 2026-06-01 | Updated for Strategy v3.8.0. Dual IV rank gate in Phase 2 and §2.7. Vol skew gate added to §2.7. §2.8 updated for live GEX by strike (pending market-hours test). Advisory framing throughout. |
+| 1.6 | 2026-06-01 | Standalone quantdata-mcp registered. Legacy qd_* proxy tools removed from fortress_mcp.py (v4.2.0). qd_get_iv_rank confirmed per-ticker. Dark pool and order flow remain SPX widget-locked. |
 | 1.5 | 2026-06-01 | Two-layer Phase 2. Data source clarification. qd_* SPY-only caveat documented. |
 | 1.3 | 2026-05-18 | Updated for Strategy v3.7 and Sprint v7.x. QuantData credential refresh via Settings UI. Deprecated `tool/OPTIONS_*` anti-pattern added. `get_market_intelligence` regime_score field noted. |
 | 1.2 | 2026-05-09 | MCP server moved to `citychip/fortress-mcp` repo. |

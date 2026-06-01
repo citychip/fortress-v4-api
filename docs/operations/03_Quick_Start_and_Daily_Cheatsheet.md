@@ -1,6 +1,6 @@
 # Fortress Dashboard — Quick-Start & Daily Cheatsheet
 
-**Version 1.7 — 2026-06-01**
+**Version 1.8 — 2026-06-01**
 
 One-page operational reference for live sessions. Open this first each morning.
 
@@ -39,11 +39,13 @@ MCP: *"Run my morning preflight: briefing, SPY hedge coverage, today's calendar,
 MCP: `run_script("max_pain")` + `refresh_iv_data()` — max pain pinning direction for full universe (~5s), fresh IV scan (~15s). Run both before looking at candidates.
 
 **4. Macro + per-ticker intel (entry days only)**
-MCP: *"SPY market intel, net drift, dark pool. Then per candidate: market intel, GEX walls, vol analytics, IV rank, earnings volatility."*
-- SPY-level (fortress MCP): `get_market_intelligence("SPY")`
+MCP: *"SPY market intel, net drift, dark pool. Then per candidate: IV rank dual-confirm, vol skew, GEX walls, market intel, earnings vol."*
 - SPY-level (quantdata MCP): `qd_get_net_drift("SPY")` + `qd_get_dark_pool_levels("SPY")` + `qd_get_order_flow("SPY", min_premium=100000)`
-- Per-ticker (fortress MCP): `get_market_intelligence(t)` + `get_dp_floors_and_gex(t)` + `get_vol_analytics(t)` + `get_earnings_volatility(t)`
-- Per-ticker (quantdata MCP): `qd_get_iv_rank(t)` + `qd_get_volatility_skew(t)` + `qd_get_exposure_by_strike(t)`
+- SPY-level (fortress MCP): `get_market_intelligence("SPY")`
+- Per-ticker — dual IV confirm (§4): `get_candidates()` [fortress] → `qd_get_iv_rank(t)` [quantdata] — both must confirm IVR > 25
+- Per-ticker — vol skew gate (§5): `qd_get_volatility_skew(t)` [quantdata] — steep put skew = caution, document override
+- Per-ticker — structure (fortress): `get_market_intelligence(t)` + `get_dp_floors_and_gex(t)` + `get_earnings_volatility(t)`
+- Per-ticker — live GEX (market hours only): `qd_get_exposure_by_strike(t)` [quantdata] — primary strike anchor
 
 ---
 
@@ -123,32 +125,37 @@ sudo cp -r dist/public/* /var/www/fortress-v4/ && sudo nginx -s reload
 
 ## Data Sources Quick Reference
 
-| What you need | Use this | MCP | Source |
+> **Tested status 2026-06-01** — ✓ confirmed | ✗ widget-locked to SPX | ⏱ pending market-hours test
+
+| What you need | Use this | MCP | Status |
 |---|---|---|---|
-| Per-ticker IV rank | `qd_get_iv_rank(ticker)` | quantdata | QuantData live ✓ |
-| Per-ticker vol skew | `qd_get_volatility_skew(ticker)` | quantdata | QuantData live ✓ |
-| Per-ticker GEX by strike | `qd_get_exposure_by_strike(ticker)` | quantdata | QuantData live ✓ |
-| Per-ticker order flow | `qd_get_order_flow(ticker)` | quantdata | QuantData live ✓ |
-| Per-ticker dark pool floors | `qd_get_dark_pool_levels(ticker)` | quantdata | QuantData live ✓ |
-| Per-ticker net drift | `qd_get_net_drift(ticker)` | quantdata | QuantData live ✓ |
-| Per-ticker GEX walls (daily) | `get_dp_floors_and_gex(ticker)` | fortress | daily report (~12h) |
-| Per-ticker IV skew (yfinance) | `get_vol_analytics(ticker)` | fortress | yfinance ✓ |
-| Max pain + pin direction | `run_script("max_pain")` | fortress | yfinance ✓ |
-| IV crush candidates | `get_candidates()` / `refresh_iv_data()` | fortress | yfinance ✓ |
+| Per-ticker IV rank (live) | `qd_get_iv_rank(ticker)` | quantdata | ✓ confirmed |
+| Per-ticker vol skew | `qd_get_volatility_skew(ticker)` | quantdata | ⏱ market hours only |
+| Per-ticker GEX by strike | `qd_get_exposure_by_strike(ticker)` | quantdata | ⏱ market hours only |
+| SPX order flow / sweeps | `qd_get_order_flow("SPY")` | quantdata | ✓ SPX only (widget-locked) |
+| SPX dark pool floors | `qd_get_dark_pool_levels("SPY")` | quantdata | ✓ SPX only (widget-locked) |
+| Per-ticker GEX walls (daily) | `get_dp_floors_and_gex(ticker)` | fortress | ✓ daily report (~12h) |
+| Per-ticker IV skew (yfinance) | `get_vol_analytics(ticker)` | fortress | ✓ yfinance |
+| IV crush candidates (universe) | `get_candidates()` / `refresh_iv_data()` | fortress | ✓ yfinance batch |
+| Max pain + pin direction | `run_script("max_pain")` | fortress | ✓ yfinance batch |
 
 ---
 
 ## MCP Order Workflow (quick reference)
 
 ```
-refresh_iv_data()                  # fresh IV scan
-→ get_candidates()                 # find actionable tickers
-→ qd_get_iv_rank(ticker)           # confirm IV rank via QuantData
-→ pretrade_check(ticker, "CSP")    # run pre-trade gate
-→ stage_order(ticker, strategy, legs, ...)  # create in Build Center
-→ preview_order(order_id)          # IBKR whatif (no submission)
-→ approve_order(order_id)          # submit to IBKR
+refresh_iv_data()                      # fresh IV scan (yfinance batch)
+→ get_candidates()                     # find top 2-3 by IVR + spread
+→ qd_get_iv_rank(ticker)               # dual IV confirm (Strategy §4)
+→ qd_get_volatility_skew(ticker)       # vol skew gate (Strategy §5)
+→ qd_get_exposure_by_strike(ticker)    # live GEX — primary strike anchor
+→ pretrade_check(ticker, strategy)     # pre-trade gate
+→ stage_order(ticker, strategy, legs, ...)
+→ preview_order(order_id)              # IBKR whatif (no submission)
+→ approve_order(order_id)             # submit to IBKR
 ```
+
+All thresholds advisory — document overrides in journal.
 
 All write tools require `FORTRESS_MCP_ALLOW_WRITES=1` in Claude Desktop config.
 
@@ -158,7 +165,8 @@ All write tools require `FORTRESS_MCP_ALLOW_WRITES=1` in Claude Desktop config.
 
 | Version | Date | Changes |
 |---|---|---|
-| 1.7 | 2026-06-01 | Standalone quantdata-mcp registered. Per-ticker QuantData tools now work. Data sources table updated. qd_* SPY-only caveat removed. |
+| 1.8 | 2026-06-01 | Updated for Strategy v3.8.0. Step 4 updated with dual IV rank confirm and vol skew gate. MCP order workflow updated. GEX by strike added as primary strike anchor. Advisory framing noted. |
+| 1.7 | 2026-06-01 | Standalone quantdata-mcp registered. qd_get_iv_rank confirmed per-ticker. Dark pool and order flow remain SPX widget-locked. |
 | 1.6 | 2026-06-01 | Added run_script("max_pain") to morning preflight. Data sources table. Two-layer market intel (SPY qd_* + per-ticker yfinance). |
 | 1.5 | 2026-06-01 | Added refresh_iv_data, stage_order/preview_order/approve_order workflow. IBKR auto-sync note. |
 | 1.4 | 2026-05-30 | Full rewrite for V4 WSL deployment. Removed VPS references. Updated paths, ports, token, commands. Added auto-refresh note. |
