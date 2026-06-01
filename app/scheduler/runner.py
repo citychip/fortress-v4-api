@@ -160,6 +160,7 @@ def build_scheduler() -> BackgroundScheduler:
     Register all 8 script jobs with their UTC cron schedules.
 
     Schedule reference (summer EDT = UTC-4; add 1h for winter EST):
+      qd_refresh      06:00 ET + 12:00 ET → 10:00 + 16:00 UTC  Mon-Fri
       premarket       07:00 ET → 11:00 UTC   Mon-Fri
       iv_crush        every 30 min during market hours (13:00-20:00 UTC Mon-Fri)
                       NOTE: spec requires earnings-aware 14-day window — deferred.
@@ -173,11 +174,18 @@ def build_scheduler() -> BackgroundScheduler:
     """
     sched = BackgroundScheduler(timezone="UTC")
 
-    # 0 — QuantData Session Refresh: 06:00 ET → 10:00 UTC (runs before premarket)
+    # 0a — QuantData Session Refresh: 06:00 ET → 10:00 UTC (runs before premarket)
     sched.add_job(
         _job("qd_refresh"),
         CronTrigger(hour=10, minute=0, day_of_week="mon-fri", timezone="UTC"),
         id="qd_refresh", name="QuantData Session Refresh", replace_existing=True,
+    )
+
+    # 0b — QuantData Midday Re-auth: 12:00 ET → 16:00 UTC (prevents intraday token expiry)
+    sched.add_job(
+        _job("qd_refresh"),
+        CronTrigger(hour=16, minute=0, day_of_week="mon-fri", timezone="UTC"),
+        id="qd_refresh_midday", name="QuantData Midday Re-auth", replace_existing=True,
     )
 
     # 1 — Premarket Scanner: 07:00 ET → 11:00 UTC

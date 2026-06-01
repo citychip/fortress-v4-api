@@ -130,6 +130,43 @@ def calculate_greeks(req: GreeksRequest):
 from app.services import chain as chain_svc
 from datetime import datetime, timezone
 
+# ── IV quality helpers ────────────────────────────────────────────────────────
+
+def _is_quantized_iv(iv: float) -> bool:
+    """Detect yfinance binary-fraction IVs (multiples of 1/128 = 0.0078125)."""
+    if iv <= 0:
+        return True
+    fraction = iv * 128.0
+    return abs(fraction - round(fraction)) < 0.01   # within 1% of a 1/128 multiple
+
+def _clean_iv(iv_raw: float | None, spot: float, strike: float, dte_days: int,
+               mid: float | None, right: str = "c") -> float | None:
+    """
+    Return a clean IV value:
+    1. If yfinance IV looks quantized AND mid price is available → recalculate with py_vollib BS.
+    2. If IV is below 3% or above 200% → treat as missing.
+    3. Otherwise return yfinance IV as-is.
+    """
+    MIN_IV, MAX_IV = 0.03, 2.0
+    if iv_raw and MIN_IV <= iv_raw <= MAX_IV and not _is_quantized_iv(iv_raw):
+        return iv_raw  # clean yfinance value
+    # Attempt BS recalculation from mid price
+    if mid and mid > 0 and spot > 0 and strike > 0 and dte_days > 0:
+        try:
+            from py_vollib.black_scholes.implied_volatility import implied_volatility as _bsiv
+            t = dte_days / 365.0
+            flag = right.lower()[0]  # 'c' or 'p'
+            iv_calc = _bsiv(mid, spot, strike, t, _RISK_FREE, flag)
+            if MIN_IV <= iv_calc <= MAX_IV:
+                return round(iv_calc, 4)
+        except Exception:
+            pass
+    # Fall back to yfinance if it's in range
+    if iv_raw and MIN_IV <= iv_raw <= MAX_IV:
+        return iv_raw
+    return None
+
+
 @router.get("/options/vol-analytics")
 def get_vol_analytics(ticker: str):
     """
@@ -164,13 +201,28 @@ def get_vol_analytics(ticker: str):
             return 0.0
         return round(strike / spot, 4)
 
+    def clean_row_iv(row: dict, right: str) -> float | None:
+        """Return a cleaned IV for a single options row."""
+        if not row:
+            return None
+        exp_str = next((e for e, exp_data in expirations.items()
+                        if row in exp_data.get("calls", []) + exp_data.get("puts", [])), None)
+        d = dte(exp_str) if exp_str else 30
+        return _clean_iv(row.get("iv"), spot, row.get("strike", 0), d, row.get("mid"), right)
+
     def atm_iv(calls: list, puts: list) -> float | None:
-        """IV of the call and put closest to ATM, averaged."""
+        """IV of the call and put closest to ATM, averaged — with IV cleaning."""
         if not spot:
             return None
         best_call = min(calls, key=lambda r: abs(r["strike"] - spot), default=None)
-        best_put = min(puts, key=lambda r: abs(r["strike"] - spot), default=None)
-        ivs = [r["iv"] for r in [best_call, best_put] if r and r.get("iv") and r["iv"] > 0]
+        best_put  = min(puts,  key=lambda r: abs(r["strike"] - spot), default=None)
+        ivs = []
+        if best_call:
+            iv = _clean_iv(best_call.get("iv"), spot, best_call.get("strike", 0), 30, best_call.get("mid"), "c")
+            if iv: ivs.append(iv)
+        if best_put:
+            iv = _clean_iv(best_put.get("iv"), spot, best_put.get("strike", 0), 30, best_put.get("mid"), "p")
+            if iv: ivs.append(iv)
         return round(sum(ivs) / len(ivs), 4) if ivs else None
 
     # ── Skew: IV vs moneyness for nearest expiry ──────────────────────────
@@ -194,12 +246,15 @@ def get_vol_analytics(ticker: str):
             else:
                 row = next((r for r in puts if r["strike"] == s and r.get("iv") and r["iv"] > 0), None)
             if row:
-                skew.append({
-                    "strike": s,
-                    "moneyness": m,
-                    "iv": round(row["iv"] * 100, 2),  # as percentage
-                    "type": "call" if m >= 1.0 else "put",
-                })
+                right_flag = "c" if m >= 1.0 else "p"
+                iv_clean = _clean_iv(row.get("iv"), spot, s, dte(skew_expiry or exp), row.get("mid"), right_flag)
+                if iv_clean:
+                    skew.append({
+                        "strike": s,
+                        "moneyness": m,
+                        "iv": round(iv_clean * 100, 2),
+                        "type": right_flag,
+                    })
         if skew:
             skew_expiry = exp
             break
@@ -228,8 +283,10 @@ def get_vol_analytics(ticker: str):
             continue
         best_call = min(calls, key=lambda r: abs(r["strike"] - spot), default=None)
         best_put = min(puts, key=lambda r: abs(r["strike"] - spot), default=None)
-        call_iv = round(best_call["iv"] * 100, 2) if best_call and best_call.get("iv") and best_call["iv"] > 0 else None
-        put_iv = round(best_put["iv"] * 100, 2) if best_put and best_put.get("iv") and best_put["iv"] > 0 else None
+        raw_call_iv = _clean_iv(best_call.get("iv") if best_call else None, spot, round(spot), exp_dte, best_call.get("mid") if best_call else None, "c") if best_call else None
+        raw_put_iv  = _clean_iv(best_put.get("iv")  if best_put  else None, spot, round(spot), exp_dte, best_put.get("mid")  if best_put  else None, "p") if best_put  else None
+        call_iv = round(raw_call_iv * 100, 2) if raw_call_iv else None
+        put_iv  = round(raw_put_iv  * 100, 2) if raw_put_iv  else None
         avg_iv = round((call_iv + put_iv) / 2, 2) if call_iv and put_iv else (call_iv or put_iv)
         iv_spread = round(abs(call_iv - put_iv), 2) if call_iv and put_iv else None
         atm_ladder.append({

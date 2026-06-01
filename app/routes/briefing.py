@@ -374,7 +374,7 @@ def get_briefing():
     }
     has_account_data = any(v is not None for v in account_usd.values())
 
-    # FX conversion — Strategy v3.4 §7 thresholds are in EUR; IBKR returns USD
+    # FX conversion
     fx_rate = fx.get_eur_usd_rate()
     def _to_eur(usd):
         if usd is None or not fx_rate:
@@ -382,30 +382,49 @@ def get_briefing():
         return round(usd / fx_rate, 2)
     account_eur = {k: _to_eur(v) for k, v in account_usd.items()}
 
-    # USD-native thresholds (configurable via Settings → strategy.{available_funds_min_usd, excess_liq_min_usd})
+    # EUR base currency support — when base_currency=EUR, IBKR reports NLV in EUR.
+    # Multiply EUR NLV by FX rate to get the true USD-equivalent for concentration % etc.
     try:
         from app.services.config_store import cfg as _cfg
+        base_currency = (_cfg("technical.base_currency") or "USD").upper()
         avail_floor = float(_cfg("strategy.available_funds_min_usd") or 17000)
         excess_floor = float(_cfg("strategy.excess_liq_min_usd") or 25000)
     except Exception:
+        base_currency = "USD"
         avail_floor, excess_floor = 17000, 25000
 
+    # If account is EUR-denominated, the raw net_liq from IBKR is in EUR.
+    # Convert to USD so concentration percentages and thresholds are accurate.
+    if base_currency == "EUR" and fx_rate and account_usd.get("net_liq"):
+        usd_multiplier = fx_rate  # EUR × rate = USD
+        account_usd_converted = {
+            k: round(v * usd_multiplier, 2) if v is not None else None
+            for k, v in account_usd.items()
+        }
+        # account_eur stays as the raw IBKR values (already EUR)
+        account_eur_native = account_usd  # raw = EUR
+        account_usd_display = account_usd_converted
+        currency_label = "EUR"
+    else:
+        account_usd_display = account_usd
+        account_eur_native = {k: _to_eur(v) for k, v in account_usd.items()}
+        currency_label = "USD"
+
     account = {
-        **account_usd,
-        "currency": "USD",
+        **account_usd_display,
+        "currency": currency_label,
         "fx_rate_eur_usd": round(fx_rate, 4) if fx_rate else None,
-        "eur_equivalent": account_eur,
-        # Strategy §7 thresholds — USD-native per user preference (was EUR pre-2026-05-05)
+        "eur_equivalent": account_eur_native if base_currency != "EUR" else account_usd,
         "thresholds": {
             "available_funds_floor_usd": avail_floor,
             "excess_liq_floor_usd": excess_floor,
             "available_funds_ok": (
-                account_usd.get("available_funds") is not None
-                and account_usd["available_funds"] > avail_floor
+                account_usd_display.get("available_funds") is not None
+                and account_usd_display["available_funds"] > avail_floor
             ),
             "excess_liq_ok": (
-                account_usd.get("excess_liq") is not None
-                and account_usd["excess_liq"] > excess_floor
+                account_usd_display.get("excess_liq") is not None
+                and account_usd_display["excess_liq"] > excess_floor
             ),
         },
     }
