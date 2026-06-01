@@ -1,6 +1,6 @@
 # Fortress Dashboard — Implementation Status
 
-**Snapshot:** 2026-05-31 | **Strategy:** v3.7.2 | **Dashboard:** Fortress V4 (WSL) | **Frontend:** v8.51
+**Snapshot:** 2026-06-01 | **Strategy:** v3.7.2 | **Dashboard:** Fortress V4 (WSL) | **Frontend:** v8.52
 
 ---
 
@@ -77,7 +77,10 @@
 
 | ID | Priority | Item |
 |---|---|---|
-| S11-01 | Low | Keyboard shortcuts (B/P/T/A/C/Esc) |
+| S12-01 | Low | Keyboard shortcuts (B/P/T/A/C/Esc) |
+| S12-02 | High | Re-add NVDA to tier1 universe (was shadowed by NVDIA typo) |
+| S12-03 | Medium | Vol analytics: use QuantData IV when available instead of yfinance |
+| S12-04 | Medium | stage_order leg-builder helper for strategy-aware order construction |
 | S11-02 | Medium | Move PersonaEditorPanel → Settings tab |
 | P-04 | Medium | Scenario planning — model hypothetical positions, impact on Greeks/concentration/delta |
 | P-01 | High | QuantData OAuth 2.0 — eliminate manual credential refresh |
@@ -90,6 +93,7 @@
 
 | Date | Version | Summary |
 |---|---|---|
+| 2026-06-01 | v8.52 | MCP v4.1.0: stage_order + refresh_iv_data tools. IBKR auto-sync enabled. EUR NLV fix. Midday QD re-auth. Vol analytics IV quantization fix. NVDIA typo excluded. Scenario planner UX refactor. |
 | 2026-05-31 | v8.51 | Sprint 10: custom persona editor, Strategy tab restructured (4 zones), Settings = Connections+System only, Config→System rename, sidebar pin/unpin, regime chip tint, Strategy Rules unified (no sliders) |
 | 2026-05-31 | v8.50 | Sprint 9: earnings banner, position sizing, journal prompt, mark actioned, config→Trade Builder wiring, floor-anchored strikes, Briefing redesign |
 | 2026-05-31 | post-50 | Sprint 8: 5-tab nav, lazy loading, Portfolio P&L chips, Analysis panels, sub-clustering, page splits |

@@ -1,5 +1,5 @@
 # Fortress v4 — Sprint Plan
-**Updated:** 2026-05-31 | **Current version:** post-Sprint-10
+**Updated:** 2026-06-01 | **Current version:** post-Sprint-11-partial
 
 ---
 
@@ -88,3 +88,4 @@
 - **TradeLanding stays.** The active positions + universe candidates landing is the entry point to Trade — do not replace with a minimal empty state.
 - **otmBufferColor lives in TechnicalPanels.tsx** — exported, imported by PriceChart. Don't re-inline.
 - **StrategySection is the single source of truth** for all strategy parameters. No slider version. Lives in `components/settings/StrategySection.tsx`.
+- **MCP write tools require FORTRESS_MCP_ALLOW_WRITES=1.** stage_order, refresh_iv_data, run_script all need this env var set in Claude Desktop config.
