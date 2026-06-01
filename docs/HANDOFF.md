@@ -1,5 +1,5 @@
 # Fortress — Session Handoff
-**Date:** 2026-06-01 | **For:** Next Cowork session
+**Date:** 2026-06-01 (updated end-of-session) | **For:** Next Cowork session
 
 ---
 
@@ -52,7 +52,7 @@ Both dashboards share the **same backend** (`localhost:8081`) and credentials. T
 | Repo | Branch | Purpose |
 |---|---|---|
 | `citychip/fortress-v4-api` | `main` | Backend, quant scripts, docs |
-| `citychip/fortress-mcp` | `main` | MCP server for Claude (v4.2.0) |
+| `citychip/fortress-mcp` | `master` | MCP server for Claude (v4.2.0) |
 | `citychip/fortress-v4-frontend` | `main` | Fortress v4 dashboard (port 80) |
 | `citychip/fortress-parapet` | `master` | Parapet v5 dashboard (port 4000) |
 
@@ -94,15 +94,15 @@ git -C ~/fortress-parapet remote set-url origin https://citychip:TOKEN@github.co
 |---|---|---|
 | Overview | ✓ Working | Net Liq, Available, Δ portfolio, VIX, Regime, Pacing. Positions grouped by ticker. IBKR status. |
 | Portfolio | ✓ Working | Positions, Legs, P&L, Exposure (beta by ticker), Journal |
-| Market | ✓ Working | SPY price, regime, regime signals. Earnings Calendar (empty — API may need checking). QuantData tab. |
-| Orders | ✓ Working | Approve/decline pending orders. Shows "No pending orders" correctly. |
-| System | ✓ Working | Settings (editable except Strategy which is Claude-only). Alerts CRUD. Scripts (404 on /api/scripts — endpoint TBC). Infrastructure (IBKR status + sync). Universe (tickers + excluded). |
+| Market | ✓ Working | SPY price, regime signals, Earnings Calendar (sorted by DTE with status badges), QuantData tab. |
+| Orders | ✓ Working | Approve/decline pending orders. Filters to pending-only. Stage via Claude, approve in Claude or dashboard. |
+| System | ✓ Working | Settings (editable except Strategy — Claude-only). Alerts CRUD. Scripts (11 scripts with Run buttons). Infrastructure. Universe. |
 
-**Known gaps to address:**
-- Scripts tab: `/api/scripts` returns 404 — confirm correct endpoint in backend
-- Portfolio Positions/P&L tabs: verify data is populating (was empty in earlier testing)
-- Market Earnings Calendar: returns empty — check `/api/calendar` endpoint
-- Settings: `active_strategies` and delta thresholds are stale vs actual strategy — fix values
+**Known gaps:**
+- P&L tab: populates but verify totals are correct
+- S12-04: stage_order leg-builder — workflow tested end-to-end ✓. Next: formalize as a documented prompt pattern.
+- S12-03: Vol analytics QuantData IV (backend, deferred)
+- S12-01: Keyboard shortcuts v4 (deferred — v4 in maintenance)
 
 ---
 
@@ -129,7 +129,7 @@ qd_get_volatility_skew()
 ```
 If both return AAPL data (price ~$306, not $7,600): update §5 strike selection workflow in docs and commit. If still broken: log in quantdata-mcp GitHub issues.
 
-**Commit docs to GitHub (all three repos)** — see publishing section below.
+~~**Commit docs to GitHub** — done ✓~~
 
 ---
 
@@ -168,11 +168,11 @@ If both return AAPL data (price ~$306, not $7,600): update §5 strike selection 
 ### Dashboard settings aligned with Strategy v3.8.0
 Updated via MCP: delta thresholds (0.25/0.30/0.35), DTE roll trigger (21), profit target (80%), concentration limits (20%/50%), IVR min entry (25), alert thresholds.
 
-### Documentation updated
-- `01_Portfolio_Strategy_v3_8.md` — new file (in `2606Fortress` folder, needs copying to WSL)
-- `07_MCP_Workflow_and_Prompts_v1_3.md` → v1.7 (in `2606Fortress` folder)
-- `03_Quick_Start_and_Daily_Cheatsheet.md` → v1.8 (in `2606Fortress` folder)
-- `fortress_mcp/README.md` — updated in place (tool count, quantdata-mcp setup)
+### Documentation updated and published
+- `01_Portfolio_Strategy_v3_8.md` — published to `fortress-v4-api/docs/` ✓
+- `07_MCP_Workflow_and_Prompts_v1_3.md` → v1.7 — published ✓
+- `03_Quick_Start_and_Daily_Cheatsheet.md` → v1.8 — published ✓
+- `fortress_mcp/README.md` — updated and published (v4.2.0) ✓
 
 ### Portfolio state confirmed
 - Net Liq $96,729 | Available $28,935 | VIX 16.08 | Regime Bearish | Pacing 0/5
@@ -208,22 +208,22 @@ QuantData / Strategy:
 - [ ] S12-QD3: Investigate dark pool / order flow SPX widget lock — quantdata-mcp issue
 
 Parapet:
-- [ ] S12-P1: Fix `/api/scripts` endpoint (404) — confirm correct route
-- [ ] S12-P2: Verify Portfolio Positions/P&L tabs populate correctly
-- [ ] S12-P3: Fix Earnings Calendar (empty — check `/api/calendar`)
-- [x] S12-P4: Fix stale settings values — done via MCP (delta, DTE, profit target, concentration)
+- [x] S12-P1: Scripts endpoint fixed — `/api/run/scripts` + `/api/run/{key}`
+- [x] S12-P2: Portfolio Positions, Legs, P&L, Sector Exposure, Beta — all populating
+- [x] S12-P3: Earnings Calendar fixed — correct structure rendered, sorted by DTE
+- [x] S12-P4: Settings thresholds fixed via MCP (delta, DTE, profit target, concentration)
+- [x] S12-P5: Order approve/decline endpoints fixed in Parapet
+- [x] S12-P6: Claude stage→approve workflow tested end-to-end
 
 v4 / Backend:
 - [ ] S12-02: Re-verify NVDA in tier1 universe
 - [ ] S12-01: Keyboard shortcuts (B/P/T/A/C/Esc) — v4
 - [x] S12-03: Vol analytics — QuantData IV rank confirmed per-ticker via quantdata-mcp
-- [ ] S12-04: stage_order leg-builder helper (Claude-side)
+- [ ] S12-04: stage_order leg-builder — formalize as documented prompt pattern (workflow works, needs write-up)
 
-Docs (pending publish to GitHub):
-- [ ] Copy `01_Portfolio_Strategy_v3_8.md` → `~/fortress-v4-api/docs/`
-- [ ] Copy `07_MCP_Workflow_and_Prompts_v1_3.md` → `~/fortress-v4-api/docs/`
-- [ ] Copy `03_Quick_Start_and_Daily_Cheatsheet.md` → `~/fortress-v4-api/docs/operations/`
-- [ ] Commit fortress-v4-api, fortress-mcp repos
+Docs:
+- [x] Strategy v3.8.0, workflow v1.7, cheatsheet v1.8 — published to fortress-v4-api ✓
+- [x] fortress-mcp v4.2.0 — published ✓
 
 ---
 
