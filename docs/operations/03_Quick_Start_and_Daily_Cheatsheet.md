@@ -1,6 +1,6 @@
 # Fortress Dashboard — Quick-Start & Daily Cheatsheet
 
-**Version 1.5 — 2026-06-01**
+**Version 1.6 — 2026-06-01**
 
 One-page operational reference for live sessions. Open this first each morning.
 
@@ -35,11 +35,13 @@ MCP: *"Run my morning preflight: briefing, SPY hedge coverage, today's calendar,
 - Hedge: SPY hedge coverage vs $20K–$30K target band
 - Actions: any stop-loss triggers and earnings today
 
-**3. Refresh IV data (if needed)**
-MCP: `refresh_iv_data()` — use if IVR values look stale or show 0. Takes ~15 seconds.
+**3. Max pain + fresh IV (always)**
+MCP: `run_script("max_pain")` + `refresh_iv_data()` — max pain pinning direction for full universe (~5s), fresh IV scan (~15s). Run both before looking at candidates.
 
-**4. Macro regime & candidates (entry days only)**
-MCP: *"Show get_market_intelligence for SPY. Then for candidates with IVR > 50 and earnings > 21 days out, run pretrade_check."*
+**4. Macro + per-ticker intel (entry days only)**
+MCP: *"SPY market intel, net drift, dark pool. Then per candidate: market intel, GEX walls, vol analytics, earnings volatility."*
+- SPY-level: `get_market_intelligence("SPY")` + `qd_get_net_drift` + `qd_get_dark_pool_levels`
+- Per-ticker: `get_market_intelligence(t)` + `get_dp_floors_and_gex(t)` + `get_vol_analytics(t)` + `get_earnings_volatility(t)`
 
 ---
 
@@ -114,6 +116,20 @@ sudo cp -r dist/public/* /var/www/fortress-v4/ && sudo nginx -s reload
 
 ---
 
+## Data Sources Quick Reference
+
+| What you need | Use this | Source |
+|---|---|---|
+| Per-ticker IV rank | `get_candidates()` or `refresh_iv_data()` | yfinance ✓ |
+| Max pain + pin direction | `run_script("max_pain")` | yfinance ✓ |
+| Per-ticker GEX walls | `get_dp_floors_and_gex(ticker)` | daily report (~12h) |
+| Per-ticker IV skew | `get_vol_analytics(ticker)` | yfinance ✓ |
+| SPY dark pool floors | `qd_get_dark_pool_levels("SPY")` | QuantData live |
+| SPY order flow bias | `qd_get_net_drift("SPY")` | QuantData live |
+| Institutional sweeps | `qd_get_order_flow("SPY")` | QuantData live |
+
+> qd_* tools return SPY data only — per-ticker filter is broken. Use yfinance-based tools for all per-ticker signals.
+
 ## MCP Order Workflow (quick reference)
 
 ```
@@ -133,6 +149,7 @@ All write tools require `FORTRESS_MCP_ALLOW_WRITES=1` in Claude Desktop config.
 
 | Version | Date | Changes |
 |---|---|---|
+| 1.6 | 2026-06-01 | Added run_script("max_pain") to morning preflight. Data sources table. Two-layer market intel (SPY qd_* + per-ticker yfinance). |
 | 1.5 | 2026-06-01 | Added refresh_iv_data, stage_order/preview_order/approve_order workflow. IBKR auto-sync note. |
 | 1.4 | 2026-05-30 | Full rewrite for V4 WSL deployment. Removed VPS references. Updated paths, ports, token, commands. Added auto-refresh note. |
 | 1.3 | 2026-05-18 | Updated URLs for Fortress V3. Added QuantData credential refresh. |

@@ -1,6 +1,6 @@
 # Fortress V4 — Operations Guide
 
-**Version:** 4.1.0
+**Version:** 4.2.0
 **Updated:** 2026-06-01
 **Status:** Authoritative
 **Audience:** Daily operator (Steven)
@@ -80,7 +80,7 @@ All scripts run automatically. Trigger manually via MCP `run_script()` (requires
 
 ---
 
-## 5. MCP Order Workflow
+## 6. MCP Order Workflow
 
 Full programmatic trade workflow via MCP (requires `FORTRESS_MCP_ALLOW_WRITES=1`):
 
@@ -102,7 +102,7 @@ legs = [{"ticker": "GOOGL", "sec_type": "OPT", "right": "P",
 
 ---
 
-## 6. Pre-Trade Rules (hard blocks)
+## 7. Pre-Trade Rules (hard blocks)
 
 | Rule | Threshold | Action |
 |---|---|---|
@@ -117,7 +117,7 @@ legs = [{"ticker": "GOOGL", "sec_type": "OPT", "right": "P",
 
 ---
 
-## 7. IBKR Gateway Management
+## 8. IBKR Gateway Management Management
 
 ```bash
 # Check Docker container status
@@ -137,7 +137,7 @@ If data looks stale: `trigger_ibkr_sync()` via MCP, or `POST /api/ibkr/sync`.
 
 ---
 
-## 8. QuantData Management
+## 9. QuantData Management Management
 
 Auto-refreshes at 06:00 ET and 12:00 ET daily.
 
@@ -153,7 +153,7 @@ Or via MCP: `refresh_iv_data()` triggers a fresh IV scan using current credentia
 
 ---
 
-## 9. Port Reference
+## 10. Port Reference
 
 | Port | Service |
 |---|---|
@@ -164,7 +164,7 @@ Or via MCP: `refresh_iv_data()` triggers a fresh IV scan using current credentia
 
 ---
 
-## 10. Monitoring Checklist
+## 11. Monitoring Checklist Checklist
 
 ### Daily
 - [ ] `get_briefing()` — Net Liq, concentration, pacing, staleness
@@ -183,7 +183,7 @@ Or via MCP: `refresh_iv_data()` triggers a fresh IV scan using current credentia
 
 ---
 
-## 11. Incident Procedures
+## 12. Incident Procedures Procedures
 
 | Symptom | Action |
 |---|---|

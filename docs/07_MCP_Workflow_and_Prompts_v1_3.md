@@ -1,6 +1,6 @@
 # Fortress MCP — Workflow and Prompts Playbook
 
-**Version 1.4 — 2026-06-01**
+**Version 1.5 — 2026-06-01**
 
 A practical companion to the MCP server. Maps every phase of Strategy v3.7's daily/weekly routine to concrete Claude prompts that exercise the MCP tools.
 
@@ -34,16 +34,18 @@ Once the Fortress MCP is installed in Claude Desktop, every prompt below should 
 - `response:` → the expected shape of Claude's natural-language reply
 - `notes:` → caveats, follow-ups, or strategy refs
 
-**Tool name reference:**
+**Tool reference — 68 tools total:**
 
-Read tools (Tier 1):
-`get_briefing`, `get_positions`, `get_candidates`, `get_calendar`, `get_universe`, `get_journal`, `get_alerts`, `get_chart_data`, `evaluate_stop_loss`, `evaluate_roll`, `evaluate_post_earnings`, `validate_jade_lizard`, `get_spy_hedge_coverage`, `pretrade_check`, `get_ibkr_status`, `get_capability`, `get_settings`, `get_quantdata_reports`, `get_market_intelligence`
+**Tier 1 — Read (yfinance-based per-ticker):**
+`get_briefing`, `get_positions`, `get_candidates`, `get_calendar`, `get_universe`, `get_journal`, `get_alerts`, `get_chart_data`, `get_dp_floors_and_gex`, `get_market_intelligence`, `get_vol_analytics`, `get_earnings_volatility`, `get_earnings_history`, `evaluate_stop_loss`, `evaluate_roll`, `evaluate_post_earnings`, `validate_jade_lizard`, `get_spy_hedge_coverage`, `pretrade_check`, `get_ibkr_status`, `get_capability`, `get_settings`, `get_settings_narrative`, `get_quantdata_reports`, `get_position_limits`, `get_forward_pnl`, `get_pnl`, `get_pnl_history`, `get_portfolio_beta`, `get_sector_exposure`, `get_capital_efficiency`, `get_pcs_exposure`, `get_trade_report`, `get_order_flow_chart`, `get_pretrade_all`, `get_stop_loss_all`, `get_roll_all`, `get_hydrated_assets`, `get_ibkr_preview`, `list_scripts`, `get_time_of_day`, `get_journal_suggestion`, `get_pending_orders`, `options_greeks`, `get_version`
 
-QuantData Live API tools (Tier 1, requires valid credentials):
-`qd_get_order_flow`, `qd_get_net_drift`, `qd_get_dark_pool_levels`, `qd_get_max_pain`, `qd_get_iv_rank`, `qd_get_oi_change`
+**Tier 1b — QuantData live (SPY-level only — per-ticker filter broken):**
+`qd_get_order_flow`, `qd_get_net_drift`, `qd_get_dark_pool_levels`, `qd_get_max_pain`, `qd_get_iv_rank`, `qd_get_oi_change`, `qd_status`
 
-Write tools (Tier 2, requires `FORTRESS_MCP_ALLOW_WRITES=1`):
+**Tier 2 — Write (requires `FORTRESS_MCP_ALLOW_WRITES=1`):**
 `add_journal_entry`, `add_alert`, `update_alert`, `delete_alert`, `update_calendar`, `add_excluded_ticker`, `add_universe_ticker`, `update_settings_section`, `trigger_ibkr_sync`, `retry_ibkr_sync`, `run_script`, `stage_order`, `approve_order`, `decline_order`, `preview_order`, `refresh_iv_data`
+
+> **Data source note:** qd_* tools return SPY data only regardless of ticker passed. For per-ticker IV rank use `get_candidates()` or `refresh_iv_data()`. For per-ticker GEX walls use `get_dp_floors_and_gex(ticker)`. For max pain use `run_script("max_pain")` (yfinance, ~5s, full universe).
 
 > **QuantData credential note:** If QuantData tools return 401/403 or empty data, the session has expired. Refresh credentials at **Dashboard → Settings → QuantData Credentials** (no SSH required). See `operations/04_Incident_Recovery_Playbook.md` §5 for the step-by-step procedure.
 
@@ -55,28 +57,37 @@ Write tools (Tier 2, requires `FORTRESS_MCP_ALLOW_WRITES=1`):
 
 ### Phase 1 — Pre-Market (09:00–09:35 ET / 15:00–15:35 Amsterdam)
 
-#### 2.1 Morning Preflight (The Triad)
+#### 2.1 Morning Preflight (The Full Sweep)
 
-> **prompt:** *"Run my morning preflight: briefing, SPY hedge coverage, today's calendar, and any positions where evaluate_stop_loss returns 'act'. Flag concentration and delta-bias violations."*
+> **prompt:** *"Run my morning preflight: briefing, fresh IV scan, max pain sweep, stop-loss sweep, roll sweep, portfolio beta, SPY hedge coverage, and today's earnings calendar."*
 >
-> **tools:** `get_briefing()` → `get_spy_hedge_coverage()` → `get_calendar()` → `evaluate_stop_loss()` (across positions)
+> **tools:** `get_briefing()` → `refresh_iv_data()` → `run_script("max_pain")` → `get_stop_loss_all()` → `get_roll_all()` → `get_portfolio_beta()` → `get_spy_hedge_coverage()` → `get_calendar(14)` → `get_pnl()`
 >
-> **response:** Walks through the core risk triad.
-> 1. Briefing: Account thresholds, concentration top-3 (especially MSFT), and portfolio delta vs target.
-> 2. Hedge: SPY hedge coverage vs $22k–$33k target band.
-> 3. Actions: Any stop-loss triggers in `ACT` state and earnings on major positions today.
+> **response:**
+> 1. **Briefing:** Net Liq, delta vs 320 target, pacing (0/5), MSFT concentration, staleness check.
+> 2. **IV scan:** Full universe ranked by IVR + IV/HV spread — PRIME CRUSH / GOOD SPREAD signals.
+> 3. **Max pain:** Per-ticker max pain strike + pinning direction. Current: MSFT -8.1% (pulling down), GOOGL +1.4% (pulling up). Use to anchor strike selection.
+> 4. **Stop/roll:** Any overnight triggers + positions approaching DTE threshold.
+> 5. **Beta/hedge:** Portfolio β-delta vs 320 target. SPY hedge vs $20k–$30k band.
+> 6. **Calendar:** Earnings blackout check for next 14 days.
 >
-> **notes:** Do NOT run `get_candidates` here. Entries are not decided pre-market. Looking at candidates first creates a bias to enter when the book requires de-risking. Pass criteria to move to Phase 2: no stop-loss in `act`, no earnings today on major positions, no hedge breach worse than already known.
+> **notes:** `refresh_iv_data()` and `run_script("max_pain")` run in ~15s and ~5s respectively. Do NOT look at candidates until stop-loss and roll sweeps are clean. Pass criteria to move to Phase 2: no ACT-state stop-loss, no unaddressed rolls, hedge within band.
 
 ### Phase 2 — Market Open (09:35–10:00 ET)
 
 #### 2.2 Macro regime and flow validation (Only on entry days)
 
-> **prompt:** *"Show me get_market_intelligence for SPY. Then for any name from get_candidates with IVR > 50 and no earnings in the next 21 days, run get_market_intelligence for those tickers. Run pretrade_check on each."*
+> **prompt:** *"Show me SPY market intelligence, net drift, and dark pool levels. Then for candidates with IVR > 50 and earnings > 21 days, pull per-ticker market intel, GEX walls, vol analytics, and earnings volatility."*
 >
-> **tools:** `get_market_intelligence("SPY")` → `get_candidates()` → `get_market_intelligence(ticker)` → `pretrade_check(ticker)`
+> **tools (SPY/market-level — QuantData live):**
+> `get_market_intelligence("SPY")` → `qd_get_net_drift("SPY")` → `qd_get_dark_pool_levels("SPY")` → `qd_get_order_flow("SPY", min_premium=100000)`
 >
-> **response:** Establishes macro regime first (SPY flip zone, DP floors, regime score). Then filters premium-selling candidates. For each valid candidate, pulls structural levels (GEX walls, DP floors) to anchor short strikes. Finally, runs the pre-trade gate to catch size caps and concentration limits.
+> **tools (per-ticker — yfinance, accurate):**
+> `get_candidates()` → for each valid candidate: `get_market_intelligence(ticker)` → `get_dp_floors_and_gex(ticker)` → `get_vol_analytics(ticker)` → `get_earnings_volatility(ticker)`
+>
+> **response:** Two-layer picture: (1) SPY macro context — regime score, GEX flip zone, institutional flow bias, dark pool floors. (2) Per-candidate structural levels — GEX call/put walls to anchor short strikes, IV skew shape, term structure steepness, earnings risk ratio.
+>
+> **notes:** `get_dp_floors_and_gex(ticker)` pulls from the daily report file (~12h old) but structural GEX levels are stable intraday. `get_vol_analytics(ticker)` gives IV skew and term structure — useful for understanding whether front-month IV is elevated vs back-month.
 >
 > **notes:** The `pretrade_check` is non-negotiable. With current concentration breaches, it will automatically catch the size cap. Use GEX walls to anchor short strikes (e.g., short call spread around GEX call wall). The `get_market_intelligence` response now includes a `regime_score` field (-4 to +4) and `sort_key` — use these to prioritise which tickers to analyse first.
 
