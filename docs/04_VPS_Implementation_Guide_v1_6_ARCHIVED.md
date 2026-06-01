@@ -1,3 +1,15 @@
+# ⚠️ ARCHIVED — VPS Decommissioned 2026-05-30
+
+This document describes the old Hostinger VPS deployment which is no longer in use.
+**Fortress now runs entirely on WSL (Ubuntu) on Windows.**
+
+For current deployment procedures see:
+- `v4/06_Operations_Guide.md` — current operations reference
+- `operations/03_Quick_Start_and_Daily_Cheatsheet.md` — daily cheatsheet
+- `FORTRESS_V4_MASTER_DOC.md` — authoritative system overview
+
+---
+
 # Fortress Dashboard — VPS Implementation Guide
 
 **Version 1.6 — May 18, 2026**

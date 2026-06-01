@@ -1,6 +1,6 @@
 # Fortress Dashboard — Todo Backlog
 
-**Updated:** May 18, 2026
+**Updated:** 2026-06-01
 
 ---
 
@@ -19,6 +19,15 @@
 ---
 
 ## Active Backlog
+
+### Sprint 12 Items
+
+| ID | Priority | Item | Notes |
+|---|---|---|---|
+| S12-02 | High | Re-verify NVDA in tier1 universe | NVDIA (typo) was excluded — confirm NVDA is still in tier1 |
+| S12-01 | Low | Keyboard shortcuts | B→Briefing, P→Portfolio, T→Trade, A→Analysis, C→System, Esc→close panels |
+| S12-03 | Medium | Vol analytics QuantData IV | Use QuantData IV feed when available for better accuracy than yfinance |
+| S12-04 | Medium | stage_order leg-builder | Helper that constructs legs from ticker+strategy+strikes, reducing manual leg construction |
 
 ### High Priority
 

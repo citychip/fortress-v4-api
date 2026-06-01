@@ -1,6 +1,6 @@
 # Fortress MCP — Workflow and Prompts Playbook
 
-**Version 1.3 — May 18, 2026**
+**Version 1.4 — 2026-06-01**
 
 A practical companion to the MCP server. Maps every phase of Strategy v3.7's daily/weekly routine to concrete Claude prompts that exercise the MCP tools.
 
@@ -42,8 +42,8 @@ Read tools (Tier 1):
 QuantData Live API tools (Tier 1, requires valid credentials):
 `qd_get_order_flow`, `qd_get_net_drift`, `qd_get_dark_pool_levels`, `qd_get_max_pain`, `qd_get_iv_rank`, `qd_get_oi_change`
 
-Write tools (Tier 2, opt-in):
-`add_journal_entry`, `add_alert`, `update_alert`, `delete_alert`, `update_calendar`, `add_excluded_ticker`, `add_universe_ticker`, `update_settings_section`, `trigger_ibkr_sync`
+Write tools (Tier 2, requires `FORTRESS_MCP_ALLOW_WRITES=1`):
+`add_journal_entry`, `add_alert`, `update_alert`, `delete_alert`, `update_calendar`, `add_excluded_ticker`, `add_universe_ticker`, `update_settings_section`, `trigger_ibkr_sync`, `retry_ibkr_sync`, `run_script`, `stage_order`, `approve_order`, `decline_order`, `preview_order`, `refresh_iv_data`
 
 > **QuantData credential note:** If QuantData tools return 401/403 or empty data, the session has expired. Refresh credentials at **Dashboard → Settings → QuantData Credentials** (no SSH required). See `operations/04_Incident_Recovery_Playbook.md` §5 for the step-by-step procedure.
 
@@ -51,7 +51,7 @@ Write tools (Tier 2, opt-in):
 
 ## 2. Daily routine — phase-by-phase prompts
 
-> **CURRENT BOOK STATE (May 2026):** The portfolio is in a defensive posture. MSFT is heavily concentrated (>70% of NetLiq), SPY hedge is underbuilt, and delta bias is excessively long (+437) in a bearish macro regime. **The workflow prioritizes position management and de-risking over new entry hunting.**
+> **CURRENT BOOK STATE (June 2026):** MSFT concentration at 99% (no new entries). Portfolio beta-weighted delta at 593 — well above 320 target. MSFT short call delta at 0.396, approaching 0.40 roll threshold. Regime: Bearish. Top IV candidates: META, V, AAPL, AMZN (all PRIME CRUSH). **The workflow prioritizes monitoring MSFT roll trigger and selective new entries in non-concentrated names.**
 
 ### Phase 1 — Pre-Market (09:00–09:35 ET / 15:00–15:35 Amsterdam)
 
@@ -254,3 +254,65 @@ When the strategy changes, this doc updates in this order:
 | 1.2 | 2026-05-09 | MCP server moved to `citychip/fortress-mcp` repo. |
 | 1.1 | 2026-05-05 | USD-native currency. CP Gateway re-auth. `get_capability` tool. |
 | 1.0 | 2026-05-03 | Initial release. |
+
+---
+
+## 6. Full MCP Order Workflow (Sprint 11+)
+
+The complete end-to-end trading workflow is now available via MCP. Requires `FORTRESS_MCP_ALLOW_WRITES=1`.
+
+#### 6.1 Refresh IV data before scanning
+
+> **prompt:** *"Refresh the IV data and show me today's top candidates."*
+>
+> **tools:** `refresh_iv_data()` → `get_candidates()`
+>
+> **response:** Fresh IV scan results ranked by IVR and IV/HV spread, with PRIME CRUSH / GOOD SPREAD / BLOCKED signals.
+>
+> **notes:** Use this when IVR values look stale or show 0 intraday. Takes ~15 seconds.
+
+#### 6.2 Stage an order for approval
+
+> **prompt:** *"Stage a CSP on GOOGL, sell the 340 put expiring Jul 17 2026, 1 contract at $2.50 limit."*
+>
+> **tools:** `pretrade_check("GOOGL", "CSP")` → `stage_order(ticker, strategy, legs, ...)`
+>
+> **response:** Order staged with an order_id. Provides next steps for preview and approval.
+>
+> **example call:**
+> ```python
+> stage_order(
+>     ticker="GOOGL",
+>     strategy="CSP",
+>     legs=[{"ticker":"GOOGL","sec_type":"OPT","right":"P",
+>            "strike":340.0,"expiry":"20260717","action":"SELL","ratio":1}],
+>     quantity=1,
+>     order_type="LMT",
+>     limit_price=2.50,
+>     notes="IVR 71, spread +7.9pp, pretrade passed",
+>     pop=0.79,
+>     max_profit=250.0,
+>     max_loss=-33750.0
+> )
+> ```
+>
+> **notes:** Returns `order_id`. Order appears in Build Center (Trade → Orders tab) for human review.
+
+#### 6.3 Preview and approve
+
+> **prompt:** *"Preview order {order_id} and if margin looks acceptable, approve it."*
+>
+> **tools:** `preview_order(order_id)` → `approve_order(order_id)`
+>
+> **response:** IBKR whatif result (equity impact, margin, commission), then submission confirmation with IBKR order ID.
+>
+> **notes:** `preview_order` is a whatif — it does NOT submit. `approve_order` resolves conids and submits to IBKR. Always preview before approve.
+
+#### 6.4 Complete workflow prompt
+
+> **prompt:** *"Run my pre-trade workflow for GOOGL: check market intel, run pretrade gate, then if everything passes stage a CSP at the 0.20 delta put for the next 45 DTE expiry."*
+>
+> **tools:** `get_market_intelligence("GOOGL")` → `pretrade_check("GOOGL","CSP")` → `options_greeks(...)` → `stage_order(...)`
+>
+> **notes:** Claude will calculate the approximate 0.20 delta strike using options_greeks and construct the leg automatically.
+

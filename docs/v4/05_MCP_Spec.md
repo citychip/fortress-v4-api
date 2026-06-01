@@ -1,8 +1,8 @@
 # Fortress V4 — MCP Specification
-## Claude Tool Catalogue: All 61 Tools
+## Claude Tool Catalogue: All 68 Tools
 
-**Version:** 4.0.0  
-**Status:** Authoritative — Phase 2 deliverable  
+**Version:** 4.1.0  
+**Status:** Authoritative — Updated 2026-06-01  
 **MCP Server Version:** `4.0.0` (returned by `get_capability`)  
 **Write Guard:** Tier 2 tools require `FORTRESS_MCP_ALLOW_WRITES=1` environment variable
 
@@ -960,4 +960,4 @@ Any universe tickers consistently scoring < 0.40? Recommend review.
 
 ---
 
-*Fortress V4 MCP Spec — 61 tools total. Tier 1.5 tools are the primary V4 addition. Strategy v3.7 is the governing document for all thresholds.*
+*Fortress V4 MCP Spec — 68 tools total. Tier 1.5 tools are the primary V4 addition. Strategy v3.7 is the governing document for all thresholds.*

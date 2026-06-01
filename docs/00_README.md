@@ -1,6 +1,6 @@
 # Fortress Dashboard — Documentation
 
-**Version:** 3.0 | **Updated:** May 18, 2026 | **Strategy:** Portfolio Strategy v3.7 | **Dashboard:** Fortress V3 (React/tRPC)
+**Version:** 4.0 | **Updated:** 2026-06-01 | **Strategy:** Portfolio Strategy v3.7.2 | **Dashboard:** Fortress V4 (React/Vite, WSL)
 
 ---
 

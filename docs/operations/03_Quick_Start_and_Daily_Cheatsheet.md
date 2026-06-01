@@ -1,6 +1,6 @@
 # Fortress Dashboard — Quick-Start & Daily Cheatsheet
 
-**Version 1.4 — May 30, 2026**
+**Version 1.5 — 2026-06-01**
 
 One-page operational reference for live sessions. Open this first each morning.
 
@@ -25,7 +25,9 @@ One-page operational reference for live sessions. Open this first each morning.
 ```bash
 sudo systemctl status fortress-dashboard-v4
 ```
-MCP: `get_briefing()` — check Net Liq, regime, concentration, pacing.
+MCP: `get_briefing()` — check Net Liq, regime, concentration, pacing, staleness.
+
+> IBKR auto-sync is enabled (15 min). If `staleness.state = "stale"`, run `trigger_ibkr_sync()` manually.
 
 **2. Morning Preflight (The Triad)**
 MCP: *"Run my morning preflight: briefing, SPY hedge coverage, today's calendar, and any stop-loss signals in ACT state."*
@@ -33,7 +35,10 @@ MCP: *"Run my morning preflight: briefing, SPY hedge coverage, today's calendar,
 - Hedge: SPY hedge coverage vs $20K–$30K target band
 - Actions: any stop-loss triggers and earnings today
 
-**3. Macro regime & candidates (entry days only)**
+**3. Refresh IV data (if needed)**
+MCP: `refresh_iv_data()` — use if IVR values look stale or show 0. Takes ~15 seconds.
+
+**4. Macro regime & candidates (entry days only)**
 MCP: *"Show get_market_intelligence for SPY. Then for candidates with IVR > 50 and earnings > 21 days out, run pretrade_check."*
 
 ---
@@ -73,8 +78,8 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/briefing | pyth
 # IBKR sync
 curl -X POST -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/ibkr/sync
 
-# Re-run IV Crush workflow
-cd ~/fortress-v4-api && venv/bin/python3 quant/workflow_05_iv_crush_report.py
+# Re-run IV Crush workflow (or use MCP: refresh_iv_data())
+cd ~/fortress-v4-api && source venv/bin/activate && python3 quant/workflow_05_iv_crush_report.py
 
 # Frontend deploy after changes
 cd ~/fortress-v4-frontend && npm run build
@@ -103,9 +108,24 @@ sudo cp -r dist/public/* /var/www/fortress-v4/ && sudo nginx -s reload
 | IBKR amber / no Greeks | Login at `https://localhost:5000`, then `GET /api/ibkr/sync` |
 | 502 Bad Gateway | `sudo systemctl restart fortress-dashboard-v4 && sudo nginx -s reload` |
 | IV Rank / Market Intel blank | Run QuantData credential refresh (above) |
-| Candidates shows 0 rows | Run `workflow_05_iv_crush_report.py` |
+| Candidates shows 0 rows | MCP: `refresh_iv_data()` or run `workflow_05_iv_crush_report.py` |
 | Positions empty after sync | Check CP Gateway session at `https://localhost:5000` |
 | MCP not connecting | Fully quit and relaunch Claude Desktop |
+
+---
+
+## MCP Order Workflow (quick reference)
+
+```
+refresh_iv_data()                          # fresh IV scan
+→ get_candidates()                         # find actionable tickers
+→ pretrade_check(ticker, "CSP")            # run pre-trade gate
+→ stage_order(ticker, strategy, legs, ...) # create in Build Center
+→ preview_order(order_id)                  # IBKR whatif (no submission)
+→ approve_order(order_id)                  # submit to IBKR
+```
+
+All write tools require `FORTRESS_MCP_ALLOW_WRITES=1` in Claude Desktop config.
 
 ---
 
@@ -113,5 +133,6 @@ sudo cp -r dist/public/* /var/www/fortress-v4/ && sudo nginx -s reload
 
 | Version | Date | Changes |
 |---|---|---|
+| 1.5 | 2026-06-01 | Added refresh_iv_data, stage_order/preview_order/approve_order workflow. IBKR auto-sync note. |
 | 1.4 | 2026-05-30 | Full rewrite for V4 WSL deployment. Removed VPS references. Updated paths, ports, token, commands. Added auto-refresh note. |
 | 1.3 | 2026-05-18 | Updated URLs for Fortress V3. Added QuantData credential refresh. |

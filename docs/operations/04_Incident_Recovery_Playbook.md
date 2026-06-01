@@ -1,271 +1,167 @@
 # Fortress Dashboard — Incident Recovery Playbook
 
-**Version 1.1 — May 18, 2026**
+**Version 1.2 — 2026-06-01**
 
-Recovery procedures for all known failure modes. Read this document during an incident, not before. Each section is self-contained.
+Recovery procedures for all known failure modes. Each section is self-contained.
 
----
-
-## 1. VPS Unreachable
-
-**Symptoms:** Dashboard at `http://76.13.138.194:3000` returns connection refused or times out.
-
-**Steps:**
-
-1. Log into the VPS provider control panel and verify the instance is running.
-2. If stopped: start the instance. Wait 60 seconds for services to come up.
-3. SSH in: `ssh -i ~/.ssh/fortress_vps ubuntu@76.13.138.194`
-4. Check service status:
-   ```bash
-   sudo systemctl status fortress-dashboard
-   sudo systemctl status nginx
-   ```
-5. If `fortress-dashboard` is inactive:
-   ```bash
-   sudo systemctl start fortress-dashboard
-   journalctl -u fortress-dashboard -n 50
-   ```
-6. If nginx is inactive:
-   ```bash
-   sudo systemctl start nginx
-   sudo nginx -t  # check config
-   ```
-7. Verify health: `curl http://localhost:8080/api/health`
+> ⚠️ **WSL deployment only.** The VPS is decommissioned. All commands run in WSL on Windows.
 
 ---
 
-## 2. IBKR Gateway Disconnected
+## 1. Service Down / Dashboard Unreachable
 
-**Symptoms:** Dashboard header shows amber "IBKR" badge. `GET /api/ibkr/status` returns `connected: false`. Greeks show as `—` or stale.
-
-**Steps:**
-
-1. Check CP Gateway container:
-   ```bash
-   docker ps | grep cp-gateway
-   docker logs cp-gateway --tail 20
-   ```
-2. If container is stopped:
-   ```bash
-   cd /home/ubuntu/Fortress_Dashboard/cp-gateway
-   docker compose up -d
-   ```
-3. Wait ~30 seconds. An **IBKR Mobile push notification** will arrive. Tap **Approve**.
-4. Verify authentication:
-   ```bash
-   docker logs cp-gateway 2>&1 | grep -E "AUTHENTICATED|Login attempt" | tail -5
-   ```
-   Expect: `AUTHENTICATED Status(running=True, session=True, connected=True, authenticated=True, ...)`
-5. Verify from dashboard:
-   ```bash
-   TOKEN=$(cat ~/.fortress_api_token)
-   curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/ibkr/capability | python3 -m json.tool
-   ```
-   Expect: `web_api.session_status.established: true`
-
-**If push notification doesn't arrive within 3 minutes:**
-- ibeam retries every 60 seconds. Another push will arrive.
-- During the fallback window, the dashboard still works on `bs_yfinance` path (Black-Scholes from yfinance).
-
----
-
-## 3. Dashboard Service Crash
-
-**Symptoms:** `http://76.13.138.194:3000` returns 502 Bad Gateway (nginx can't reach the backend).
-
-**Steps:**
-
-1. SSH to VPS.
-2. Check service:
-   ```bash
-   sudo systemctl status fortress-dashboard
-   journalctl -u fortress-dashboard -n 100
-   ```
-3. Look for Python tracebacks in the journal. Common causes:
-   - Import error (missing dependency): `pip install -r requirements.txt` in the venv.
-   - Port conflict: check if something else is on 8080: `ss -tlnp | grep 8080`
-   - Config file corruption: restore from backup in `quant/backups/`.
-4. Restart:
-   ```bash
-   sudo systemctl restart fortress-dashboard
-   ```
-5. Verify: `curl http://localhost:8080/api/health`
-
----
-
-## 4. Frontend Not Loading (Fortress V3 React App)
-
-**Symptoms:** Browser shows blank page, 404, or old version of the frontend at `http://76.13.138.194:3000`.
-
-**Steps:**
-
-1. Check nginx is serving the correct static files:
-   ```bash
-   ls -la /home/ubuntu/Fortress_Dashboard/app/static/
-   # Should contain index.html and assets/ directory from the React build
-   ```
-2. If files are missing or old, redeploy from the sandbox:
-   ```bash
-   # On the development machine (Manus sandbox):
-   cd /home/ubuntu/fortress-v2 && pnpm build
-   scp -i ~/.ssh/fortress_vps -r dist/* ubuntu@76.13.138.194:/home/ubuntu/Fortress_Dashboard/app/static/
-   ```
-3. Restart nginx:
-   ```bash
-   sudo systemctl restart nginx
-   ```
-4. Hard-refresh the browser (Ctrl+Shift+R) to clear cached assets.
-
----
-
-## 5. QuantData Credentials Expired
-
-**Symptoms:** IV Rank Heatmap shows "no data" for all tickers. Candidates tab shows 0 rows or only placeholder rows. Market Intelligence cards show `—` for GEX/DP/Net Drift fields. VPS logs show `403 Forbidden` on outgoing QuantData requests.
-
-**This is the most common recurring incident.** QuantData session tokens expire periodically (days to weeks).
-
-### 5.1 Refresh via Dashboard UI (recommended — no SSH required)
-
-1. Open the Fortress Dashboard → **Settings** → scroll to **QuantData Credentials**.
-2. Click **Update Credentials**.
-3. In a separate browser tab, go to [v3.quantdata.us](https://v3.quantdata.us) and log in.
-4. Open DevTools (F12) → **Network** tab.
-5. Filter requests by `core-lb-prod.quantdata.us`.
-6. Click any request in the list.
-7. In the **Headers** panel, find the **Request Headers** section.
-8. Copy the value of the `authorization` header (starts with `Bearer eyJ...`).
-9. Copy the full value of the `cookie` header.
-10. Back in the Fortress Dashboard Settings form, paste:
-    - **Auth Token** field: the `authorization` header value (with or without the `Bearer ` prefix — the backend strips it).
-    - **Cookie** field: the full `cookie` header value.
-11. Click **Save Credentials**.
-12. The status indicator should turn green within a few seconds.
-
-### 5.2 Verify credentials are working
+**Symptoms:** `http://localhost` returns connection refused or blank page.
 
 ```bash
-TOKEN=$(cat ~/.fortress_api_token)
-curl -s -H "Authorization: Bearer $TOKEN" \
-  "http://localhost:8080/api/market-intelligence?ticker=SPY" | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-print('regime_score:', d.get('regime', {}).get('overall'))
-print('gex_call_wall:', d.get('gex', {}).get('call_wall'))
-print('dp_floor_1:', d.get('dark_pool', {}).get('floors', [{}])[0].get('price'))
-"
+sudo systemctl status fortress-dashboard-v4
+sudo systemctl restart fortress-dashboard-v4
+journalctl -u fortress-dashboard-v4 -n 50 --no-pager
 ```
 
-Expect non-null values for all three fields. If still null, repeat step 5.1 — the session may have been partially expired.
+If service fails to start, check logs for Python errors. Common causes:
+- Syntax error in recently edited Python file
+- Missing dependency (`pip install <package> --break-system-packages`)
+- Port 8081 already in use (`lsof -i :8081`)
 
-### 5.3 Re-run IV Crush workflow
+---
 
-After refreshing credentials, regenerate today's candidate data:
+## 2. IBKR Disconnected / No Greeks
 
+**Symptoms:** Status bar shows IBKR amber. Greeks show as 0 or missing.
+
+1. Navigate to `https://localhost:5000` in browser
+2. Log in with IBKR credentials + approve push notification on IBKR Mobile
+3. Wait ~30 seconds for session to establish
+4. MCP: `trigger_ibkr_sync()` or `POST /api/ibkr/sync`
+5. Verify: `get_ibkr_status()` — `connected: true`, `authenticated: true`
+
+If CP Gateway container is down:
 ```bash
-ssh ubuntu@76.13.138.194
-cd /home/ubuntu/Fortress_Dashboard
+docker ps | grep cp-gateway
+docker restart cp-gateway
+```
+
+---
+
+## 3. Stale Position Data
+
+**Symptoms:** Briefing shows `staleness.hours > 1` or `state: "stale"`.
+
+IBKR auto-sync is enabled (15 min). If still stale:
+```bash
+# Via MCP
+trigger_ibkr_sync()
+
+# Or direct API
+curl -X POST -H "Authorization: Bearer 07f03fb6e664859ac5e8113eaf1102ac43a3cb785c581af756671072b426db21" \
+  http://localhost:8081/api/ibkr/sync
+```
+
+---
+
+## 4. IV Data Zeros / Candidates Empty Intraday
+
+**Symptoms:** IVR shows 0 or near-zero for all tickers intraday. Candidates table shows no actionable signals.
+
+Root cause: QuantData JWT token expired mid-session.
+
+**Quick fix via MCP:**
+```
+refresh_iv_data()
+```
+
+**Manual fix:**
+```bash
+cd ~/fortress-v4-api
 source venv/bin/activate
-python3 quant/workflow_05_iv_crush_report.py
+python3 quant/qd_refresh_session.py
+sudo cp ~/.quantdata-mcp/config.json /root/.quantdata-mcp/config.json
+sudo systemctl restart fortress-dashboard-v4
 ```
 
-This takes ~2–3 minutes (fetches data for all 19 universe tickers). When complete, the Candidates tab and IV Rank Heatmap will show live data.
+The scheduler auto-refreshes at 06:00 ET and 12:00 ET to prevent this.
 
-### 5.4 Fallback via SSH (if dashboard UI is unavailable)
+---
+
+## 5. QuantData Credential Refresh (full re-auth)
+
+When `qd_refresh_session.py` fails or QuantData shows 401 errors:
+
+1. Go to `https://v3.quantdata.us` in browser
+2. Log in with QuantData credentials
+3. Your session cookie is now valid
+4. Dashboard → **Settings → QuantData Auto-Login** to write the new JWT
+5. Or manually:
+   ```bash
+   # The JWT is in the browser cookie — copy it after logging in
+   # Then update the config file:
+   nano ~/.quantdata-mcp/config.json
+   sudo cp ~/.quantdata-mcp/config.json /root/.quantdata-mcp/config.json
+   sudo systemctl restart fortress-dashboard-v4
+   ```
+
+---
+
+## 6. Frontend Not Updating After Code Change
+
+**Symptoms:** Code change pushed, service restarted, but UI still shows old version.
+
+The frontend is a static build served by nginx. Code changes require a rebuild:
 
 ```bash
-ssh ubuntu@76.13.138.194
-# Edit the config file directly
-nano /home/ubuntu/.quantdata-mcp/config.json
-# Update "auth_token" and "cookie" fields with fresh values
-# Save and exit (Ctrl+X, Y, Enter)
-
-# Restart the dashboard service to pick up new credentials
-sudo systemctl restart fortress-dashboard
+cd ~/fortress-v4-frontend && git pull
+npm run build
+sudo cp -r dist/public/* /var/www/fortress-v4/
+sudo nginx -s reload
 ```
 
----
-
-## 6. Data File Corruption
-
-**Symptoms:** Dashboard shows incorrect data, API returns 500 errors, or JSON parse errors in logs.
-
-**Steps:**
-
-1. Identify the corrupted file from the error log:
-   ```bash
-   journalctl -u fortress-dashboard -n 50 | grep -i "json\|error\|corrupt"
-   ```
-2. Restore from backup:
-   ```bash
-   ls -lt /home/ubuntu/Fortress_Dashboard/quant/backups/ | head -20
-   # Find the most recent backup of the corrupted file
-   cp /home/ubuntu/Fortress_Dashboard/quant/backups/<filename>_<timestamp>.json \
-      /home/ubuntu/Fortress_Dashboard/quant/<filename>.json
-   ```
-3. Restart the service:
-   ```bash
-   sudo systemctl restart fortress-dashboard
-   ```
+Hard-refresh browser (`Ctrl+Shift+R`) to clear cached assets.
 
 ---
 
-## 7. IBKR Sync Returns 0 Positions
+## 7. MCP Tools Not Connecting
 
-**Symptoms:** Positions tab is empty after sync. `GET /api/positions` returns empty array.
+**Symptoms:** Claude says "I don't have access to Fortress tools" or tools return errors.
 
-**Steps:**
+1. Fully quit Claude Desktop (system tray → Quit)
+2. Verify `fortress-dashboard-v4` service is running: `sudo systemctl status fortress-dashboard-v4`
+3. Verify API token in `claude_desktop_config.json` matches: `07f03fb6e664859ac5e8113eaf1102ac43a3cb785c581af756671072b426db21`
+4. Relaunch Claude Desktop
 
-1. Check CP Gateway session:
-   ```bash
-   TOKEN=$(cat ~/.fortress_api_token)
-   curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/ibkr/capability | python3 -m json.tool
-   ```
-2. If `established: false`: follow §2 (IBKR Gateway Disconnected).
-3. If `established: true` but positions still empty:
-   ```bash
-   # Check if IBKR account has positions
-   curl -sk -X POST https://localhost:5000/v1/api/tickle | head -c 200
-   curl -sk "https://localhost:5000/v1/api/portfolio/accounts" | python3 -m json.tool
-   ```
-4. If account shows positions in the IBKR API but not in the dashboard, trigger a fresh sync:
-   ```bash
-   curl -s -X POST -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/ibkr/sync --max-time 110
-   ```
-5. If sync still returns 0: check `active_positions.json` directly and compare to IBKR account.
+For write tools returning "Write tools are disabled":
+- Add `FORTRESS_MCP_ALLOW_WRITES=1` to the env block in `claude_desktop_config.json`
+- Restart Claude Desktop
 
 ---
 
-## 8. nginx Configuration Issues
+## 8. 502 Bad Gateway
 
-**Symptoms:** 502 Bad Gateway, or frontend loads but API calls fail with CORS errors.
-
-**Verify nginx config:**
+**Symptoms:** Browser shows 502 when accessing `http://localhost`.
 
 ```bash
+# Check nginx
 sudo nginx -t
-cat /etc/nginx/sites-enabled/fortress
+sudo nginx -s reload
+
+# Check backend
+sudo systemctl status fortress-dashboard-v4
+sudo systemctl restart fortress-dashboard-v4
 ```
 
-Expected config structure:
-```nginx
-server {
-    listen 3000;
-    root /home/ubuntu/Fortress_Dashboard/app/static;
-    index index.html;
+---
 
-    location /api/ {
-        proxy_pass http://127.0.0.1:8080;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
+## 9. Git / Deploy Issues
 
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-}
+```bash
+# Pull latest from GitHub
+cd ~/fortress-v4-api && git pull
+cd ~/fortress-v4-frontend && git pull
+
+# Set auth token if needed
+git -C ~/fortress-v4-api remote set-url origin https://citychip:<GIT_TOKEN>@github.com/citychip/fortress-v4-api.git
+git -C ~/fortress-v4-frontend remote set-url origin https://citychip:<GIT_TOKEN>@github.com/citychip/fortress-v4-frontend.git
+# GIT_TOKEN is in HANDOFF.md (not stored in this repo)
 ```
-
-If config is wrong: edit, then `sudo systemctl reload nginx`.
 
 ---
 
@@ -273,5 +169,5 @@ If config is wrong: edit, then `sudo systemctl reload nginx`.
 
 | Version | Date | Changes |
 |---|---|---|
-| 1.1 | 2026-05-18 | Added §5 QuantData Credentials Expired (full runbook). Added §4 Frontend Not Loading. Added §8 nginx Configuration Issues. Updated all service names and paths for Fortress V3. |
-| 1.0 | 2026-05-09 | Initial release. VPS, IBKR gateway, service crash, data corruption, sync procedures. |
+| 1.2 | 2026-06-01 | Full rewrite for WSL deployment. Removed all VPS references. Added MCP-first recovery steps. Added QuantData intraday fix. |
+| 1.1 | 2026-05-18 | Updated QuantData credential refresh flow. Added CP Gateway Docker restart. |
