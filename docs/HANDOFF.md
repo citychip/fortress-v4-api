@@ -56,13 +56,13 @@ Both dashboards share the **same backend** (`localhost:8081`) and credentials. T
 | `citychip/fortress-v4-frontend` | `main` | Fortress v4 dashboard (port 80) |
 | `citychip/fortress-parapet` | `master` | Parapet v5 dashboard (port 4000) |
 
-**Git auth token:** `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`
+**Git auth token:** stored in WSL git remote URLs — do not paste here.
 
-Set remotes on WSL:
+Set remotes on WSL (replace TOKEN with your GitHub PAT):
 ```bash
-git -C ~/fortress-v4-api remote set-url origin https://citychip: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@github.com/citychip/fortress-v4-api.git
-git -C ~/fortress-v4-frontend remote set-url origin https://citychip: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@github.com/citychip/fortress-v4-frontend.git
-git -C ~/fortress-parapet remote set-url origin https://citychip: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@github.com/citychip/fortress-parapet.git
+git -C ~/fortress-v4-api remote set-url origin https://citychip:TOKEN@github.com/citychip/fortress-v4-api.git
+git -C ~/fortress-v4-frontend remote set-url origin https://citychip:TOKEN@github.com/citychip/fortress-v4-frontend.git
+git -C ~/fortress-parapet remote set-url origin https://citychip:TOKEN@github.com/citychip/fortress-parapet.git
 ```
 
 ---
