@@ -256,7 +256,9 @@ def _init_brokerage_session(lst: str) -> dict:
     auth_header = _build_hmac_auth_header("POST", url, oauth_params, lst)
     headers = {"Authorization": auth_header, "User-Agent": "python/3.12"}
 
-    resp = httpx.post(url, headers=headers, json={}, verify=True, timeout=30)
+    logger.info("ssodh/init: POST %s", url)
+    resp = httpx.post(url, headers=headers, verify=True, timeout=30)
+    logger.info("ssodh/init response: %s — %s", resp.status_code, resp.text[:200])
     if not resp.is_success:
         raise RuntimeError(f"ssodh/init failed {resp.status_code}: {resp.text[:200]}")
     return resp.json()
@@ -292,12 +294,9 @@ def ensure_session() -> OAuthSession:
     _session.live_session_token  = lst
     _session.lst_expiry          = expiry
 
-    # Initialize brokerage session
-    try:
-        ssodh = _init_brokerage_session(lst)
-        logger.info("Brokerage session initialized: %s", ssodh)
-    except Exception as e:
-        logger.warning("ssodh/init warning (non-fatal): %s", e)
+    # Initialize brokerage session (required before API calls)
+    ssodh = _init_brokerage_session(lst)
+    logger.info("Brokerage session initialized: %s", ssodh)
 
     return _session
 
