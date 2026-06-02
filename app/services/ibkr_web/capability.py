@@ -39,6 +39,7 @@ def get_capability(force_refresh: bool = False) -> dict:
         "checked_at": datetime.now(timezone.utc).isoformat(),
         "tws_gateway": _check_tws(),
         "web_api": _check_web_api(),
+        "oauth": _check_oauth(),
     }
     out["resolution_hint"] = _hint(out)
     _CAPABILITY_CACHE["data"] = out
@@ -50,7 +51,6 @@ def invalidate():
     _CAPABILITY_CACHE["data"] = None
 
 
-# ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 # TWS Gateway probe — DECOMMISSIONED (fortress-ib-gateway removed 2026-05-08)
 # ---------------------------------------------------------------------------
@@ -68,9 +68,7 @@ def _check_tws() -> dict:
     }
 
 # ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
-# Web API probe
+# Web API probe (iBeam / CP Gateway)
 # ---------------------------------------------------------------------------
 
 def _check_web_api(settings: Optional[dict] = None) -> dict:
@@ -84,7 +82,6 @@ def _check_web_api(settings: Optional[dict] = None) -> dict:
         "opra_test": None,
         "error": None,
     }
-    # Lazy-load settings
     if settings is None:
         try:
             from app.services import state
@@ -110,7 +107,6 @@ def _check_web_api(settings: Optional[dict] = None) -> dict:
             out["error"] = sess.get("error") or "session_not_established"
             return out
 
-        # Now we have an established session. Verify account access.
         try:
             accts = web_portfolio.list_accounts(client)
             if accts:
@@ -119,9 +115,6 @@ def _check_web_api(settings: Optional[dict] = None) -> dict:
             out["error"] = f"portfolio_accounts_failed: {e}"
             return out
 
-        # OPRA test: try a snapshot of any owned option position.
-        # If we can't find one, skip and report opra_subscribed: null
-        # (the user hasn't synced yet — Phase A doesn't need this to pass).
         opra = _probe_opra(client, out["account"])
         out["opra_subscribed"] = opra["opra_subscribed"]
         out["opra_test"] = opra
@@ -136,13 +129,69 @@ def _check_web_api(settings: Optional[dict] = None) -> dict:
     return out
 
 
+# ---------------------------------------------------------------------------
+# OAuth probe
+# ---------------------------------------------------------------------------
+
+def _check_oauth() -> dict:
+    """Probe the IBKR OAuth 1.0a backend.
+
+    Returns a status dict compatible with the web_api session_status shape
+    so the frontend can render it with the same component.
+
+    Keys expected by the UI:
+      configured, connected, authenticated, established, error,
+      consumer_key, keys_dir, checked_at
+    """
+    out = {
+        "configured": False,
+        "connected": False,
+        "authenticated": False,
+        "established": False,
+        "consumer_key": None,
+        "keys_dir": None,
+        "error": None,
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        from app.services.ibkr_web.oauth_client import (
+            get_oauth_status, CONSUMER_KEY, _KEYS_DIR,
+        )
+        import os
+        out["consumer_key"] = CONSUMER_KEY
+        out["keys_dir"] = _KEYS_DIR
+
+        # Check key files exist before attempting network call
+        sig_key = os.path.join(_KEYS_DIR, "private_signature.pem")
+        enc_key = os.path.join(_KEYS_DIR, "private_encryption.pem")
+        missing = [p for p in (sig_key, enc_key) if not os.path.exists(p)]
+        if missing:
+            out["error"] = f"key_files_missing: {', '.join(missing)}"
+            return out
+
+        out["configured"] = True
+        status = get_oauth_status()
+        out.update({
+            "connected":     status.get("connected", False),
+            "authenticated": status.get("authenticated", False),
+            "established":   status.get("established", False),
+            "error":         status.get("error"),
+        })
+    except ImportError as e:
+        out["error"] = f"oauth_client_import_error: {e}"
+    except Exception as e:
+        out["error"] = f"unexpected: {e}"
+
+    return out
+
+
+# ---------------------------------------------------------------------------
+# OPRA probe (shared by web_api and oauth paths via _do_sync)
+# ---------------------------------------------------------------------------
+
 def _probe_opra(client: WebApiClient, account_id: Optional[str]) -> dict:
     """Snapshot a known option contract; if Greeks come back populated,
     OPRA is subscribed.
-
-    Strategy: pull a few legs from the user's own positions (avoids
-    hard-coding a contract that may be illiquid). If positions are empty
-    or no option legs found, return {"opra_subscribed": None, ...}.
     """
     res = {
         "opra_subscribed": None,
@@ -156,8 +205,6 @@ def _probe_opra(client: WebApiClient, account_id: Optional[str]) -> dict:
         return res
     try:
         positions = web_portfolio.all_positions(client, account_id)
-        # Filter to option positions only — Greeks are options-specific.
-        # IBKR Web API may return assetClass or secType depending on endpoint version.
         option_legs = [
             p for p in positions
             if (p.get("assetClass") or p.get("secType") or "").upper() == "OPT"
@@ -166,7 +213,6 @@ def _probe_opra(client: WebApiClient, account_id: Optional[str]) -> dict:
             res["method"] = "no_option_positions_found"
             return res
 
-        # Pick the first 3 option conids — keeps the request small
         conids = []
         for p in option_legs[:3]:
             c = p.get("conid")
@@ -177,7 +223,6 @@ def _probe_opra(client: WebApiClient, account_id: Optional[str]) -> dict:
             return res
 
         rows = web_snapshot.snapshot(client, conids)
-        # Look for at least one row with non-null delta (7308)
         delta_tag = FIELD_TAGS["delta"]
         iv_tag = FIELD_TAGS["iv_strike"]
         for r in rows:
@@ -189,7 +234,6 @@ def _probe_opra(client: WebApiClient, account_id: Optional[str]) -> dict:
                 res["method"] = "live_position_snapshot"
                 return res
 
-        # Snapshot returned but no Greeks populated — typically OPRA missing
         res["opra_subscribed"] = False
         res["method"] = "snapshot_returned_no_greeks"
     except (GatewayUnreachable, WebApiError) as e:
