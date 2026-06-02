@@ -196,6 +196,9 @@ def _make_oauth_headers(
         oauth["oauth_signature"] = _rsa_sha256_sign(base, sig_key)
     else:
         oauth["oauth_signature"] = _hmac_sha256_sign(base, lst)
+    # Include extra_params (e.g. diffie_hellman_challenge) in the Authorization header
+    if extra_params:
+        oauth.update(extra_params)
     return {
         "Accept":          "*/*",
         "Accept-Encoding": "gzip,deflate",
