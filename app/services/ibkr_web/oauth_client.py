@@ -1,62 +1,55 @@
 """
 app/services/ibkr_web/oauth_client.py
-IBKR OAuth 1.0a First-Party client (Self Service Portal / consumer credential flow).
+IBKR OAuth 1.0a — implementation based on Voyz/ibind (github.com/Voyz/ibind)
+Uses pycryptodome (pip install pycryptodome).
 
-Auth flow (per https://ibkrcampus.com/campus/ibkr-api-page/oauth-1-0a-extended/):
-  1. Load stored access_token + access_token_secret from IBKR Self Service Portal
-  2. Compute prepend = decrypt(access_token_secret, private_encryption_key).hex()
-  3. POST /oauth/live_session_token:
-       - DH challenge in OAuth Authorization header params
-       - base_string = prepend + "POST&" + url + "&" + sorted_params
-       - Signed with RSA-SHA256 (private_signature_key)
-  4. Compute LST from response using HMAC-SHA1(K_bytes, prepend_bytes)
-  5. POST /iserver/auth/ssodh/init (signed with HMAC-SHA256 using LST)
+Auth flow:
+  1. Load access_token + access_token_secret from IBKR Self Service Portal files
+  2. Extract DH prime from dhparam.pem
+  3. POST /oauth/live_session_token (RSA-SHA256 signed, DH challenge in OAuth params)
+  4. Compute Live Session Token from DH response
+  5. POST /iserver/auth/ssodh/init (HMAC-SHA256 signed with LST)
   6. All subsequent requests signed with HMAC-SHA256 using LST
 """
 from __future__ import annotations
 
 import base64
-import hashlib
-import hmac as _hmac
 import logging
 import os
-import random
+import re
 import secrets
+import string
+import subprocess
 import time
-import urllib.parse
 from typing import Any, Optional
+from urllib import parse
+
+from Crypto.Cipher import PKCS1_v1_5 as PKCS1_v1_5_Cipher   # nosec
+from Crypto.Hash import SHA256, HMAC, SHA1                    # nosec
+from Crypto.PublicKey import RSA                               # nosec
+from Crypto.Signature import PKCS1_v1_5 as PKCS1_v1_5_Sig    # nosec
 
 logger = logging.getLogger("fortress.ibkr_web.oauth_client")
 
-CONSUMER_KEY   = "SHARMILAH"
-BASE_URL       = "https://api.ibkr.com/v1/api"
-REALM          = "limited_poa"   # "test_realm" for TESTCONS paper key
-_KEYS_DIR      = "/home/ubuntu/ibkr-oauth"
+CONSUMER_KEY = "SHARMILAH"
+BASE_URL     = "https://api.ibkr.com/v1/api"
+REALM        = "limited_poa"
+_KEYS_DIR    = "/home/ubuntu/ibkr-oauth"
 
 _ACCESS_TOKEN_FILE        = _KEYS_DIR + "/access_token.txt"
 _ACCESS_TOKEN_SECRET_FILE = _KEYS_DIR + "/access_token_secret.txt"
 
-
-# ── Key loading ───────────────────────────────────────────────────────────────
-
-def _load_signature_key():
-    from cryptography.hazmat.primitives.serialization import load_pem_private_key
-    with open(os.path.join(_KEYS_DIR, "private_signature.pem"), "rb") as f:
-        return load_pem_private_key(f.read(), password=None)
+_STRING_ENCODING    = "utf-8"
+_INT_BASE           = 16
+_KEY_VALUE_SEP      = "="
+_DH_GENERATOR       = 2
 
 
-def _load_encryption_key():
-    from cryptography.hazmat.primitives.serialization import load_pem_private_key
-    with open(os.path.join(_KEYS_DIR, "private_encryption.pem"), "rb") as f:
-        return load_pem_private_key(f.read(), password=None)
+# ── Key / token helpers (ibind-style) ────────────────────────────────────────
 
-
-def _load_dh_params():
-    from cryptography.hazmat.primitives.serialization import load_pem_parameters
-    with open(os.path.join(_KEYS_DIR, "dhparam.pem"), "rb") as f:
-        params = load_pem_parameters(f.read())
-    pn = params.parameter_numbers()
-    return pn.p, pn.g   # prime, generator
+def _read_rsa_key(path: str) -> RSA.RsaKey:
+    with open(path) as f:
+        return RSA.importKey(f.read())
 
 
 def _load_stored_access_token() -> tuple[str, str]:
@@ -69,224 +62,172 @@ def _load_stored_access_token() -> tuple[str, str]:
     return token, secret
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+def _extract_dh_prime() -> str:
+    """Extract DH prime hex string from dhparam.pem (ibind wiki method)."""
+    result = subprocess.run(
+        ["openssl", "dhparam", "-in", os.path.join(_KEYS_DIR, "dhparam.pem"), "-text"],
+        capture_output=True, text=True,
+    ).stdout
+    match = re.search(r"(?:prime|P):\s*((?:\s*[0-9a-fA-F:]+\s*)+)", result)
+    if not match:
+        raise RuntimeError("Could not extract DH prime from dhparam.pem")
+    return re.sub(r"[\s:]", "", match.group(1))
 
-def _pct_encode(s: str) -> str:
-    return urllib.parse.quote(s, safe="")
+
+# ── ibind OAuth functions (verbatim / lightly adapted) ───────────────────────
+
+def _generate_nonce() -> str:
+    return "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(16))
 
 
-def _nonce() -> str:
-    return secrets.token_hex(16)
-
-
-def _timestamp() -> str:
+def _generate_timestamp() -> str:
     return str(int(time.time()))
 
 
-def _rsa_sha256_sign(data: bytes) -> str:
-    """Sign bytes with private_signature.pem using RSA-SHA256/PKCS1v15. Return base64 str."""
-    from cryptography.hazmat.primitives import hashes
-    from cryptography.hazmat.primitives.asymmetric import padding
-    key = _load_signature_key()
-    sig = key.sign(data, padding.PKCS1v15(), hashes.SHA256())
-    return base64.b64encode(sig).decode()
+def _calculate_prepend(access_token_secret: str, encryption_key: RSA.RsaKey) -> str:
+    """Decrypt access_token_secret → hex prepend."""
+    cipher = PKCS1_v1_5_Cipher.new(encryption_key)
+    decrypted = cipher.decrypt(base64.b64decode(access_token_secret), None)
+    return decrypted.hex()
 
 
-def _decrypt_with_encryption_key(ciphertext_b64: str) -> bytes:
-    """Decrypt base64-encoded ciphertext using private_encryption.pem / PKCS1v15."""
-    from cryptography.hazmat.primitives.asymmetric import padding
-    key = _load_encryption_key()
-    return key.decrypt(base64.b64decode(ciphertext_b64), padding.PKCS1v15())
+def _generate_dh_random() -> str:
+    """256-bit random as hex string."""
+    return hex(secrets.randbits(256))[2:]
 
 
-def _build_rsa_auth_header(method: str, url: str, oauth_params: dict, prepend: str = "") -> str:
-    """Build RSA-SHA256 signed OAuth Authorization header.
+def _generate_dh_challenge(dh_prime: str, dh_random: str) -> str:
+    return hex(pow(_DH_GENERATOR, int(dh_random, _INT_BASE), int(dh_prime, _INT_BASE)))[2:]
 
-    For LST requests the base string is prepended with the decrypted secret hex.
-    For other RSA requests (request_token etc.) prepend is empty string.
+
+def _generate_base_string(
+    method: str,
+    url: str,
+    headers: dict,
+    prepend: Optional[str] = None,
+    extra_params: Optional[dict] = None,
+) -> str:
+    """Build OAuth base string (ibind's generate_base_string)."""
+    params = {**headers}
+    if extra_params:
+        params.update(extra_params)
+    params_str = "&".join(f"{k}{_KEY_VALUE_SEP}{v}" for k, v in sorted(params.items()))
+    base = "&".join([method, parse.quote_plus(url), parse.quote_plus(params_str)])
+    if prepend is not None:
+        base = f"{prepend}{base}"
+    return base
+
+
+def _rsa_sha256_sign(base_string: str, sig_key: RSA.RsaKey) -> str:
+    """RSA-SHA256 signature, URL-encoded (ibind's generate_rsa_sha_256_signature)."""
+    encoded = base_string.encode(_STRING_ENCODING)
+    h = SHA256.new(encoded)
+    sig = PKCS1_v1_5_Sig.new(sig_key).sign(h)
+    b64 = base64.encodebytes(sig).decode(_STRING_ENCODING).replace("\n", "")
+    return parse.quote_plus(b64)
+
+
+def _hmac_sha256_sign(base_string: str, lst: str) -> str:
+    """HMAC-SHA256 signature using LST as key, URL-encoded (ibind's generate_hmac_sha_256_signature)."""
+    h = HMAC.new(bytes(base64.b64decode(lst)), digestmod=SHA256)
+    h.update(base_string.encode(_STRING_ENCODING))
+    return parse.quote_plus(base64.b64encode(h.digest()).decode(_STRING_ENCODING))
+
+
+def _build_auth_header(params: dict) -> str:
+    """Build Authorization header string (ibind's generate_authorization_header_string).
+    realm comes first, then sorted params.
     """
-    # Build params string (sorted, all params including dh_challenge if present)
-    params_string = "&".join(
-        f"{_pct_encode(k)}={_pct_encode(v)}"
-        for k, v in sorted(oauth_params.items())
-    )
-    base_string = (
-        prepend
-        + method.upper()
-        + "&"
-        + _pct_encode(url)
-        + "&"
-        + _pct_encode(params_string)
-    )
-    signature = _rsa_sha256_sign(base_string.encode("utf-8"))
-
-    # Build header (realm omitted from signature, added after)
-    header_params = {**oauth_params}
-    header_params["oauth_signature"] = _pct_encode(signature)
-
-    header_parts = ", ".join(
-        f'{k}="{v}"'
-        for k, v in sorted(header_params.items())
-    )
-    return "OAuth realm=\"" + REALM + "\", " + header_parts
+    pairs = ", ".join(f'{k}{_KEY_VALUE_SEP}"{v}"' for k, v in sorted(params.items()))
+    return f'OAuth realm="{REALM}", {pairs}'
 
 
-def _build_hmac_auth_header(method: str, url: str, oauth_params: dict, lst: str) -> str:
-    """Build HMAC-SHA256 signed OAuth Authorization header using the Live Session Token."""
-    params_string = "&".join(
-        f"{_pct_encode(k)}={_pct_encode(v)}"
-        for k, v in sorted(oauth_params.items())
-    )
-    base_string = (
-        method.upper()
-        + "&"
-        + _pct_encode(url)
-        + "&"
-        + _pct_encode(params_string)
-    )
-    lst_key = base64.b64decode(lst)
-    sig_bytes = _hmac.new(lst_key, base_string.encode("utf-8"), hashlib.sha256).digest()
-    signature = _pct_encode(base64.b64encode(sig_bytes).decode())
-
-    header_params = {**oauth_params}
-    header_params["oauth_signature"] = signature
-
-    header_parts = ", ".join(
-        f'{k}="{v}"'
-        for k, v in sorted(header_params.items())
-    )
-    return f"OAuth {header_parts}"
+def _to_byte_array(x: int) -> list[int]:
+    """Convert int to byte array with optional leading zero (ibind's to_byte_array)."""
+    hex_str = hex(x)[2:]
+    if len(hex_str) % 2:
+        hex_str = "0" + hex_str
+    ba = []
+    if len(bin(x)[2:]) % 8 == 0:
+        ba.append(0)
+    for i in range(0, len(hex_str), 2):
+        ba.append(int(hex_str[i:i+2], _INT_BASE))
+    return ba
 
 
-# ── Live Session Token flow ───────────────────────────────────────────────────
+def _calculate_lst(dh_prime: str, dh_random: str, dh_response: str, prepend: str) -> str:
+    """Compute live session token (ibind's calculate_live_session_token)."""
+    prepend_bytes = bytearray.fromhex(prepend)
+    dh_rand_int   = int(dh_random, _INT_BASE)
+    dh_resp_int   = int(dh_response, _INT_BASE)
+    shared        = pow(dh_resp_int, dh_rand_int, int(dh_prime, _INT_BASE))
+    h = HMAC.new(bytes(_to_byte_array(shared)), digestmod=SHA1)
+    h.update(bytes(prepend_bytes))
+    return base64.b64encode(h.digest()).decode(_STRING_ENCODING)
 
-def _acquire_live_session_token(access_token: str, access_token_secret: str) -> tuple[str, float]:
-    """Full LST flow per IBKR OAuth 1.0a extended documentation.
 
-    Returns (live_session_token, expiry_unix_timestamp).
-    """
-    import httpx
+def _validate_lst(lst: str, lst_signature: str) -> bool:
+    """Validate computed LST against IBKR-provided signature."""
+    h = HMAC.new(bytes(base64.b64decode(lst)), digestmod=SHA1)
+    h.update(CONSUMER_KEY.encode(_STRING_ENCODING))
+    return h.hexdigest() == lst_signature
 
-    # Step 1: Compute prepend
-    decrypted_secret = _decrypt_with_encryption_key(access_token_secret)
-    prepend = decrypted_secret.hex()
-    prepend_bytes = bytes.fromhex(prepend)
-    logger.info("Prepend computed (%d bytes)", len(prepend_bytes))
 
-    # Step 2: DH challenge
-    dh_prime, dh_generator = _load_dh_params()
-    dh_random = random.getrandbits(256)
-    dh_challenge = hex(pow(dh_generator, dh_random, dh_prime))[2:]
-    logger.info("DH challenge computed (%d hex chars)", len(dh_challenge))
-
-    # Step 3: Build OAuth params for LST request (dh_challenge IN params, NOT body)
-    url = f"{BASE_URL}/oauth/live_session_token"
-    oauth_params = {
-        "diffie_hellman_challenge": dh_challenge,
-        "oauth_consumer_key":       CONSUMER_KEY,
-        "oauth_nonce":              _nonce(),
-        "oauth_signature_method":  "RSA-SHA256",
-        "oauth_timestamp":          _timestamp(),
-        "oauth_token":              access_token,
+def _make_oauth_headers(
+    method: str,
+    url: str,
+    lst: Optional[str] = None,
+    extra_params: Optional[dict] = None,
+    sig_key: Optional[RSA.RsaKey] = None,
+    prepend: Optional[str] = None,
+    access_token: Optional[str] = None,
+) -> dict:
+    """Build the full HTTP headers dict for an OAuth request."""
+    sig_method = "RSA-SHA256" if lst is None else "HMAC-SHA256"
+    oauth = {
+        "oauth_consumer_key":      CONSUMER_KEY,
+        "oauth_nonce":             _generate_nonce(),
+        "oauth_signature_method": sig_method,
+        "oauth_timestamp":         _generate_timestamp(),
+        "oauth_token":             access_token or _load_stored_access_token()[0],
     }
-
-    # Step 4: Sign with RSA, base_string prefixed with prepend
-    auth_header = _build_rsa_auth_header("POST", url, oauth_params, prepend=prepend)
-
-    # Step 5: POST /oauth/live_session_token — NO BODY
-    headers = {
-        "Accept":          "*/*",
-        "Accept-Encoding": "gzip,deflate",
-        "Authorization":   auth_header,
-        "Connection":      "keep-alive",
-        "Host":            "api.ibkr.com",
-        "User-Agent":      "python/3.12",
-    }
-    logger.info("Requesting Live Session Token...")
-    resp = httpx.post(url, headers=headers, verify=True, timeout=30)
-    if not resp.is_success:
-        raise RuntimeError(f"live_session_token failed {resp.status_code}: {resp.text[:300]}")
-
-    data = resp.json()
-    dh_response         = data["diffie_hellman_response"]
-    lst_signature       = data["live_session_token_signature"]
-    lst_expiration_ms   = data["live_session_token_expiration"]
-
-    # Step 6: Compute K = dh_response ^ dh_random mod dh_prime
-    B = int(dh_response, 16)
-    K = pow(B, dh_random, dh_prime)
-
-    hex_str_K = hex(K)[2:]
-    if len(hex_str_K) % 2:
-        hex_str_K = "0" + hex_str_K
-    hex_bytes_K = bytes.fromhex(hex_str_K)
-    if len(bin(K)[2:]) % 8 == 0:
-        hex_bytes_K = bytes(1) + hex_bytes_K
-
-    # Step 7: computed_lst = base64(HMAC-SHA1(key=K_bytes, msg=prepend_bytes))
-    computed_lst = base64.b64encode(
-        _hmac.new(hex_bytes_K, prepend_bytes, hashlib.sha1).digest()
-    ).decode()
-
-    # Step 8: Validate
-    validation = _hmac.new(
-        base64.b64decode(computed_lst),
-        CONSUMER_KEY.encode("utf-8"),
-        hashlib.sha1,
-    ).hexdigest()
-
-    if validation == lst_signature:
-        logger.info("LST validated OK — expires %s", time.ctime(lst_expiration_ms / 1000))
+    base = _generate_base_string(method, url, oauth, prepend=prepend, extra_params=extra_params)
+    if lst is None:
+        oauth["oauth_signature"] = _rsa_sha256_sign(base, sig_key)
     else:
-        logger.warning("LST validation mismatch — computed=%s received=%s", validation, lst_signature)
-
-    return computed_lst, float(lst_expiration_ms) / 1000.0
-
-
-def _init_brokerage_session(lst: str) -> dict:
-    """POST /iserver/auth/ssodh/init using HMAC-SHA256 signed with LST."""
-    import httpx
-
-    url = f"{BASE_URL}/iserver/auth/ssodh/init"
-    oauth_params = {
-        "oauth_consumer_key":       CONSUMER_KEY,
-        "oauth_nonce":              _nonce(),
-        "oauth_signature_method":  "HMAC-SHA256",
-        "oauth_timestamp":          _timestamp(),
-        "oauth_token":              _load_stored_access_token()[0],
-    }
-    auth_header = _build_hmac_auth_header("POST", url, oauth_params, lst)
-    headers = {
+        oauth["oauth_signature"] = _hmac_sha256_sign(base, lst)
+    return {
         "Accept":          "*/*",
         "Accept-Encoding": "gzip,deflate",
-        "Authorization":   auth_header,
+        "Authorization":   _build_auth_header(oauth),
         "Connection":      "keep-alive",
         "Host":            "api.ibkr.com",
-        "User-Agent":      "python/3.12",
+        "User-Agent":      "ibind",
     }
-
-    logger.info("ssodh/init: POST %s", url)
-    resp = httpx.post(url, headers=headers, verify=True, timeout=30)
-    logger.info("ssodh/init response: %s — %s", resp.status_code, resp.text[:200])
-    if not resp.is_success:
-        raise RuntimeError(f"ssodh/init failed {resp.status_code}: {resp.text[:200]}")
-    return resp.json()
 
 
 # ── Session management ────────────────────────────────────────────────────────
 
 class OAuthSession:
     def __init__(self):
-        self.access_token:        Optional[str]   = None
-        self.access_token_secret: Optional[str]   = None
-        self.live_session_token:  Optional[str]   = None
-        self.lst_expiry:          float           = 0.0
+        self.access_token:  Optional[str] = None
+        self.lst:           Optional[str] = None
+        self.lst_expiry:    float         = 0.0
 
     def is_valid(self) -> bool:
-        return self.live_session_token is not None and time.time() < self.lst_expiry - 60
+        return self.lst is not None and time.time() < self.lst_expiry - 60
 
 
 _session = OAuthSession()
+_dh_prime: Optional[str] = None
+
+
+def _get_dh_prime() -> str:
+    global _dh_prime
+    if _dh_prime is None:
+        _dh_prime = _extract_dh_prime()
+        logger.info("DH prime extracted (%d hex chars)", len(_dh_prime))
+    return _dh_prime
 
 
 def ensure_session() -> OAuthSession:
@@ -294,18 +235,53 @@ def ensure_session() -> OAuthSession:
     if _session.is_valid():
         return _session
 
-    logger.info("Acquiring new OAuth Live Session Token (First Party flow)...")
+    logger.info("Acquiring OAuth Live Session Token (ibind flow)...")
     acc_tok, acc_sec = _load_stored_access_token()
-    lst, expiry = _acquire_live_session_token(acc_tok, acc_sec)
+    dh_prime  = _get_dh_prime()
+    enc_key   = _read_rsa_key(os.path.join(_KEYS_DIR, "private_encryption.pem"))
+    sig_key   = _read_rsa_key(os.path.join(_KEYS_DIR, "private_signature.pem"))
 
-    _session.access_token        = acc_tok
-    _session.access_token_secret = acc_sec
-    _session.live_session_token  = lst
-    _session.lst_expiry          = expiry
+    prepend    = _calculate_prepend(acc_sec, enc_key)
+    dh_random  = _generate_dh_random()
+    dh_challenge = _generate_dh_challenge(dh_prime, dh_random)
+    logger.info("DH challenge: %d hex chars", len(dh_challenge))
 
-    # Initialize brokerage session (required before API calls)
-    ssodh = _init_brokerage_session(lst)
-    logger.info("Brokerage session initialized: %s", ssodh)
+    url = f"{BASE_URL}/oauth/live_session_token"
+    headers = _make_oauth_headers(
+        method="POST", url=url,
+        sig_key=sig_key, prepend=prepend,
+        extra_params={"diffie_hellman_challenge": dh_challenge},
+        access_token=acc_tok,
+    )
+
+    import httpx
+    resp = httpx.post(url, headers=headers, verify=True, timeout=30)
+    if not resp.is_success:
+        raise RuntimeError(f"live_session_token failed {resp.status_code}: {resp.text[:300]}")
+
+    data          = resp.json()
+    dh_response   = data["diffie_hellman_response"]
+    lst_signature = data["live_session_token_signature"]
+    lst_expiry_ms = data["live_session_token_expiration"]
+
+    lst = _calculate_lst(dh_prime, dh_random, dh_response, prepend)
+
+    if _validate_lst(lst, lst_signature):
+        logger.info("LST validated OK ✓ — expires %s", time.ctime(lst_expiry_ms / 1000))
+    else:
+        logger.warning("LST validation MISMATCH — continuing anyway")
+
+    _session.access_token = acc_tok
+    _session.lst          = lst
+    _session.lst_expiry   = float(lst_expiry_ms) / 1000.0
+
+    # Initialize brokerage session
+    ssodh_url = f"{BASE_URL}/iserver/auth/ssodh/init"
+    ssodh_headers = _make_oauth_headers("POST", ssodh_url, lst=lst, access_token=acc_tok)
+    ssodh_resp = httpx.post(ssodh_url, headers=ssodh_headers, verify=True, timeout=30)
+    logger.info("ssodh/init: %s — %s", ssodh_resp.status_code, ssodh_resp.text[:150])
+    if not ssodh_resp.is_success:
+        raise RuntimeError(f"ssodh/init failed {ssodh_resp.status_code}: {ssodh_resp.text[:200]}")
 
     return _session
 
@@ -313,8 +289,6 @@ def ensure_session() -> OAuthSession:
 # ── API client ────────────────────────────────────────────────────────────────
 
 class OAuthApiClient:
-    """Drop-in replacement for WebApiClient using IBKR OAuth 1.0a."""
-
     def __init__(self, timeout: int = 15):
         self.base_url = BASE_URL
         self.timeout  = timeout
@@ -331,31 +305,15 @@ class OAuthApiClient:
         url  = self.base_url + path
         sess = ensure_session()
 
-        acc_tok = sess.access_token or _load_stored_access_token()[0]
-        oauth_params = {
-            "oauth_consumer_key":       CONSUMER_KEY,
-            "oauth_nonce":              _nonce(),
-            "oauth_signature_method":  "HMAC-SHA256",
-            "oauth_timestamp":          _timestamp(),
-            "oauth_token":              acc_tok,
-        }
-        auth_header = _build_hmac_auth_header(method, url, oauth_params, sess.live_session_token)
-        headers = {
-            "Accept":          "*/*",
-            "Accept-Encoding": "gzip,deflate",
-            "Authorization":   auth_header,
-            "Connection":      "keep-alive",
-            "Host":            "api.ibkr.com",
-            "User-Agent":      "python/3.12",
-        }
-
+        headers = _make_oauth_headers(method, url, lst=sess.lst, access_token=sess.access_token)
         resp = httpx.request(method, url, headers=headers, timeout=self.timeout, **kwargs)
+
         if resp.status_code == 429:
             raise Exception("rate_limited (429)")
         if resp.status_code in (401, 403):
             global _session
             _session = OAuthSession()
-            raise Exception(f"auth_failed ({resp.status_code}) - OAuth session invalidated")
+            raise Exception(f"auth_failed ({resp.status_code}) — OAuth session invalidated")
         if resp.status_code >= 400:
             raise Exception(f"http_{resp.status_code}: {resp.text[:200]}")
         try:
