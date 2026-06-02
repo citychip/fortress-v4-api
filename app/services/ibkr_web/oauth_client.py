@@ -1,28 +1,26 @@
 """
 app/services/ibkr_web/oauth_client.py
-IBKR OAuth 1.0a client for the Web API.
+IBKR OAuth 1.0a First-Party client (Self Service Portal / consumer credential flow).
 
-Uses:
-  - Consumer key: SHARMILAH
-  - private_signature.pem  — RSA-SHA256 request signing
-  - private_encryption.pem — RSA encryption for DH live session token
-  - dhparam.pem            — DH parameters
-
-Auth flow (IBKR OAuth 1.0a with live session token):
-  1. Request token  → POST /oauth/request_token
-  2. Access token   → POST /oauth/access_token  (no user redirect needed for pre-approved tokens)
-  3. Live session   → POST /iserver/auth/ssodh/init
-  4. All subsequent requests signed with OAuth header
-
-Reference: https://ibkr.info/article/4567
+Auth flow (per https://ibkrcampus.com/campus/ibkr-api-page/oauth-1-0a-extended/):
+  1. Load stored access_token + access_token_secret from IBKR Self Service Portal
+  2. Compute prepend = decrypt(access_token_secret, private_encryption_key).hex()
+  3. POST /oauth/live_session_token:
+       - DH challenge in OAuth Authorization header params
+       - base_string = prepend + "POST&" + url + "&" + sorted_params
+       - Signed with RSA-SHA256 (private_signature_key)
+  4. Compute LST from response using HMAC-SHA1(K_bytes, prepend_bytes)
+  5. POST /iserver/auth/ssodh/init (signed with HMAC-SHA256 using LST)
+  6. All subsequent requests signed with HMAC-SHA256 using LST
 """
 from __future__ import annotations
 
 import base64
 import hashlib
-import hmac
+import hmac as _hmac
 import logging
 import os
+import random
 import secrets
 import time
 import urllib.parse
@@ -31,29 +29,51 @@ from typing import Any, Optional
 logger = logging.getLogger("fortress.ibkr_web.oauth_client")
 
 CONSUMER_KEY   = "SHARMILAK"
-OAUTH_BASE_URL = "https://api.ibkr.com/v1/api"
+BASE_URL       = "https://api.ibkr.com/v1/api"
+REALM          = "limited_poa"   # "test_realm" for TESTCONS paper key
 _KEYS_DIR      = "/home/ubuntu/ibkr-oauth"
+
 _ACCESS_TOKEN_FILE        = _KEYS_DIR + "/access_token.txt"
 _ACCESS_TOKEN_SECRET_FILE = _KEYS_DIR + "/access_token_secret.txt"
 
 
 # ── Key loading ───────────────────────────────────────────────────────────────
 
-def _load_private_signature_key():
+def _load_signature_key():
     from cryptography.hazmat.primitives.serialization import load_pem_private_key
-    path = os.path.join(_KEYS_DIR, "private_signature.pem")
-    with open(path, "rb") as f:
+    with open(os.path.join(_KEYS_DIR, "private_signature.pem"), "rb") as f:
         return load_pem_private_key(f.read(), password=None)
 
 
-def _load_private_encryption_key():
+def _load_encryption_key():
     from cryptography.hazmat.primitives.serialization import load_pem_private_key
-    path = os.path.join(_KEYS_DIR, "private_encryption.pem")
-    with open(path, "rb") as f:
+    with open(os.path.join(_KEYS_DIR, "private_encryption.pem"), "rb") as f:
         return load_pem_private_key(f.read(), password=None)
 
 
-# ── OAuth 1.0a helpers ────────────────────────────────────────────────────────
+def _load_dh_params():
+    from cryptography.hazmat.primitives.serialization import load_pem_parameters
+    with open(os.path.join(_KEYS_DIR, "dhparam.pem"), "rb") as f:
+        params = load_pem_parameters(f.read())
+    pn = params.parameter_numbers()
+    return pn.p, pn.g   # prime, generator
+
+
+def _load_stored_access_token() -> tuple[str, str]:
+    with open(_ACCESS_TOKEN_FILE) as f:
+        token = f.read().strip()
+    with open(_ACCESS_TOKEN_SECRET_FILE) as f:
+        secret = f.read().strip()
+    if not token or not secret:
+        raise ValueError("access_token files are empty")
+    return token, secret
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _pct_encode(s: str) -> str:
+    return urllib.parse.quote(s, safe="")
+
 
 def _nonce() -> str:
     return secrets.token_hex(16)
@@ -63,250 +83,236 @@ def _timestamp() -> str:
     return str(int(time.time()))
 
 
-def _pct_encode(s: str) -> str:
-    return urllib.parse.quote(s, safe="")
-
-
-def _base_string(method: str, url: str, params: dict) -> str:
-    """Build the OAuth 1.0a signature base string."""
-    sorted_params = "&".join(
-        f"{_pct_encode(k)}={_pct_encode(v)}"
-        for k, v in sorted(params.items())
-    )
-    return "&".join([method.upper(), _pct_encode(url), _pct_encode(sorted_params)])
-
-
-def _rsa_sha256_sign(base_string: str) -> str:
-    """Sign base_string with private_signature.pem, return base64."""
+def _rsa_sha256_sign(data: bytes) -> str:
+    """Sign bytes with private_signature.pem using RSA-SHA256/PKCS1v15. Return base64 str."""
     from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.asymmetric import padding
-    key = _load_private_signature_key()
-    sig = key.sign(base_string.encode(), padding.PKCS1v15(), hashes.SHA256())
+    key = _load_signature_key()
+    sig = key.sign(data, padding.PKCS1v15(), hashes.SHA256())
     return base64.b64encode(sig).decode()
 
 
-def _build_auth_header(method: str, url: str, extra_params: Optional[dict] = None, token: Optional[str] = None, token_secret: Optional[str] = None) -> str:
-    """Build a signed OAuth Authorization header."""
-    oauth_params = {
-        "oauth_consumer_key":     CONSUMER_KEY,
-        "oauth_nonce":            _nonce(),
-        "oauth_signature_method": "RSA-SHA256",
-        "oauth_timestamp":        _timestamp(),
-        "oauth_version":          "1.0",
-    }
-    if token:
-        oauth_params["oauth_token"] = token
+def _decrypt_with_encryption_key(ciphertext_b64: str) -> bytes:
+    """Decrypt base64-encoded ciphertext using private_encryption.pem / PKCS1v15."""
+    from cryptography.hazmat.primitives.asymmetric import padding
+    key = _load_encryption_key()
+    return key.decrypt(base64.b64decode(ciphertext_b64), padding.PKCS1v15())
 
-    all_params = {**oauth_params, **(extra_params or {})}
-    base = _base_string(method, url, all_params)
-    oauth_params["oauth_signature"] = _rsa_sha256_sign(base)
 
-    # Include any extra oauth_* params in the header as well
+def _build_rsa_auth_header(method: str, url: str, oauth_params: dict, prepend: str = "") -> str:
+    """Build RSA-SHA256 signed OAuth Authorization header.
+
+    For LST requests the base string is prepended with the decrypted secret hex.
+    For other RSA requests (request_token etc.) prepend is empty string.
+    """
+    # Build params string (sorted, all params including dh_challenge if present)
+    params_string = "&".join(
+        f"{_pct_encode(k)}={_pct_encode(v)}"
+        for k, v in sorted(oauth_params.items())
+    )
+    base_string = (
+        prepend
+        + method.upper()
+        + "&"
+        + _pct_encode(url)
+        + "&"
+        + _pct_encode(params_string)
+    )
+    signature = _rsa_sha256_sign(base_string.encode("utf-8"))
+
+    # Build header (realm omitted from signature, added after)
     header_params = {**oauth_params}
-    for k, v in (extra_params or {}).items():
-        if k.startswith("oauth_"):
-            header_params[k] = v
+    header_params["oauth_signature"] = _pct_encode(signature)
+    header_params["realm"] = REALM
 
     header_parts = ", ".join(
-        f'{_pct_encode(k)}="{_pct_encode(v)}"'
+        f'{k}="{v}"'
         for k, v in sorted(header_params.items())
     )
     return f"OAuth {header_parts}"
 
 
-# ── Token acquisition ─────────────────────────────────────────────────────────
+def _build_hmac_auth_header(method: str, url: str, oauth_params: dict, lst: str) -> str:
+    """Build HMAC-SHA256 signed OAuth Authorization header using the Live Session Token."""
+    params_string = "&".join(
+        f"{_pct_encode(k)}={_pct_encode(v)}"
+        for k, v in sorted(oauth_params.items())
+    )
+    base_string = (
+        method.upper()
+        + "&"
+        + _pct_encode(url)
+        + "&"
+        + _pct_encode(params_string)
+    )
+    lst_key = base64.b64decode(lst)
+    sig_bytes = _hmac.new(lst_key, base_string.encode("utf-8"), hashlib.sha256).digest()
+    signature = _pct_encode(base64.b64encode(sig_bytes).decode())
+
+    header_params = {**oauth_params}
+    header_params["oauth_signature"] = signature
+    header_params["realm"] = REALM
+
+    header_parts = ", ".join(
+        f'{k}="{v}"'
+        for k, v in sorted(header_params.items())
+    )
+    return f"OAuth {header_parts}"
+
+
+# ── Live Session Token flow ───────────────────────────────────────────────────
+
+def _acquire_live_session_token(access_token: str, access_token_secret: str) -> tuple[str, float]:
+    """Full LST flow per IBKR OAuth 1.0a extended documentation.
+
+    Returns (live_session_token, expiry_unix_timestamp).
+    """
+    import httpx
+
+    # Step 1: Compute prepend
+    decrypted_secret = _decrypt_with_encryption_key(access_token_secret)
+    prepend = decrypted_secret.hex()
+    prepend_bytes = bytes.fromhex(prepend)
+    logger.info("Prepend computed (%d bytes)", len(prepend_bytes))
+
+    # Step 2: DH challenge
+    dh_prime, dh_generator = _load_dh_params()
+    dh_random = random.getrandbits(256)
+    dh_challenge = hex(pow(dh_generator, dh_random, dh_prime))[2:]
+    logger.info("DH challenge computed (%d hex chars)", len(dh_challenge))
+
+    # Step 3: Build OAuth params for LST request (dh_challenge IN params, NOT body)
+    url = f"{BASE_URL}/oauth/live_session_token"
+    oauth_params = {
+        "diffie_hellman_challenge": dh_challenge,
+        "oauth_consumer_key":       CONSUMER_KEY,
+        "oauth_nonce":              _nonce(),
+        "oauth_signature_method":  "RSA-SHA256",
+        "oauth_timestamp":          _timestamp(),
+        "oauth_token":              access_token,
+    }
+
+    # Step 4: Sign with RSA, base_string prefixed with prepend
+    auth_header = _build_rsa_auth_header("POST", url, oauth_params, prepend=prepend)
+
+    # Step 5: POST /oauth/live_session_token — NO BODY
+    headers = {
+        "Authorization": auth_header,
+        "User-Agent":    "python/3.12",
+    }
+    logger.info("Requesting Live Session Token...")
+    resp = httpx.post(url, headers=headers, verify=True, timeout=30)
+    if not resp.ok:
+        raise RuntimeError(f"live_session_token failed {resp.status_code}: {resp.text[:300]}")
+
+    data = resp.json()
+    dh_response         = data["diffie_hellman_response"]
+    lst_signature       = data["live_session_token_signature"]
+    lst_expiration_ms   = data["live_session_token_expiration"]
+
+    # Step 6: Compute K = dh_response ^ dh_random mod dh_prime
+    B = int(dh_response, 16)
+    K = pow(B, dh_random, dh_prime)
+
+    hex_str_K = hex(K)[2:]
+    if len(hex_str_K) % 2:
+        hex_str_K = "0" + hex_str_K
+    hex_bytes_K = bytes.fromhex(hex_str_K)
+    if len(bin(K)[2:]) % 8 == 0:
+        hex_bytes_K = bytes(1) + hex_bytes_K
+
+    # Step 7: computed_lst = base64(HMAC-SHA1(key=K_bytes, msg=prepend_bytes))
+    computed_lst = base64.b64encode(
+        _hmac.new(hex_bytes_K, prepend_bytes, hashlib.sha1).digest()
+    ).decode()
+
+    # Step 8: Validate
+    validation = _hmac.new(
+        base64.b64decode(computed_lst),
+        CONSUMER_KEY.encode("utf-8"),
+        hashlib.sha1,
+    ).hexdigest()
+
+    if validation == lst_signature:
+        logger.info("LST validated OK — expires %s", time.ctime(lst_expiration_ms / 1000))
+    else:
+        logger.warning("LST validation mismatch — computed=%s received=%s", validation, lst_signature)
+
+    return computed_lst, float(lst_expiration_ms) / 1000.0
+
+
+def _init_brokerage_session(lst: str) -> dict:
+    """POST /iserver/auth/ssodh/init using HMAC-SHA256 signed with LST."""
+    import httpx
+
+    url = f"{BASE_URL}/iserver/auth/ssodh/init"
+    oauth_params = {
+        "oauth_consumer_key":       CONSUMER_KEY,
+        "oauth_nonce":              _nonce(),
+        "oauth_signature_method":  "HMAC-SHA256",
+        "oauth_timestamp":          _timestamp(),
+        "oauth_token":              _load_stored_access_token()[0],
+    }
+    auth_header = _build_hmac_auth_header("POST", url, oauth_params, lst)
+    headers = {"Authorization": auth_header, "User-Agent": "python/3.12"}
+
+    resp = httpx.post(url, headers=headers, json={}, verify=True, timeout=30)
+    if not resp.ok:
+        raise RuntimeError(f"ssodh/init failed {resp.status_code}: {resp.text[:200]}")
+    return resp.json()
+
+
+# ── Session management ────────────────────────────────────────────────────────
 
 class OAuthSession:
-    """Holds the live OAuth session state."""
     def __init__(self):
-        self.access_token: Optional[str] = None
-        self.access_token_secret: Optional[str] = None
-        self.live_session_token: Optional[str] = None
-        self.lst_expiry: float = 0.0
+        self.access_token:        Optional[str]   = None
+        self.access_token_secret: Optional[str]   = None
+        self.live_session_token:  Optional[str]   = None
+        self.lst_expiry:          float           = 0.0
 
     def is_valid(self) -> bool:
-        return (
-            self.live_session_token is not None
-            and time.time() < self.lst_expiry - 60
-        )
+        return self.live_session_token is not None and time.time() < self.lst_expiry - 60
 
 
 _session = OAuthSession()
 
 
-def _request_token() -> tuple[str, str]:
-    """POST /oauth/request_token → (oauth_token, oauth_token_secret)."""
-    import httpx
-    url = "https://api.ibkr.com/v1/api/oauth/request_token"
-    auth = _build_auth_header("POST", url, {"oauth_callback": "oob"})
-    resp = httpx.post(url, headers={"Authorization": auth}, verify=True, timeout=15)
-    if resp.status_code != 200:
-        raise RuntimeError(f"request_token failed {resp.status_code}: {resp.text[:200]}")
-    parsed = dict(urllib.parse.parse_qsl(resp.text))
-    return parsed["oauth_token"], parsed["oauth_token_secret"]
-
-
-def _access_token(request_token: str, request_secret: str) -> tuple[str, str]:
-    """POST /oauth/access_token → (access_token, access_token_secret).
-    For pre-approved consumer keys (paper/live DTC), no verifier is needed.
-    """
-    import httpx
-    url = "https://api.ibkr.com/v1/api/oauth/access_token"
-    auth = _build_auth_header("POST", url, token=request_token, token_secret=request_secret)
-    resp = httpx.post(url, headers={"Authorization": auth}, verify=True, timeout=15)
-    if resp.status_code != 200:
-        raise RuntimeError(f"access_token failed {resp.status_code}: {resp.text[:200]}")
-    parsed = dict(urllib.parse.parse_qsl(resp.text))
-    return parsed["oauth_token"], parsed["oauth_token_secret"]
-
-
-def _live_session_token(access_token: str, access_secret: str) -> tuple[str, float]:
-    """POST /iserver/auth/ssodh/init with DH challenge → live_session_token + expiry.
-
-    IBKR OAuth 1.0a consumer-credential flow (self-directed):
-      1. Generate random DH secret x
-      2. Compute challenge = g^x mod p  (from dhparam.pem)
-      3. POST challenge hex to ssodh/init
-      4. Receive encrypted LST; decrypt with HMAC-SHA1(dh_shared_secret, prepend_bytes)
-    """
-    import httpx, os, secrets as _sec, hmac as _hmac, hashlib, base64
-
-    url = "https://api.ibkr.com/v1/api/iserver/auth/ssodh/init"
-
-    # ── Load DH parameters ─────────────────────────────────────────────────
-    from cryptography.hazmat.primitives.serialization import load_pem_parameters
-    dh_path = os.path.join(_KEYS_DIR, "dhparam.pem")
-    with open(dh_path, "rb") as f:
-        dh_params = load_pem_parameters(f.read())
-    pn = dh_params.parameter_numbers()
-    p, g = pn.p, pn.g
-
-    # ── Generate ephemeral DH secret ───────────────────────────────────────
-    # Use 256-bit random integer as DH private value
-    dh_rand = int.from_bytes(_sec.token_bytes(32), "big") % (p - 2) + 1
-
-    # Compute challenge: C = g^dh_rand mod p, encoded as hex
-    challenge_int = pow(g, dh_rand, p)
-    challenge_hex = format(challenge_int, "x")
-
-    # ── Sign and POST with body hash ───────────────────────────────────────
-    # IBKR requires oauth_body_hash for JSON POST requests (OAuth body hash extension)
-    import json as _json, hashlib as _hl, base64 as _b64
-    body = {"diffie_hellman_challenge": challenge_hex}
-    body_bytes = _json.dumps(body, separators=(",", ":")).encode("utf-8")
-    body_hash  = _b64.b64encode(_hl.sha1(body_bytes).digest()).decode()
-
-    auth = _build_auth_header(
-        "POST", url,
-        extra_params={"oauth_body_hash": body_hash},
-        token=access_token, token_secret=access_secret,
-    )
-    logger.info("ssodh/init: sending DH challenge (%d hex chars), body_hash=%s", len(challenge_hex), body_hash[:16])
-    resp = httpx.post(
-        url,
-        headers={"Authorization": auth, "Content-Type": "application/json"},
-        content=body_bytes,
-        verify=True, timeout=30,
-    )
-
-    if resp.status_code != 200:
-        raise RuntimeError(f"ssodh/init failed {resp.status_code}: {resp.text[:300]}")
-
-    data = resp.json()
-    logger.debug("ssodh/init response keys: %s", list(data.keys()))
-
-    dh_response_hex = data.get("diffie_hellman_response") or data.get("dh_response", "")
-    lst_b64         = data.get("live_session_token") or data.get("lsToken")
-    expires_ms      = data.get("live_session_token_expiration") or (time.time() * 1000 + 24 * 3600 * 1000)
-
-    if not lst_b64:
-        raise RuntimeError(f"No live_session_token in ssodh response: {data}")
-
-    # ── Decrypt LST ────────────────────────────────────────────────────────
-    if dh_response_hex:
-        # Compute DH shared secret: S = dh_response^dh_rand mod p
-        dh_resp_int = int(dh_response_hex, 16)
-        dh_shared   = pow(dh_resp_int, dh_rand, p)
-        byte_len    = (dh_shared.bit_length() + 7) // 8
-        dh_secret_b = dh_shared.to_bytes(byte_len, "big")
-
-        # IBKR LST decryption: XOR cipher keyed by HMAC-SHA1(dh_secret, prepend_random)
-        # The LST bytes = prepend (first 32 bytes) || ciphertext
-        lst_raw = base64.b64decode(lst_b64)
-        if len(lst_raw) > 32:
-            prepend   = lst_raw[:32]
-            cipher    = lst_raw[32:]
-            key_stream = _hmac.new(dh_secret_b, prepend, hashlib.sha1).digest()
-            # key_stream is 20 bytes; repeat to cover cipher length
-            full_key  = (key_stream * ((len(cipher) // 20) + 1))[:len(cipher)]
-            lst_plain = bytes(a ^ b for a, b in zip(cipher, full_key))
-            lst_str   = base64.b64encode(lst_plain).decode()
-        else:
-            # Short response — treat as plaintext LST
-            lst_str = lst_b64
-    else:
-        # No DH response — treat LST as plaintext (pre-approved key shortcut)
-        lst_str = lst_b64
-
-    logger.info("OAuth LST acquired (len=%d)", len(lst_str))
-    return lst_str, float(expires_ms) / 1000.0
-
-
-def _load_stored_access_token() -> tuple[str, str]:
-    """Load pre-generated access token from files saved from IBKR portal.
-
-    Self-directed OAuth (clt=04) uses portal-generated tokens directly —
-    the request_token/access_token exchange is for 3rd-party app flows only.
-    """
-    try:
-        with open(_ACCESS_TOKEN_FILE) as f:
-            token = f.read().strip()
-        with open(_ACCESS_TOKEN_SECRET_FILE) as f:
-            secret = f.read().strip()
-        if not token or not secret:
-            raise ValueError("access_token files are empty")
-        return token, secret
-    except FileNotFoundError as e:
-        raise RuntimeError(
-            f"stored_token_missing: {e}. "
-            "Save your IBKR portal Access Token to "
-            f"{_ACCESS_TOKEN_FILE} and {_ACCESS_TOKEN_SECRET_FILE}"
-        )
-
-
 def ensure_session() -> OAuthSession:
-    """Ensure a valid OAuth session exists, refreshing if needed.
-
-    Uses pre-generated access tokens from the IBKR OAuth portal (self-directed
-    flow) — skips request_token/access_token steps which are for 3rd-party apps.
-    """
     global _session
     if _session.is_valid():
         return _session
 
-    logger.info("Acquiring new OAuth LST (self-directed token flow)...")
+    logger.info("Acquiring new OAuth Live Session Token (First Party flow)...")
     acc_tok, acc_sec = _load_stored_access_token()
-    lst, expiry = _live_session_token(acc_tok, acc_sec)
+    lst, expiry = _acquire_live_session_token(acc_tok, acc_sec)
 
-    _session.access_token = acc_tok
+    _session.access_token        = acc_tok
     _session.access_token_secret = acc_sec
-    _session.live_session_token = lst
-    _session.lst_expiry = expiry
-    logger.info("OAuth LST established, expires at %s", time.ctime(expiry))
+    _session.live_session_token  = lst
+    _session.lst_expiry          = expiry
+
+    # Initialize brokerage session
+    try:
+        ssodh = _init_brokerage_session(lst)
+        logger.info("Brokerage session initialized: %s", ssodh)
+    except Exception as e:
+        logger.warning("ssodh/init warning (non-fatal): %s", e)
+
     return _session
 
 
-# ── OAuth-signed request client ───────────────────────────────────────────────
+# ── API client ────────────────────────────────────────────────────────────────
 
 class OAuthApiClient:
-    """Drop-in replacement for WebApiClient using OAuth instead of ibeam."""
+    """Drop-in replacement for WebApiClient using IBKR OAuth 1.0a."""
 
     def __init__(self, timeout: int = 15):
-        self.base_url = OAUTH_BASE_URL
-        self.timeout = timeout
+        self.base_url = BASE_URL
+        self.timeout  = timeout
 
     def close(self):
-        pass  # stateless HTTP
+        pass
 
     def reset_session(self):
         global _session
@@ -314,23 +320,29 @@ class OAuthApiClient:
 
     def _request(self, method: str, path: str, **kwargs) -> Any:
         import httpx
-        url = self.base_url + path
+        url  = self.base_url + path
         sess = ensure_session()
-        auth = _build_auth_header(method, url, token=sess.access_token, token_secret=sess.access_token_secret)
-        headers = {"Authorization": auth, "User-Agent": "fortress-dashboard/1.7"}
+
+        acc_tok = sess.access_token or _load_stored_access_token()[0]
+        oauth_params = {
+            "oauth_consumer_key":       CONSUMER_KEY,
+            "oauth_nonce":              _nonce(),
+            "oauth_signature_method":  "HMAC-SHA256",
+            "oauth_timestamp":          _timestamp(),
+            "oauth_token":              acc_tok,
+        }
+        auth_header = _build_hmac_auth_header(method, url, oauth_params, sess.live_session_token)
+        headers = {"Authorization": auth_header, "User-Agent": "python/3.12"}
 
         resp = httpx.request(method, url, headers=headers, timeout=self.timeout, **kwargs)
-
         if resp.status_code == 429:
             raise Exception("rate_limited (429)")
         if resp.status_code in (401, 403):
-            # Invalidate session so next call re-authenticates
             global _session
             _session = OAuthSession()
             raise Exception(f"auth_failed ({resp.status_code}) - OAuth session invalidated")
         if resp.status_code >= 400:
             raise Exception(f"http_{resp.status_code}: {resp.text[:200]}")
-
         try:
             return resp.json()
         except Exception:
@@ -343,27 +355,23 @@ class OAuthApiClient:
         return self._request("POST", path, json=json)
 
 
+# ── Status probe ──────────────────────────────────────────────────────────────
+
 def get_oauth_status() -> dict:
-    """Return OAuth session status (mirrors WebApiClient session_summary shape)."""
     global _session
     try:
         sess = ensure_session()
         return {
-            "reachable": True,
-            "connected": True,
-            "authenticated": True,
-            "established": True,
+            "reachable": True, "connected": True,
+            "authenticated": True, "established": True,
             "competing": False,
             "ssoExpires_ms": int(sess.lst_expiry * 1000) if sess.lst_expiry else None,
             "error": None,
         }
     except Exception as e:
         return {
-            "reachable": True,
-            "connected": False,
-            "authenticated": False,
-            "established": False,
-            "competing": False,
-            "ssoExpires_ms": None,
+            "reachable": True, "connected": False,
+            "authenticated": False, "established": False,
+            "competing": False, "ssoExpires_ms": None,
             "error": str(e),
         }
