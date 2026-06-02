@@ -161,22 +161,81 @@ def _access_token(request_token: str, request_secret: str) -> tuple[str, str]:
 
 
 def _live_session_token(access_token: str, access_secret: str) -> tuple[str, float]:
-    """POST /iserver/auth/ssodh/init → live_session_token + expiry."""
-    import httpx
+    """POST /iserver/auth/ssodh/init with DH challenge → live_session_token + expiry.
+
+    IBKR OAuth 1.0a consumer-credential flow (self-directed):
+      1. Generate random DH secret x
+      2. Compute challenge = g^x mod p  (from dhparam.pem)
+      3. POST challenge hex to ssodh/init
+      4. Receive encrypted LST; decrypt with HMAC-SHA1(dh_shared_secret, prepend_bytes)
+    """
+    import httpx, os, secrets as _sec, hmac as _hmac, hashlib, base64
+
     url = "https://api.ibkr.com/v1/api/iserver/auth/ssodh/init"
 
-    # Prepend DH challenge value — IBKR sends a challenge encrypted with our public encryption key
-    # For the initial call we send an empty challenge; IBKR returns the LST directly for pre-approved keys
+    # ── Load DH parameters ─────────────────────────────────────────────────
+    from cryptography.hazmat.primitives.serialization import load_pem_parameters
+    dh_path = os.path.join(_KEYS_DIR, "dhparam.pem")
+    with open(dh_path, "rb") as f:
+        dh_params = load_pem_parameters(f.read())
+    pn = dh_params.parameter_numbers()
+    p, g = pn.p, pn.g
+
+    # ── Generate ephemeral DH secret ───────────────────────────────────────
+    # Use 256-bit random integer as DH private value
+    dh_rand = int.from_bytes(_sec.token_bytes(32), "big") % (p - 2) + 1
+
+    # Compute challenge: C = g^dh_rand mod p, encoded as hex
+    challenge_int = pow(g, dh_rand, p)
+    challenge_hex = format(challenge_int, "x")
+
+    # ── Sign and POST ──────────────────────────────────────────────────────
     auth = _build_auth_header("POST", url, token=access_token, token_secret=access_secret)
-    resp = httpx.post(url, headers={"Authorization": auth}, json={}, verify=True, timeout=30)
+    body = {"diffie_hellman_challenge": challenge_hex}
+    logger.info("ssodh/init: sending DH challenge (%d hex chars)", len(challenge_hex))
+    resp = httpx.post(url, headers={"Authorization": auth}, json=body, verify=True, timeout=30)
+
     if resp.status_code != 200:
         raise RuntimeError(f"ssodh/init failed {resp.status_code}: {resp.text[:300]}")
+
     data = resp.json()
-    lst = data.get("live_session_token") or data.get("lsToken")
-    expires_ms = data.get("live_session_token_expiration") or (time.time() * 1000 + 24 * 3600 * 1000)
-    if not lst:
-        raise RuntimeError(f"No live_session_token in response: {data}")
-    return lst, float(expires_ms) / 1000.0
+    logger.debug("ssodh/init response keys: %s", list(data.keys()))
+
+    dh_response_hex = data.get("diffie_hellman_response") or data.get("dh_response", "")
+    lst_b64         = data.get("live_session_token") or data.get("lsToken")
+    expires_ms      = data.get("live_session_token_expiration") or (time.time() * 1000 + 24 * 3600 * 1000)
+
+    if not lst_b64:
+        raise RuntimeError(f"No live_session_token in ssodh response: {data}")
+
+    # ── Decrypt LST ────────────────────────────────────────────────────────
+    if dh_response_hex:
+        # Compute DH shared secret: S = dh_response^dh_rand mod p
+        dh_resp_int = int(dh_response_hex, 16)
+        dh_shared   = pow(dh_resp_int, dh_rand, p)
+        byte_len    = (dh_shared.bit_length() + 7) // 8
+        dh_secret_b = dh_shared.to_bytes(byte_len, "big")
+
+        # IBKR LST decryption: XOR cipher keyed by HMAC-SHA1(dh_secret, prepend_random)
+        # The LST bytes = prepend (first 32 bytes) || ciphertext
+        lst_raw = base64.b64decode(lst_b64)
+        if len(lst_raw) > 32:
+            prepend   = lst_raw[:32]
+            cipher    = lst_raw[32:]
+            key_stream = _hmac.new(dh_secret_b, prepend, hashlib.sha1).digest()
+            # key_stream is 20 bytes; repeat to cover cipher length
+            full_key  = (key_stream * ((len(cipher) // 20) + 1))[:len(cipher)]
+            lst_plain = bytes(a ^ b for a, b in zip(cipher, full_key))
+            lst_str   = base64.b64encode(lst_plain).decode()
+        else:
+            # Short response — treat as plaintext LST
+            lst_str = lst_b64
+    else:
+        # No DH response — treat LST as plaintext (pre-approved key shortcut)
+        lst_str = lst_b64
+
+    logger.info("OAuth LST acquired (len=%d)", len(lst_str))
+    return lst_str, float(expires_ms) / 1000.0
 
 
 def _load_stored_access_token() -> tuple[str, str]:
