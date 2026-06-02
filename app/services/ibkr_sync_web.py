@@ -51,11 +51,17 @@ def sync_via_web_api(existing_positions: list, settings: dict) -> dict:
 
 
 def _do_sync(client, account_id, existing_positions):
-    sess = web_session.session_summary(client)
-    if not sess.get("established"):
-        raise GatewayUnreachable(
-            "Web API session not established: " + str(sess.get("error") or sess)
-        )
+    # For OAuth clients, session was already established via ssodh/init.
+    # /iserver/auth/status returns 401 under OAuth — skip this iBeam-specific check.
+    from app.services.ibkr_web.oauth_client import OAuthApiClient as _OAuthApiClient
+    if isinstance(client, _OAuthApiClient):
+        logger.info("OAuth client: skipping session_summary (session established via ssodh/init)")
+    else:
+        sess = web_session.session_summary(client)
+        if not sess.get("established"):
+            raise GatewayUnreachable(
+                "Web API session not established: " + str(sess.get("error") or sess)
+            )
 
     accounts = web_portfolio.list_accounts(client)
     resolved_account = account_id or (accounts[0].get("accountId") if accounts else None)
