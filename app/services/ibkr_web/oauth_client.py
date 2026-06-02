@@ -189,11 +189,25 @@ def _live_session_token(access_token: str, access_secret: str) -> tuple[str, flo
     challenge_int = pow(g, dh_rand, p)
     challenge_hex = format(challenge_int, "x")
 
-    # ── Sign and POST ──────────────────────────────────────────────────────
-    auth = _build_auth_header("POST", url, token=access_token, token_secret=access_secret)
+    # ── Sign and POST with body hash ───────────────────────────────────────
+    # IBKR requires oauth_body_hash for JSON POST requests (OAuth body hash extension)
+    import json as _json, hashlib as _hl, base64 as _b64
     body = {"diffie_hellman_challenge": challenge_hex}
-    logger.info("ssodh/init: sending DH challenge (%d hex chars)", len(challenge_hex))
-    resp = httpx.post(url, headers={"Authorization": auth}, json=body, verify=True, timeout=30)
+    body_bytes = _json.dumps(body, separators=(",", ":")).encode("utf-8")
+    body_hash  = _b64.b64encode(_hl.sha1(body_bytes).digest()).decode()
+
+    auth = _build_auth_header(
+        "POST", url,
+        extra_params={"oauth_body_hash": body_hash},
+        token=access_token, token_secret=access_secret,
+    )
+    logger.info("ssodh/init: sending DH challenge (%d hex chars), body_hash=%s", len(challenge_hex), body_hash[:16])
+    resp = httpx.post(
+        url,
+        headers={"Authorization": auth, "Content-Type": "application/json"},
+        content=body_bytes,
+        verify=True, timeout=30,
+    )
 
     if resp.status_code != 200:
         raise RuntimeError(f"ssodh/init failed {resp.status_code}: {resp.text[:300]}")
