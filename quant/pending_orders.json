@@ -1,5 +1,5 @@
 {
-  "_last_updated": "2026-06-01T15:05:48.445827+00:00",
+  "_last_updated": "2026-06-01T21:33:32.397734+00:00",
   "orders": [
     {
       "id": "7bcfac48-49b2-47b1-bb58-f88367e0c9f1",
@@ -603,7 +603,7 @@
     {
       "id": "4aa3fbfb-fb65-4764-babc-089bb5e99350",
       "created_at": "2026-06-01T14:44:24.829326+00:00",
-      "status": "pending",
+      "status": "declined",
       "ticker": "V",
       "strategy": "PCS",
       "legs": [
@@ -708,7 +708,8 @@
         }
       },
       "ibkr_order_id": null,
-      "error": null
+      "error": null,
+      "declined_at": "2026-06-01T21:33:32.397720+00:00"
     },
     {
       "id": "735cb74f-8c51-43a6-a427-de91944f4ab5",
@@ -990,6 +991,40 @@
           ]
         }
       ]
+    },
+    {
+      "id": "6640acca-5366-4f74-ac97-cbf63abbf7da",
+      "created_at": "2026-06-01T21:17:33.829945+00:00",
+      "status": "declined",
+      "ticker": "TSM",
+      "strategy": "TEST",
+      "legs": [
+        {
+          "ticker": "TSM",
+          "sec_type": "OPT",
+          "right": "C",
+          "strike": 700.0,
+          "expiry": "20260717",
+          "action": "SELL",
+          "ratio": 1,
+          "exchange": "CBOE",
+          "conid": null
+        }
+      ],
+      "order_type": "LMT",
+      "action": "SELL",
+      "quantity": 1,
+      "limit_price": 0.01,
+      "tif": "DAY",
+      "notes": "DUMMY TEST ORDER — do not execute. Testing Claude stage→approve workflow.\"",
+      "submitted_by": "MCP",
+      "pop": null,
+      "max_profit": 1.0,
+      "max_loss": -1.0,
+      "whatif_result": null,
+      "ibkr_order_id": null,
+      "error": null,
+      "declined_at": "2026-06-01T21:31:54.774501+00:00"
     }
   ]
 }
