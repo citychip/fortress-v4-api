@@ -28,7 +28,7 @@ from typing import Any, Optional
 
 logger = logging.getLogger("fortress.ibkr_web.oauth_client")
 
-CONSUMER_KEY   = "SHARMILAK"
+CONSUMER_KEY   = "SHARMILAH"
 BASE_URL       = "https://api.ibkr.com/v1/api"
 REALM          = "limited_poa"   # "test_realm" for TESTCONS paper key
 _KEYS_DIR      = "/home/ubuntu/ibkr-oauth"
