@@ -33,6 +33,8 @@ logger = logging.getLogger("fortress.ibkr_web.oauth_client")
 CONSUMER_KEY   = "SHARMILAH"
 OAUTH_BASE_URL = "https://api.ibkr.com/v1/api"
 _KEYS_DIR      = "/home/ubuntu/ibkr-oauth"
+_ACCESS_TOKEN_FILE        = _KEYS_DIR + "/access_token.txt"
+_ACCESS_TOKEN_SECRET_FILE = _KEYS_DIR + "/access_token_secret.txt"
 
 
 # ── Key loading ───────────────────────────────────────────────────────────────
@@ -177,22 +179,47 @@ def _live_session_token(access_token: str, access_secret: str) -> tuple[str, flo
     return lst, float(expires_ms) / 1000.0
 
 
+def _load_stored_access_token() -> tuple[str, str]:
+    """Load pre-generated access token from files saved from IBKR portal.
+
+    Self-directed OAuth (clt=04) uses portal-generated tokens directly —
+    the request_token/access_token exchange is for 3rd-party app flows only.
+    """
+    try:
+        with open(_ACCESS_TOKEN_FILE) as f:
+            token = f.read().strip()
+        with open(_ACCESS_TOKEN_SECRET_FILE) as f:
+            secret = f.read().strip()
+        if not token or not secret:
+            raise ValueError("access_token files are empty")
+        return token, secret
+    except FileNotFoundError as e:
+        raise RuntimeError(
+            f"stored_token_missing: {e}. "
+            "Save your IBKR portal Access Token to "
+            f"{_ACCESS_TOKEN_FILE} and {_ACCESS_TOKEN_SECRET_FILE}"
+        )
+
+
 def ensure_session() -> OAuthSession:
-    """Ensure a valid OAuth session exists, refreshing if needed."""
+    """Ensure a valid OAuth session exists, refreshing if needed.
+
+    Uses pre-generated access tokens from the IBKR OAuth portal (self-directed
+    flow) — skips request_token/access_token steps which are for 3rd-party apps.
+    """
     global _session
     if _session.is_valid():
         return _session
 
-    logger.info("Acquiring new OAuth session...")
-    req_tok, req_sec = _request_token()
-    acc_tok, acc_sec = _access_token(req_tok, req_sec)
+    logger.info("Acquiring new OAuth LST (self-directed token flow)...")
+    acc_tok, acc_sec = _load_stored_access_token()
     lst, expiry = _live_session_token(acc_tok, acc_sec)
 
     _session.access_token = acc_tok
     _session.access_token_secret = acc_sec
     _session.live_session_token = lst
     _session.lst_expiry = expiry
-    logger.info("OAuth session established, expires at %s", time.ctime(expiry))
+    logger.info("OAuth LST established, expires at %s", time.ctime(expiry))
     return _session
 
 
