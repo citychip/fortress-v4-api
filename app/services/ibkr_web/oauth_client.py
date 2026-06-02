@@ -202,7 +202,7 @@ def _acquire_live_session_token(access_token: str, access_token_secret: str) -> 
     }
     logger.info("Requesting Live Session Token...")
     resp = httpx.post(url, headers=headers, verify=True, timeout=30)
-    if not resp.ok:
+    if not resp.is_success:
         raise RuntimeError(f"live_session_token failed {resp.status_code}: {resp.text[:300]}")
 
     data = resp.json()
@@ -257,7 +257,7 @@ def _init_brokerage_session(lst: str) -> dict:
     headers = {"Authorization": auth_header, "User-Agent": "python/3.12"}
 
     resp = httpx.post(url, headers=headers, json={}, verify=True, timeout=30)
-    if not resp.ok:
+    if not resp.is_success:
         raise RuntimeError(f"ssodh/init failed {resp.status_code}: {resp.text[:200]}")
     return resp.json()
 
