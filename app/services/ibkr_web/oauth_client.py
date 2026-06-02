@@ -123,13 +123,12 @@ def _build_rsa_auth_header(method: str, url: str, oauth_params: dict, prepend: s
     # Build header (realm omitted from signature, added after)
     header_params = {**oauth_params}
     header_params["oauth_signature"] = _pct_encode(signature)
-    header_params["realm"] = REALM
 
     header_parts = ", ".join(
         f'{k}="{v}"'
         for k, v in sorted(header_params.items())
     )
-    return f"OAuth {header_parts}"
+    return "OAuth realm=\"" + REALM + "\", " + header_parts
 
 
 def _build_hmac_auth_header(method: str, url: str, oauth_params: dict, lst: str) -> str:
@@ -151,7 +150,6 @@ def _build_hmac_auth_header(method: str, url: str, oauth_params: dict, lst: str)
 
     header_params = {**oauth_params}
     header_params["oauth_signature"] = signature
-    header_params["realm"] = REALM
 
     header_parts = ", ".join(
         f'{k}="{v}"'
@@ -197,8 +195,12 @@ def _acquire_live_session_token(access_token: str, access_token_secret: str) -> 
 
     # Step 5: POST /oauth/live_session_token — NO BODY
     headers = {
-        "Authorization": auth_header,
-        "User-Agent":    "python/3.12",
+        "Accept":          "*/*",
+        "Accept-Encoding": "gzip,deflate",
+        "Authorization":   auth_header,
+        "Connection":      "keep-alive",
+        "Host":            "api.ibkr.com",
+        "User-Agent":      "python/3.12",
     }
     logger.info("Requesting Live Session Token...")
     resp = httpx.post(url, headers=headers, verify=True, timeout=30)
@@ -254,7 +256,14 @@ def _init_brokerage_session(lst: str) -> dict:
         "oauth_token":              _load_stored_access_token()[0],
     }
     auth_header = _build_hmac_auth_header("POST", url, oauth_params, lst)
-    headers = {"Authorization": auth_header, "User-Agent": "python/3.12"}
+    headers = {
+        "Accept":          "*/*",
+        "Accept-Encoding": "gzip,deflate",
+        "Authorization":   auth_header,
+        "Connection":      "keep-alive",
+        "Host":            "api.ibkr.com",
+        "User-Agent":      "python/3.12",
+    }
 
     logger.info("ssodh/init: POST %s", url)
     resp = httpx.post(url, headers=headers, verify=True, timeout=30)
@@ -331,7 +340,14 @@ class OAuthApiClient:
             "oauth_token":              acc_tok,
         }
         auth_header = _build_hmac_auth_header(method, url, oauth_params, sess.live_session_token)
-        headers = {"Authorization": auth_header, "User-Agent": "python/3.12"}
+        headers = {
+            "Accept":          "*/*",
+            "Accept-Encoding": "gzip,deflate",
+            "Authorization":   auth_header,
+            "Connection":      "keep-alive",
+            "Host":            "api.ibkr.com",
+            "User-Agent":      "python/3.12",
+        }
 
         resp = httpx.request(method, url, headers=headers, timeout=self.timeout, **kwargs)
         if resp.status_code == 429:
