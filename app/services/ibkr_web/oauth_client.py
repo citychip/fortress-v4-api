@@ -30,7 +30,7 @@ from typing import Any, Optional
 
 logger = logging.getLogger("fortress.ibkr_web.oauth_client")
 
-CONSUMER_KEY   = "SHARMILAH"
+CONSUMER_KEY   = "SHARMILAK"
 OAUTH_BASE_URL = "https://api.ibkr.com/v1/api"
 _KEYS_DIR      = "/home/ubuntu/ibkr-oauth"
 _ACCESS_TOKEN_FILE        = _KEYS_DIR + "/access_token.txt"
