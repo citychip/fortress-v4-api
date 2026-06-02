@@ -1,8 +1,10 @@
 # Fortress MCP — Workflow and Prompts Playbook
 
-**Version 1.7 — 2026-06-01**
+**Version 1.8 — 2026-06-01**
 
 A practical companion to the MCP server. Maps every phase of Strategy v3.7's daily/weekly routine to concrete Claude prompts that exercise the MCP tools.
+
+**v1.8 changes from v1.7:** Added §2.11 Trade Staging workflow — Claude-native leg-builder pattern. Claude constructs legs from plain English, stages via `stage_order`, shows a confirmation summary, and waits for explicit approval before calling `approve_order`. Parapet Orders page serves as visual log. Also updated §5 saved-prompt table with Stage prompt.
 
 **v1.7 changes from v1.6:** Updated for Strategy v3.8.0. Phase 2 per-ticker deep dive adds dual IV rank confirmation and vol skew gate. §2.7 pre-trade adds vol skew check. §2.8 strike selection updated — live GEX by strike as primary anchor (pending market-hours confirmation). MSFT de-risking noted in weekly routine. Advisory framing explicit throughout.
 
@@ -194,6 +196,68 @@ Once the Fortress MCP and QuantData MCP are installed in Claude Desktop, every p
 >
 > **response:** Validator verdict (PASS — total credit $11.05 exceeds call spread width $10 by $1.05). Followed by the pre-trade gate. Reminds: Tier 1 only per §2.E.
 
+#### 2.11 Trade Staging — Claude-native leg-builder
+
+This is the primary trade execution workflow. Claude constructs the order, stages it, shows a confirmation summary, and **waits for explicit approval** before submitting to IBKR. The Parapet Orders page (`localhost:4000/orders`) serves as a visual log of all staged and completed orders.
+
+**Pattern: plain-English → stage → confirm → approve/decline**
+
+> **prompt:** *"Stage a roll for NVDA: buy back the C230 Jul17, sell a C250 Aug21. Debit limit $1.20."*
+>
+> **Claude constructs:**
+> ```
+> stage_order(
+>     ticker="NVDA",
+>     strategy="PMCC",
+>     legs=[
+>         {"ticker":"NVDA","sec_type":"OPT","right":"C","strike":230,"expiry":"20260717","action":"BUY","ratio":1},
+>         {"ticker":"NVDA","sec_type":"OPT","right":"C","strike":250,"expiry":"20260821","action":"SELL","ratio":1}
+>     ],
+>     quantity=1,
+>     order_type="LMT",
+>     limit_price=1.20,
+>     notes="Delta roll: C230 Jul → C250 Aug. Delta 0.425→0.308.",
+>     max_loss=-130.0
+> )
+> ```
+>
+> **Claude shows confirmation summary:**
+> ```
+> ⚠ NVDA PMCC ROLL
+> BUY  C230 Jul17
+> SELL C250 Aug21
+> Limit: $1.20 debit | Max loss: -$130
+> Notes: Delta roll — C230→C250, delta 0.425→0.308
+>
+> Approve or decline?
+> ```
+>
+> **tools:** `stage_order()` [fortress] → (on "approve") `preview_order()` [fortress] → `approve_order()` [fortress]
+>
+> **response on approve:** IBKR order ID confirmed. Claude logs the trade rationale to the journal.
+>
+> **response on decline:** Order declined. Nothing submitted to IBKR.
+>
+> **notes:** FORTRESS_MCP_ALLOW_WRITES=1 must be set in Claude Desktop config for write tools to work. Claude should always show the summary and wait — never auto-approve. The `preview_order` (IBKR whatif) is called before `approve_order` to verify margin impact. Staged orders appear in Parapet → Orders immediately after `stage_order`.
+
+**Supported plain-English formats:**
+
+| What you say | What Claude stages |
+|---|---|
+| *"Roll NVDA C230 Jul to C250 Aug, debit limit 1.20"* | 2-leg LMT roll |
+| *"Stage a GOOGL PMCC: sell C430 Aug21 at 0.28 delta, limit $4.50"* | 1-leg SELL OPT LMT |
+| *"Sell to close the AMD Jun26 put spread at $0.15 credit"* | 2-leg close |
+| *"Stage a META IC: sell 550P / buy 535P / sell 695C / buy 710C Jul17, credit limit $4.00"* | 4-leg IC LMT |
+
+**Required leg fields** (Claude must include all of these — none are optional):
+`ticker`, `sec_type` ("OPT"), `right` ("C" or "P"), `strike` (float), `expiry` ("YYYYMMDD"), `action` ("BUY" or "SELL"), `ratio` (int, usually 1)
+
+**Pre-staging checklist** (Claude runs these before staging any new entry):
+1. `pretrade_check(ticker, strategy)` — gates clear?
+2. `qd_get_iv_rank(ticker)` — IVR > 25 dual-confirmed?
+3. Check pacing (from `get_briefing`) — entries remaining this week?
+4. Check concentration — MSFT locked out until <50% NLQ
+
 ---
 
 ## 3. Failure modes to expect
@@ -254,7 +318,8 @@ How Claude should handle common error conditions:
 | Pre-trade | *"Pre-trade gate on {TICKER} for {STRATEGY}. Then suggest strike zones."* | §2.7 + §2.8 |
 | Post-earnings | *"Post-earnings playbook: {TICKER} gap {X}%, IV crush {Y}%. Thesis confirmed."* | §2.9 |
 | Market Intel | *"What's the regime on {TICKER}? Show me the GEX walls and DP floors."* | `get_market_intelligence` + `qd_get_exposure_by_strike` |
-| Roll review | *"Roll review across the book, ordered by urgency."* | §2.11 |
+| Stage trade | *"Stage a [STRATEGY] for [TICKER]: [plain-English legs]. [Limit price]."* | §2.11 |
+| Roll review | *"Roll review across the book, ordered by urgency."* | §2.6 |
 | Sunday | *"Run my Sunday planning checklist."* | §2.6 |
 | Pulse | *"Quick book status."* | `get_briefing` |
 | Health | *"MCP and gateway health check."* | `get_capability` + `get_ibkr_status` |
