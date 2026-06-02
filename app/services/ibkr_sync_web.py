@@ -23,7 +23,12 @@ logger = logging.getLogger("fortress.ibkr_sync_web")
 
 
 def sync_via_web_api(existing_positions: list, settings: dict) -> dict:
-    auth_mode = (settings.get("security") or {}).get("ibkr_auth_mode", "ibeam")
+    # ibkr_auth_mode lives in config_store (not dashboard_settings.json)
+    try:
+        from app.services import config_store as _cs
+        auth_mode = _cs.cfg("security.ibkr_auth_mode") or "ibeam"
+    except Exception:
+        auth_mode = (settings.get("security") or {}).get("ibkr_auth_mode", "ibeam")
     account_id = settings.get("ibkr_account_id")
 
     if auth_mode == "oauth":
