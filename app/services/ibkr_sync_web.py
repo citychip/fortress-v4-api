@@ -1,6 +1,10 @@
 """
 IBKR Web API sync — replaces the legacy TWS path.
 Same output schema as ibkr_sync.py.
+
+Auth mode is read from settings.security.ibkr_auth_mode:
+  "ibeam"  (default) — CP Gateway at localhost:5000 (voyz/ibeam Docker)
+  "oauth"             — Direct IBKR OAuth 1.0a via api.ibkr.com
 """
 
 from __future__ import annotations
@@ -19,15 +23,22 @@ logger = logging.getLogger("fortress.ibkr_sync_web")
 
 
 def sync_via_web_api(existing_positions: list, settings: dict) -> dict:
-    web_cfg = (settings.get("ibkr_web_api") or {})
-    gateway_url = web_cfg.get("cp_gateway_url") or "https://localhost:5000"
+    auth_mode = (settings.get("security") or {}).get("ibkr_auth_mode", "ibeam")
     account_id = settings.get("ibkr_account_id")
 
-    client = WebApiClient(
-        gateway_url=gateway_url,
-        verify_ssl=bool(web_cfg.get("verify_ssl", False)),
-        request_timeout_s=int(web_cfg.get("request_timeout_s", 15)),
-    )
+    if auth_mode == "oauth":
+        logger.info("sync_via_web_api: using OAuth 1.0a client (consumer key: SHARMILAH)")
+        from app.services.ibkr_web.oauth_client import OAuthApiClient
+        client = OAuthApiClient()
+    else:
+        web_cfg = (settings.get("ibkr_web_api") or {})
+        gateway_url = web_cfg.get("cp_gateway_url") or "https://localhost:5000"
+        logger.info("sync_via_web_api: using iBeam CP Gateway at %s", gateway_url)
+        client = WebApiClient(
+            gateway_url=gateway_url,
+            verify_ssl=bool(web_cfg.get("verify_ssl", False)),
+            request_timeout_s=int(web_cfg.get("request_timeout_s", 15)),
+        )
     try:
         return _do_sync(client, account_id, existing_positions)
     finally:
@@ -191,8 +202,6 @@ def _map_position(p, existing):
     strategy = matched.get("strategy") if matched else None
     alert_state = matched.get("alert_state") if matched else None
 
-    # Determine leg direction from qty sign so downstream code never has to
-    # guess from field names.  qty < 0 → short (sold), qty > 0 → long (bought).
     leg_direction = None
     if qty is not None:
         leg_direction = "short" if qty < 0 else "long"
@@ -204,9 +213,6 @@ def _map_position(p, existing):
         "qty": qty,
         "avg_cost": avg_cost,
         "expiry": expiry,
-        # Canonical strike — same value regardless of leg direction.
-        # 'short_strike' kept as alias for backward compat with downstream code
-        # that has not yet been migrated to use 'strike'.
         "strike": strike,
         "short_strike": strike,
         "long_strike": None,
