@@ -208,6 +208,10 @@ SCHEMA: dict[str, list[dict]] = {
         {"key": "cp_gateway_verify_ssl","label": "Verify CP Gateway SSL",  "type": "boolean"},
         {"key": "cp_gateway_timeout_s", "label": "CP Gateway timeout",     "type": "number",   "unit": "s", "min": 5, "max": 120},
         {"key": "quantdata_api_base",   "label": "QuantData API base URL",  "type": "text"},
+        # --- Auth mode ---
+        {"key": "ibkr_auth_mode", "label": "IBKR Auth Mode", "type": "select",
+         "options": ["ibeam", "oauth"],
+         "description": "ibeam = CP Gateway Docker (voyz/ibeam, default). oauth = direct IBKR OAuth 1.0a via api.ibkr.com (no Docker required, keys at /home/ubuntu/ibkr-oauth/)."},
     ],
     "technical": [
         {"key": "greeks_backend", "label": "Greeks backend", "type": "select", "options": ["auto", "web_api", "bs_yfinance"], "description": "auto = pick best available; web_api uses CP Gateway + OPRA; bs_yfinance = Black-Scholes from yfinance"},
