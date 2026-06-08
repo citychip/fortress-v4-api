@@ -205,22 +205,26 @@ def place_order(client: WebApiClient, account_id: str, order: dict) -> dict:
     try:
         result = client.post(f"/iserver/account/{account_id}/orders", json={"orders": [payload]})
 
-        # IBKR sometimes returns a list of confirmation questions
-        if isinstance(result, list):
-            # Check if these are confirmation prompts
-            if result and isinstance(result[0], dict) and "id" in result[0] and "message" in result[0]:
-                # Auto-confirm each question (we've already done human approval)
-                confirmed_result = None
-                for q in result:
-                    reply_id = q.get("id")
-                    if reply_id:
-                        try:
-                            confirmed_result = client.post(f"/iserver/reply/{reply_id}", json={"confirmed": True})
-                        except Exception as e:
-                            logger.warning("Reply confirmation failed for %s: %s", reply_id, e)
-                return {"ok": True, "raw": confirmed_result or result}
-            # Normal list response (order ids)
-            return {"ok": True, "raw": result}
+        # Auto-confirm loop: IBKR can return multiple rounds of confirmation prompts.
+        # Each reply may itself return another prompt — loop until no more prompts or max rounds.
+        MAX_CONFIRM_ROUNDS = 5
+        for _round in range(MAX_CONFIRM_ROUNDS):
+            if not (isinstance(result, list) and result and
+                    isinstance(result[0], dict) and "id" in result[0] and "message" in result[0]):
+                break  # no more confirmation prompts
+            logger.info("place_order: IBKR confirmation round %d — %d prompt(s)", _round + 1, len(result))
+            confirmed_result = None
+            for q in result:
+                reply_id = q.get("id")
+                if reply_id:
+                    try:
+                        confirmed_result = client.post(f"/iserver/reply/{reply_id}", json={"confirmed": True})
+                        logger.info("place_order: confirmed reply %s → %s", reply_id, confirmed_result)
+                    except Exception as e:
+                        logger.warning("Reply confirmation failed for %s: %s", reply_id, e)
+            result = confirmed_result or result
+        if isinstance(result, list) and result and "id" in result[0] and "message" in result[0]:
+            logger.error("place_order: still getting confirmation prompts after %d rounds", MAX_CONFIRM_ROUNDS)
 
         if isinstance(result, dict) and result.get("order_id"):
             return {"ok": True, "raw": result, "ibkr_order_id": result["order_id"]}

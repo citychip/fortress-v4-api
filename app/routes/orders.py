@@ -253,3 +253,38 @@ def approve_order(order_id: str):
         "status": "submitted",
         "ibkr_order_id": order.get("ibkr_order_id"),
     }
+
+
+@router.delete("/orders/pending/{order_id}/force")
+def force_decline_order(order_id: str):
+    """Force-decline any order regardless of current status. Clears stale submitted orders."""
+    data = state.get_pending_orders()
+    orders = data.get("orders", [])
+    idx, order = _find_order(orders, order_id)
+    prev_status = order.get("status")
+    order["status"] = "declined"
+    order["declined_at"] = _now_iso()
+    order["decline_reason"] = f"force-declined from {prev_status}"
+    orders[idx] = order
+    data["orders"] = orders
+    data["_last_updated"] = _now_iso()
+    state.save_pending_orders(data)
+    return {"id": order_id, "status": "declined", "previous_status": prev_status}
+
+
+@router.post("/orders/expire-stale")
+def expire_stale_orders():
+    """Mark all DAY orders still in 'submitted' status as expired. Run at EOD."""
+    from datetime import date
+    data = state.get_pending_orders()
+    orders = data.get("orders", [])
+    expired = []
+    for o in orders:
+        if o.get("status") == "submitted" and o.get("tif") == "DAY":
+            o["status"] = "expired"
+            o["expired_at"] = _now_iso()
+            expired.append(o["id"])
+    data["orders"] = orders
+    data["_last_updated"] = _now_iso()
+    state.save_pending_orders(data)
+    return {"expired": expired, "count": len(expired)}

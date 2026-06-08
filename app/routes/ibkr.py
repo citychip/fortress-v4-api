@@ -480,3 +480,36 @@ async def gateway_control(action: str):
         raise HTTPException(status_code=504, detail=f"docker {action} timed out")
     except FileNotFoundError:
         raise HTTPException(status_code=500, detail="docker not found in PATH")
+
+
+# ── Reconnect ─────────────────────────────────────────────────────────────────
+
+import subprocess as _subprocess
+
+@router.post("/ibkr/reconnect")
+async def reconnect_gateway():
+    """
+    Restart cp-gateway (iBeam) and wait up to 60s for re-authentication.
+    Frontend polls /api/ibkr/capability independently — this just fires the restart.
+    """
+    try:
+        _subprocess.run(
+            ["docker", "restart", "cp-gateway"],
+            check=True, capture_output=True, timeout=15
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"docker restart failed: {e}")
+
+    # Poll until iBeam authenticates or timeout
+    from app.services.ibkr_web import get_session_status
+    from app.services import config_store
+    cfg = config_store.cfg
+    for _ in range(20):          # 20 × 3s = 60s
+        await asyncio.sleep(3)
+        try:
+            status = get_session_status(cfg)
+            if status.get("authenticated"):
+                return {"ok": True, "message": "iBeam authenticated"}
+        except Exception:
+            pass
+    return {"ok": False, "message": "Timed out waiting for iBeam — frontend will keep polling"}
