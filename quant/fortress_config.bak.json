@@ -18,7 +18,7 @@
     "quantdata_instance_id": "a7da66dc-7c6e-4e72-bc1e-555e686adc72",
     "quantdata_api_base": "https://core-lb-prod.quantdata.us/api",
     "quantdata_api_key": "",
-    "ibkr_auto_sync_enabled": true,
+    "ibkr_auto_sync_enabled": false,
     "ibkr_auto_sync_interval_min": 15,
     "api_token_hint": "(set via FORTRESS_API_TOKEN env var)",
     "ibkr_auth_mode": "ibeam",
@@ -107,8 +107,8 @@
     "vix_extreme": 35
   },
   "alerts": {
-    "delta_watch_threshold": 0.3,
-    "delta_act_threshold": 0.35,
+    "delta_watch_threshold": 0.35,
+    "delta_act_threshold": 0.42,
     "mv_drawdown_warn_pct": 30.0,
     "mv_drawdown_act_pct": 50.0,
     "dte_urgent_days": 5,

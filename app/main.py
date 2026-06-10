@@ -135,6 +135,8 @@ app.include_router(scheduler_route.router, prefix="/api")
 app.include_router(portfolio_route.router, prefix="/api")
 app.include_router(conditional_alerts.router, prefix="/api")
 app.include_router(market.router, prefix="/api")
+from app.routes.options_analytics import router as options_analytics_router
+app.include_router(options_analytics_router, prefix="/api")
 
 
 

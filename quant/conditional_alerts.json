@@ -1,4 +1,20 @@
 {
-  "alerts": [],
-  "_last_updated": "2026-06-02T02:30:00.002864+00:00"
+  "alerts": [
+    {
+      "id": "8bd4926b",
+      "ticker": "MSFT",
+      "alert_type": "price_below",
+      "threshold": 385.0,
+      "message": "MSFT daily close < $385 (GEX put support) — Tranche 1: SELL 1x Jan28 310C + buy back Aug21 465C immediately, no debate",
+      "urgency": "critical",
+      "position_id": null,
+      "action_mode": "close",
+      "triggered": false,
+      "triggered_at": null,
+      "snoozed": false,
+      "snoozed_at": null,
+      "created_at": "2026-06-10T18:56:04.846546+00:00"
+    }
+  ],
+  "_last_updated": "2026-06-10T19:35:00.140146+00:00"
 }

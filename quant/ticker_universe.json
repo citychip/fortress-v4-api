@@ -18,7 +18,13 @@
     "MU",
     "GEV",
     "META",
-    "AAPL"
+    "AAPL",
+    "ELV",
+    "GE",
+    "PNC",
+    "CSX",
+    "MAR",
+    "NVDA"
   ],
   "tier2": [],
   "macro": [
@@ -47,12 +53,7 @@
       "reason": "ignored_entirely",
       "until_cleared": false,
       "note": "Strategy §3.3 — ignored entirely. Display in book, never recommend."
-    },
-    {
-      "ticker": "NVDIA",
-      "reason": "Typo — correct ticker is NVDA (already in universe)",
-      "until_cleared": true
     }
   ],
-  "_last_updated": "2026-06-01"
+  "_last_updated": "2026-06-09"
 }

@@ -128,6 +128,21 @@ def add_ticker(req: AddTickerRequest):
     return {"status": "added", "ticker": ticker, "tier": tier, "universe": data}
 
 
+@router.delete("/universe/exclude/{ticker}")
+def unexclude_ticker(ticker: str):
+    """Remove a ticker from the excluded list (does not add it back to any tier)."""
+    ticker = ticker.strip().upper()
+    data = _load()
+    excluded: list = data.get("excluded", [])
+    original_len = len(excluded)
+    data["excluded"] = [e for e in excluded if e.get("ticker") != ticker]
+
+    if len(data["excluded"]) == original_len:
+        raise HTTPException(status_code=404, detail=f"{ticker} not found in excluded list")
+
+    _save(data)
+    return {"status": "unexcluded", "ticker": ticker, "universe": data}
+
 @router.delete("/universe/{tier}/{ticker}")
 def remove_ticker(tier: str, ticker: str):
     """Remove a ticker from the specified tier."""
@@ -201,19 +216,3 @@ def exclude_ticker(req: ExcludeTickerRequest):
     data["excluded"].append(excluded_entry)
     _save(data)
     return {"status": "excluded", "ticker": ticker, "universe": data}
-
-
-@router.delete("/universe/exclude/{ticker}")
-def unexclude_ticker(ticker: str):
-    """Remove a ticker from the excluded list (does not add it back to any tier)."""
-    ticker = ticker.strip().upper()
-    data = _load()
-    excluded: list = data.get("excluded", [])
-    original_len = len(excluded)
-    data["excluded"] = [e for e in excluded if e.get("ticker") != ticker]
-
-    if len(data["excluded"]) == original_len:
-        raise HTTPException(status_code=404, detail=f"{ticker} not found in excluded list")
-
-    _save(data)
-    return {"status": "unexcluded", "ticker": ticker, "universe": data}
