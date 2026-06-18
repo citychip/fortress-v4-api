@@ -1,5 +1,5 @@
 # Fortress — System Reference
-**v4.3 · Updated 2026-06-03**
+**v4.4 · Updated 2026-06-08**
 
 ---
 
@@ -88,20 +88,26 @@ cp /mnt/c/Users/cityc.000/OneDrive/_Stocks26/2606Fortress/fortress-parapet/src/p
 
 ## IBKR Auth
 
-**Daily startup (2 min):**
-1. Open `https://localhost:5000` → accept cert → log in with IBKR credentials
-2. Parapet → System → Infrastructure → click **Sync**
-3. Verify: Overview → IBKR Web API dot green, positions populated
+**iBeam is headless — it authenticates automatically via Selenium.**
+No manual browser login required. Check Parapet → System → Settings → Connections.
 
-**If stuck:**
+**Daily startup:**
+1. Open Parapet → System → Settings → Connections
+2. If IBKR ● green → already authenticated, click **↻ Sync** to pull fresh data
+3. If IBKR ● red → click **⟳ Reconnect** → waits ~35s → auto-syncs on success
+
+**Reconnect button (added 2026-06-08):**
+Appears in the IBKR Connection card header when disconnected. Calls `POST /api/ibkr/reconnect` → restarts `cp-gateway` → polls status every 3s → auto-syncs. Hidden when already connected.
+
+**If Reconnect fails:**
 ```bash
-docker restart cp-gateway
-# Then re-authenticate at localhost:5000
+docker logs cp-gateway --tail 30   # check iBeam errors
+docker restart cp-gateway          # manual restart
 ```
 
-**Auth modes (toggle in Parapet → System → Infrastructure):**
-- `ibeam` — default, daily browser login via CP Gateway
-- `oauth` — OAuth 1.0a, consumer key SHARMILAH. Stage 1 (LST) confirmed ✅ 2026-06-04. Stage 2 (brokerage session) pending IBKR weekend activation — test Monday 2026-06-08.
+**Auth modes:**
+- `web_api` (active) — iBeam headless via CP Gateway, auto-authenticates
+- `oauth` — OAuth 1.0a, consumer key SHARMILAH. Stage 1 ✅ 2026-06-04. Stage 2 ❌ pending IBKR activation (re-tested 2026-06-15 via `test_ibkr_oauth.py`, still 401 "Invalid signature" at `ssodh/init`). ⚠ Do NOT trust `get_ibkr_status.oauth` (reports authenticated:true while the real handshake fails) — only the script confirms Stage 2.
 
 ---
 
@@ -110,12 +116,35 @@ docker restart cp-gateway
 Config: `~/.quantdata-mcp/config.json`  
 JWT token managed by QuantData MCP.
 
-**Known issues (as of 2026-06-04):**
-- `qd_get_exposure_by_strike` — returns no options data during market hours (GitHub issue pending)
-- `qd_get_volatility_skew` — same issue
+**Known issues (as of 2026-06-15):**
+- `qd_get_iv_rank` — ❌ **BROKEN**: ticker arg ignored upstream, every ticker returns identical values. Use fortress **`get_iv_rank(ticker)`** instead. (Corrected 2026-06-15 — the prior "confirmed working ✓" note was wrong.)
+- `qd_get_exposure_by_strike` — returns no options data during market hours → use fortress `get_gex`
+- `qd_get_volatility_skew` — same issue → use fortress `get_vol_skew`
 - `qd_get_dark_pool_levels` / `qd_get_order_flow` — SPX widget-locked
 
-**Working confirmed:** `qd_get_iv_rank(ticker)` ✓
+**QuantData reliable ONLY for:** order flow, dark pool, max pain, OI, net flow, live contract prices (`qd_get_contract_price`).
+
+---
+
+## New Backend Endpoints (added 2026-06-08)
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/api/ibkr/reconnect` | POST | Restart cp-gateway, poll until authenticated |
+| `/api/orders/pending/{id}/force` | DELETE | Force-cancel any order regardless of status |
+| `/api/orders/expire-stale` | POST | Bulk-expire all stale DAY `submitted` orders (run at EOD) |
+
+```bash
+TOKEN="07f03fb6e664859ac5e8113eaf1102ac43a3cb785c581af756671072b426db21"
+
+# Force-cancel a stuck order
+curl -s -X DELETE "http://localhost:8081/api/orders/pending/{ID}/force" \
+  -H "Authorization: Bearer $TOKEN"
+
+# Expire stale orders (EOD cleanup)
+curl -s -X POST "http://localhost:8081/api/orders/expire-stale" \
+  -H "Authorization: Bearer $TOKEN"
+```
 
 ---
 
