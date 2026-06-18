@@ -241,3 +241,55 @@ def ibkr_atm_iv(ticker: str, spot: float, expiry_iso: str) -> Optional[dict]:
     # Wild disagreement between sides → take the lower (staleness inflates)
     blended = min(ivs) if (len(ivs) == 2 and max(ivs) > 2.5 * min(ivs)) else sum(ivs) / len(ivs)
     return {"iv": blended, "call_iv": call_iv, "put_iv": put_iv}
+
+
+# ── Specific-contract quote (ANY strike — bypasses the near-spot band) ────────
+
+def ibkr_contract_quote(
+    ticker: str,
+    expiry_iso: str,
+    strike: float,
+    right: str,
+) -> Optional[dict]:
+    """
+    Live bid/ask/last/IV for ONE specific option contract at any strike — not
+    limited to the near-spot band of ibkr_quotes(). This is what lets the
+    backend price a far-OTM hedge/close leg directly.
+
+    right: 'C'|'P' or 'call'|'put'. expiry_iso: 'YYYY-MM-DD' (weeklies resolve).
+    Returns {bid, ask, mid, last, iv_pct} or None on any failure → caller falls
+    back to yfinance.
+    """
+    ticker = ticker.upper()
+    right_up = "C" if str(right).upper().startswith("C") else "P"
+    try:
+        from app.services.ibkr_chain import _get_underlying_conid, _get_opt_conid
+        from app.services.ibkr_web import snapshot as snap_mod
+        client = _client()
+        conid = _get_underlying_conid(client, ticker)
+        if not conid:
+            return None
+        expiry_ibkr = expiry_iso.replace("-", "")          # YYYYMMDD
+        oc = _get_opt_conid(client, conid, expiry_ibkr, float(strike), right_up)
+        if not oc:
+            return None
+        fields = ["84", "86", "31", "7633", "7283"]
+        rows = snap_mod.snapshot(client, [oc], fields=fields)
+        for row in rows or []:
+            try:
+                if int(row.get("conid") or 0) != int(oc):
+                    continue
+            except (ValueError, TypeError):
+                continue
+            bid = _parse_price(row.get("84"))
+            ask = _parse_price(row.get("86"))
+            last = _parse_price(row.get("31"))
+            iv_pct = _parse_iv_pct(row.get("7633")) or _parse_iv_pct(row.get("7283"))
+            mid = (bid + ask) / 2 if (bid and ask) else last
+            if bid or ask or last:
+                return {"bid": bid, "ask": ask, "mid": mid, "last": last, "iv_pct": iv_pct}
+        return None
+    except Exception as e:
+        logger.debug("ibkr_contract_quote(%s %s %s%s) failed: %s",
+                     ticker, expiry_iso, strike, right_up, e)
+        return None

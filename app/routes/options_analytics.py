@@ -211,6 +211,22 @@ def _row_iv(row, spot: float, K: float, T: float, right: str) -> float | None:
     return None
 
 
+def _f(x) -> float:
+    """NaN/Inf/None-safe float coercion → 0.0.
+
+    yfinance option-chain rows can carry NaN openInterest/strike. The old
+    `float(x or 0)` idiom returns NaN for those (NaN is truthy), and `NaN <= 0`
+    is False so the guard never skips them — the NaN then poisons GEX sums and
+    crashes JSON serialization (Starlette JSONResponse uses allow_nan=False,
+    yielding an uncatchable 500). Coerce to 0.0 instead.
+    """
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return 0.0
+    return v if math.isfinite(v) else 0.0
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @router.get("/options/gex/{ticker}")
@@ -270,8 +286,8 @@ def get_gex(
 
             for df, right in [(chain.calls, "call"), (chain.puts, "put")]:
                 for _, row in df.iterrows():
-                    K = float(row.get("strike", 0) or 0)
-                    oi = float(row.get("openInterest") or 0)
+                    K = _f(row.get("strike"))
+                    oi = _f(row.get("openInterest"))
                     if K <= 0 or oi <= 0:
                         continue
                     iv = _row_iv(row, spot, K, T, right) or _atm_fallback()
@@ -280,6 +296,8 @@ def get_gex(
 
                     gamma = _bs_gamma(spot, K, T, iv)
                     gex = gamma * oi * 100 * spot
+                    if not math.isfinite(gex):
+                        continue
                     if right == "put":
                         gex = -gex  # dealers short gamma on puts
 
@@ -392,8 +410,8 @@ def get_vol_skew(
             chain = t.option_chain(chosen_exp)
             for df, right in [(chain.calls, "call"), (chain.puts, "put")]:
                 for _, row in df.iterrows():
-                    K = float(row.get("strike", 0) or 0)
-                    oi = int(row.get("openInterest") or 0)
+                    K = _f(row.get("strike"))
+                    oi = int(_f(row.get("openInterest")))
                     if K <= 0:
                         continue
                     iv = _row_iv(row, spot, K, T, right)
@@ -530,6 +548,7 @@ def check_liquidity(
         hi = spot * (1 + moneyness_range)
 
         def _mk_row(k: float, right: str, bid: float, ask: float) -> dict | None:
+            k, bid, ask = _f(k), _f(bid), _f(ask)   # NaN bid/ask → 0.0 (else mid/sp go NaN → 500)
             mid = (bid + ask) / 2
             if mid <= 0 or ask <= 0:
                 return None
@@ -794,3 +813,335 @@ def get_iv_rank(ticker: str):
     except Exception as e:
         logger.error("IV rank error for %s: %s", ticker, e, exc_info=True)
         return {"error": str(e)}
+
+
+# ── Macro-event catalyst gate (Catalyst Gate v1, 2026-06-16) ──────────────────
+# Codifies Strategy §4 binary-event timing. Claude is the brain: it curates the
+# macro calendar (FOMC/CPI/PPI/NFP/PCE) from FRED/FMP and pushes it here via the
+# MCP set_macro_events write tool. The backend stores it, computes days_until +
+# a DEFER advisory, and serves it to Parapet's event-horizon row and to pretrade.
+# Advisory only — it never blocks (Strategy §15.1). This implements the Sprint 14
+# backlog item "FMP economic calendar → intel.events" via the Claude-curated
+# pattern (same as earnings_blocklist.json) rather than backend FMP credentials.
+
+MACRO_EVENTS_PATH = os.environ.get(
+    "FORTRESS_MACRO_EVENTS",
+    os.path.expanduser("~/fortress-v4-api/data/macro_events.json"),
+)
+MACRO_DEFER_DAYS_DEFAULT = 2          # high-impact event within N days → defer advisory
+HIGH_IMPACT_KEYS = ("FOMC", "FED", "CPI", "PPI", "NFP", "JOBS", "PAYROLL", "PCE")
+
+
+def _load_macro_events() -> dict:
+    try:
+        with open(MACRO_EVENTS_PATH) as f:
+            return json.load(f)
+    except Exception:
+        return {"events": [], "updated_at": None}
+
+
+def _save_macro_events(payload: dict) -> None:
+    os.makedirs(os.path.dirname(MACRO_EVENTS_PATH), exist_ok=True)
+    with open(MACRO_EVENTS_PATH, "w") as f:
+        json.dump(payload, f, indent=2)
+
+
+def _impact_of(label: str, given) -> str:
+    if given:
+        return str(given).lower()
+    up = (label or "").upper()
+    return "high" if any(k in up for k in HIGH_IMPACT_KEYS) else "medium"
+
+
+@router.get("/options/macro-events")
+def get_macro_events(defer_days: int = Query(default=MACRO_DEFER_DAYS_DEFAULT, ge=0, le=14)):
+    """
+    Macro economic-event calendar for the catalyst gate (Strategy §4 binary-event
+    timing). Reads the Claude-curated store, computes days_until per event and a
+    portfolio-level DEFER advisory when a HIGH-impact event falls within
+    defer_days. Advisory only — never blocks (Strategy §15.1).
+
+    Returns: events[] (label, date, days_until, impact, note), defer_advisory,
+             defer_reason, nearest_high_impact, defer_days, updated_at, stale, source.
+    """
+    try:
+        store = _load_macro_events()
+        today = date.today()
+        out = []
+        for ev in store.get("events", []):
+            d_str = ev.get("date")
+            try:
+                d = date.fromisoformat(d_str)
+            except Exception:
+                continue
+            days = (d - today).days
+            if days < 0:
+                continue   # past — pruned on read
+            out.append({
+                "label": ev.get("label", "?"),
+                "date": d_str,
+                "days_until": days,
+                "impact": _impact_of(ev.get("label", ""), ev.get("impact")),
+                "note": ev.get("note"),
+            })
+        out.sort(key=lambda e: e["days_until"])
+
+        highs_in_window = [e for e in out if e["impact"] == "high" and e["days_until"] <= defer_days]
+        nearest_high = next((e for e in out if e["impact"] == "high"), None)
+        defer = bool(highs_in_window)
+        reason = None
+        if defer:
+            h = highs_in_window[0]
+            reason = (
+                f"{h['label']} in {h['days_until']}d (≤{defer_days}d) — Strategy §4 "
+                f"binary-event timing: defer new premium-selling entries until it clears"
+            )
+        return {
+            "events": out,
+            "defer_advisory": defer,
+            "defer_reason": reason,
+            "nearest_high_impact": nearest_high,
+            "defer_days": defer_days,
+            "updated_at": store.get("updated_at"),
+            "stale": store.get("updated_at") is None,
+            "source": "claude_curated",
+            "as_of": _utcnow(),
+        }
+    except Exception as e:
+        logger.error("Macro events error: %s", e, exc_info=True)
+        return {"error": str(e), "events": [], "defer_advisory": False}
+
+
+@router.post("/options/macro-events")
+def set_macro_events(payload: dict):
+    """
+    Replace the macro-event store. Body: {"events": [{label, date 'YYYY-MM-DD',
+    impact?, note?}, ...]}. Claude curates this from FRED/FMP via the MCP
+    set_macro_events write tool. Invalid/dateless rows are dropped; past events
+    are pruned on read.
+    """
+    try:
+        events = payload.get("events", []) if isinstance(payload, dict) else []
+        clean = []
+        for ev in events:
+            if not isinstance(ev, dict):
+                continue
+            label = str(ev.get("label", "")).strip()
+            d_str = str(ev.get("date", "")).strip()
+            if not label or not d_str:
+                continue
+            try:
+                date.fromisoformat(d_str)
+            except Exception:
+                continue
+            rec = {"label": label, "date": d_str}
+            if ev.get("impact"):
+                rec["impact"] = str(ev["impact"]).lower()
+            if ev.get("note"):
+                rec["note"] = str(ev["note"])
+            clean.append(rec)
+        store = {"events": clean, "updated_at": _utcnow()}
+        _save_macro_events(store)
+        return {"ok": True, "stored": len(clean), "updated_at": store["updated_at"]}
+    except Exception as e:
+        logger.error("Macro events save error: %s", e, exc_info=True)
+        return {"error": str(e), "ok": False}
+
+
+# ── VIX term structure (premium-selling regime input, 2026-06-16) ─────────────
+# Spot VIX vs VIX3M (3-month). For a net premium seller the *shape* of the curve
+# is a cleaner regime light than VIX level alone:
+#   contango  (VIX < VIX3M) → calm, mean-reverting; selling vol is favored
+#   backwardation (VIX > VIX3M) → stress/term inversion; tighten size / defer
+# Advisory only (§15.1). yfinance indices, BS-free — just two index levels.
+
+@router.get("/options/vix-term")
+def get_vix_term():
+    """
+    VIX term-structure regime input for premium selling. Compares spot VIX to
+    VIX3M and returns the ratio + a contango/flat/backwardation state with a
+    plain-English signal. Advisory only — never blocks (§15.1).
+
+    Returns: vix, vix3m, ratio (vix/vix3m), state, signal,
+             premium_selling_favorable (ratio < 1.0), source, as_of.
+    """
+    try:
+        vix = _try_ibkr_spot("VIX") or _spot(yf.Ticker("^VIX"))
+        vix3m = _spot(yf.Ticker("^VIX3M"))
+        if not vix or not vix3m or vix3m <= 0:
+            return {"error": "Could not fetch VIX / VIX3M levels"}
+        ratio = vix / vix3m
+        if ratio < 0.95:
+            state, signal = "contango", "calm term structure — premium selling favored"
+        elif ratio <= 1.00:
+            state, signal = "flat", "flat term structure — neutral"
+        else:
+            state, signal = "backwardation", "term inversion / stress — tighten size, defer new short premium"
+        return {
+            "vix": round(vix, 2),
+            "vix3m": round(vix3m, 2),
+            "ratio": round(ratio, 4),
+            "state": state,
+            "signal": signal,
+            "premium_selling_favorable": ratio < 1.00,
+            "source": "yfinance",
+            "as_of": _utcnow(),
+        }
+    except Exception as e:
+        logger.error("VIX term error: %s", e, exc_info=True)
+        return {"error": str(e)}
+
+
+# ── Trade-outcomes feedback store (2026-06-16) ────────────────────────────────
+# Quantitative companion to the prose journal: one structured record per CLOSED
+# trade, capturing the ENTRY conditions the prose journal doesn't (IVR / DTE /
+# short-delta at entry) so `journal_analytics.py` can compute expectancy and
+# win-rate bucketed by setup — i.e. answer "which setups actually pay?".
+# journal.json stays the decision/audit log; this is the numbers layer. Append-
+# only, stdlib, NaN-safe. Deliberately a sidecar so it needs no change to the
+# (separately-owned) backend journal route. Claude appends via the MCP
+# log_trade_outcome write tool at each close.
+
+TRADE_OUTCOMES_PATH = os.environ.get(
+    "FORTRESS_TRADE_OUTCOMES",
+    os.path.expanduser("~/fortress-v4-api/data/trade_outcomes.json"),
+)
+_OUTCOME_FIELDS = ("ticker", "strategy", "opened", "closed", "days_held",
+                   "ivr_at_entry", "dte_at_entry", "short_delta_at_entry",
+                   "realized_pnl", "exit_reason", "notes")
+
+
+def _load_trade_outcomes() -> dict:
+    try:
+        with open(TRADE_OUTCOMES_PATH) as f:
+            return json.load(f)
+    except Exception:
+        return {"records": [], "updated_at": None}
+
+
+def _save_trade_outcomes(payload: dict) -> None:
+    os.makedirs(os.path.dirname(TRADE_OUTCOMES_PATH), exist_ok=True)
+    with open(TRADE_OUTCOMES_PATH, "w") as f:
+        json.dump(payload, f, indent=2)
+
+
+@router.get("/trade-outcomes")
+def get_trade_outcomes():
+    """
+    Structured closed-trade records + an overall summary, for the expectancy
+    feedback loop (companion to the prose journal). Run journal_analytics.py over
+    the same store for expectancy bucketed by IVR / DTE / short-delta at entry.
+    """
+    try:
+        store = _load_trade_outcomes()
+        recs = store.get("records", [])
+        pnls = [_f(r.get("realized_pnl")) for r in recs if r.get("realized_pnl") is not None]
+        wins = [p for p in pnls if p > 0]
+        losses = [p for p in pnls if p < 0]
+        summary = {
+            "n": len(recs),
+            "closed": len(pnls),
+            "win_rate": round(100 * len(wins) / len(pnls), 1) if pnls else None,
+            "total_realized": round(sum(pnls), 2) if pnls else 0.0,
+            "expectancy": round(sum(pnls) / len(pnls), 2) if pnls else None,
+            "avg_win": round(sum(wins) / len(wins), 2) if wins else None,
+            "avg_loss": round(sum(losses) / len(losses), 2) if losses else None,
+        }
+        return {
+            "records": recs,
+            "summary": summary,
+            "count": len(recs),
+            "updated_at": store.get("updated_at"),
+            "as_of": _utcnow(),
+        }
+    except Exception as e:
+        logger.error("Trade outcomes read error: %s", e, exc_info=True)
+        return {"error": str(e), "records": [], "summary": {}}
+
+
+@router.post("/trade-outcomes")
+def log_trade_outcome(payload: dict):
+    """
+    Append one CLOSED-trade record. Body keys (ticker required): ticker,
+    strategy, opened, closed, days_held, ivr_at_entry, dte_at_entry,
+    short_delta_at_entry, realized_pnl, exit_reason, notes. Unknown keys ignored.
+    """
+    try:
+        if not isinstance(payload, dict) or not str(payload.get("ticker", "")).strip():
+            return {"ok": False, "error": "ticker required"}
+        rec = {k: payload.get(k) for k in _OUTCOME_FIELDS if k in payload}
+        rec["ticker"] = str(rec["ticker"]).upper()
+        rec["logged_at"] = _utcnow()
+        store = _load_trade_outcomes()
+        store.setdefault("records", []).append(rec)
+        store["updated_at"] = _utcnow()
+        _save_trade_outcomes(store)
+        return {"ok": True, "count": len(store["records"]), "record": rec}
+    except Exception as e:
+        logger.error("Trade outcome log error: %s", e, exc_info=True)
+        return {"ok": False, "error": str(e)}
+
+
+# ── Single-contract quote (ANY strike — for ticket pricing, 2026-06-18) ───────
+# check_liquidity only quotes the near-spot band, so a far-OTM hedge/close leg
+# couldn't be priced from the backend. This quotes ONE specific contract at any
+# strike: IBKR real-time bid/ask/last/IV first, yfinance lastPrice fallback.
+# (QuantData's qd_get_contract_price stays a Claude-side cross-check — the
+# backend can't call that MCP.) NaN-safe.
+
+def _try_ibkr_contract_quote(ticker, expiry, strike, right):
+    try:
+        from app.services.ibkr_marketdata import ibkr_contract_quote
+        return ibkr_contract_quote(ticker, expiry, strike, right)
+    except Exception:
+        return None
+
+
+@router.get("/options/contract-price/{ticker}")
+def get_contract_price(
+    ticker: str,
+    strike: float = Query(..., description="Strike price"),
+    expiry: str = Query(..., description="Expiry YYYY-MM-DD"),
+    right: str = Query("P", description="C or P"),
+):
+    """
+    Live quote for ONE specific option contract at ANY strike (unlike
+    check_liquidity, which only covers the near-spot band). IBKR-first
+    (real-time bid/ask/last/IV) → yfinance lastPrice fallback. Built for pricing
+    hedge/close tickets with a real number.
+
+    Returns: ticker, strike, expiry, right, bid, ask, mid, last, iv_pct,
+             source ('ibkr'|'yfinance'), as_of.
+    """
+    ticker = ticker.upper()
+    right_up = "C" if str(right).upper().startswith("C") else "P"
+    try:
+        ib = _try_ibkr_contract_quote(ticker, expiry, strike, right_up)
+        if ib and (ib.get("bid") or ib.get("ask") or ib.get("last")):
+            return {
+                "ticker": ticker, "strike": _f(strike), "expiry": expiry, "right": right_up,
+                "bid": _f(ib.get("bid")), "ask": _f(ib.get("ask")),
+                "mid": _f(ib.get("mid")), "last": _f(ib.get("last")),
+                "iv_pct": ib.get("iv_pct"),
+                "source": "ibkr", "as_of": _utcnow(),
+            }
+        # Fallback: yfinance chain bid/ask/lastPrice for the exact strike
+        t = yf.Ticker(ticker)
+        chain = t.option_chain(expiry)
+        df = chain.calls if right_up == "C" else chain.puts
+        if df is not None and not df.empty:
+            match = df[df["strike"] == float(strike)]
+            if not match.empty:
+                r0 = match.iloc[0]
+                bid, ask, last = _f(r0.get("bid")), _f(r0.get("ask")), _f(r0.get("lastPrice"))
+                mid = (bid + ask) / 2 if (bid > 0 and ask > 0) else last
+                return {
+                    "ticker": ticker, "strike": _f(strike), "expiry": expiry, "right": right_up,
+                    "bid": bid, "ask": ask, "mid": mid, "last": last, "iv_pct": None,
+                    "source": "yfinance", "as_of": _utcnow(),
+                }
+        return {"error": f"No quote for {ticker} {strike}{right_up} {expiry}",
+                "ticker": ticker, "strike": _f(strike), "expiry": expiry, "right": right_up}
+    except Exception as e:
+        logger.error("Contract price error %s %s%s %s: %s", ticker, strike, right_up, expiry, e, exc_info=True)
+        return {"error": str(e), "ticker": ticker}
