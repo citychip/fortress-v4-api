@@ -274,21 +274,34 @@ def ibkr_contract_quote(
         if not oc:
             return None
         fields = ["84", "86", "31", "7633", "7283"]
-        rows = snap_mod.snapshot(client, [oc], fields=fields)
-        for row in rows or []:
-            try:
-                if int(row.get("conid") or 0) != int(oc):
+
+        def _snap():
+            for row in snap_mod.snapshot(client, [oc], fields=fields) or []:
+                try:
+                    if int(row.get("conid") or 0) != int(oc):
+                        continue
+                except (ValueError, TypeError):
                     continue
-            except (ValueError, TypeError):
-                continue
-            bid = _parse_price(row.get("84"))
-            ask = _parse_price(row.get("86"))
-            last = _parse_price(row.get("31"))
-            iv_pct = _parse_iv_pct(row.get("7633")) or _parse_iv_pct(row.get("7283"))
-            mid = (bid + ask) / 2 if (bid and ask) else last
-            if bid or ask or last:
-                return {"bid": bid, "ask": ask, "mid": mid, "last": last, "iv_pct": iv_pct}
-        return None
+                bid = _parse_price(row.get("84"))
+                ask = _parse_price(row.get("86"))
+                last = _parse_price(row.get("31"))
+                iv_pct = _parse_iv_pct(row.get("7633")) or _parse_iv_pct(row.get("7283"))
+                mid = (bid + ask) / 2 if (bid and ask) else last
+                if bid or ask or last:
+                    return {"bid": bid, "ask": ask, "mid": mid, "last": last, "iv_pct": iv_pct}
+            return None
+
+        # IV fields (7633/7283) are often slow on a fresh single-contract snapshot;
+        # re-poll up to 2x (same pattern as ibkr_quotes) so iv_pct populates.
+        q = _snap()
+        for _ in range(2):
+            if not q or q.get("iv_pct"):
+                break
+            time.sleep(1.5)
+            q2 = _snap()
+            if q2:
+                q = q2
+        return q
     except Exception as e:
         logger.debug("ibkr_contract_quote(%s %s %s%s) failed: %s",
                      ticker, expiry_iso, strike, right_up, e)

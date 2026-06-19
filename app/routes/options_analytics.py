@@ -227,6 +227,17 @@ def _f(x) -> float:
     return v if math.isfinite(v) else 0.0
 
 
+def _spread_grade(bid: float, ask: float):
+    """Bid-ask spread % + Strategy §4 quality status for a single contract.
+    Lets get_contract_price double as an OTM liquidity check (the strike you'd
+    actually sell), which check_liquidity's near-spot band can't reach."""
+    if bid and ask and bid > 0 and ask > 0:
+        mid = (bid + ask) / 2
+        sp = round((ask - bid) / mid * 100, 1)
+        return sp, ("good" if sp < 5 else "advisory" if sp <= 10 else "wide")
+    return None, None
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @router.get("/options/gex/{ticker}")
@@ -1118,11 +1129,14 @@ def get_contract_price(
     try:
         ib = _try_ibkr_contract_quote(ticker, expiry, strike, right_up)
         if ib and (ib.get("bid") or ib.get("ask") or ib.get("last")):
+            bid, ask = _f(ib.get("bid")), _f(ib.get("ask"))
+            sp, status = _spread_grade(bid, ask)
             return {
                 "ticker": ticker, "strike": _f(strike), "expiry": expiry, "right": right_up,
-                "bid": _f(ib.get("bid")), "ask": _f(ib.get("ask")),
+                "bid": bid, "ask": ask,
                 "mid": _f(ib.get("mid")), "last": _f(ib.get("last")),
                 "iv_pct": ib.get("iv_pct"),
+                "spread_pct": sp, "status": status,
                 "source": "ibkr", "as_of": _utcnow(),
             }
         # Fallback: yfinance chain bid/ask/lastPrice for the exact strike
@@ -1135,9 +1149,11 @@ def get_contract_price(
                 r0 = match.iloc[0]
                 bid, ask, last = _f(r0.get("bid")), _f(r0.get("ask")), _f(r0.get("lastPrice"))
                 mid = (bid + ask) / 2 if (bid > 0 and ask > 0) else last
+                sp, status = _spread_grade(bid, ask)
                 return {
                     "ticker": ticker, "strike": _f(strike), "expiry": expiry, "right": right_up,
                     "bid": bid, "ask": ask, "mid": mid, "last": last, "iv_pct": None,
+                    "spread_pct": sp, "status": status,
                     "source": "yfinance", "as_of": _utcnow(),
                 }
         return {"error": f"No quote for {ticker} {strike}{right_up} {expiry}",
