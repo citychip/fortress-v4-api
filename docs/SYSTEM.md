@@ -79,12 +79,18 @@ curl -s -o /dev/null -w "old => HTTP %{http_code}\n" http://localhost:8081/api/b
    grep FORTRESS_API_TOKEN "$LIVE"   # confirm new value
    ```
    ⚠ The **Customize → Connectors** UI only sets per-tool permissions — it does NOT expose the token. Edit the file, then **fully quit + reopen** the app. Test with `get_briefing`; a 401 = connector still on the old value. (Also sync the OneDrive copy + `claude_desktop_config.json` backup to match.)
-5. **Parapet frontend (5th place):** Vite inlines `VITE_API_TOKEN` into the built JS, so the deployed bundle must be **rebuilt** — it won't pick up the new token otherwise. `deploy_parapet.sh` reads the token from the systemd unit (already rotated in step 1), so just re-run it, then hard-refresh `localhost:4000` (Ctrl+Shift+R):
+5. **Parapet frontend (5th place):** Vite inlines `VITE_API_TOKEN` into the built JS at build time, so the bundle must be **rebuilt** — it won't pick up a new token otherwise. `deploy_parapet.sh` (fixed 2026-06-19) now reads the token from `~/.fortress_api_token` and writes **both `.env` and `.env.local`**, then rebuilds + redeploys:
    ```bash
    bash /mnt/c/Users/cityc.000/OneDrive/_Stocks26/2606Fortress/deploy_parapet.sh
-   grep -ol "$NEW" ~/fortress-parapet/dist/assets/*.js && echo "new token baked in ✓"
+   grep -H VITE_API_TOKEN ~/fortress-parapet/.env*    # .env AND .env.local must both = new token
+   curl -s http://localhost:4000/ | grep -o 'index-[A-Za-z0-9_]*\.js'   # hash MUST change vs last build
    ```
-   A 401 (`{"detail":"invalid_token"}`) in Parapet after rotation means this step was skipped.
+   **Hard-won gotchas (all caused 401 `invalid_token` during the 2026-06-19 rotation — verify each):**
+   - **`.env.local` overrides `.env`** in Vite (`.env.local` > `.env`). A stale `.env.local` silently ships the OLD token even after you fix `.env`. The deploy now writes both; if editing by hand, fix `.env.local`. **Tell: the bundle hash does NOT change after rebuild → Vite read a stale env file.**
+   - **Never scrape the token from the systemd line** (`grep '(?<=FORTRESS_API_TOKEN=)\S+'`) — surrounding quotes leak in as a trailing `"` → bad token. Read `~/.fortress_api_token` instead.
+   - **`umask`**: if your shell has `umask 077` (e.g. after creating the token file), `sudo cp` into `/var/www` makes files unreadable by nginx → **403 Forbidden**. The deploy now forces `umask 022`; otherwise `sudo chmod -R a+rX /var/www/fortress-parapet`.
+   - **Browser cache**: hard-refresh (Ctrl+Shift+R) is unreliable in Edge — verify in an **InPrivate** window (Ctrl+Shift+N).
+   - **Definitive backend check** of the token Parapet will send: `curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8081/api/briefing -H "Authorization: Bearer $(tr -d '\"[:space:]' < ~/fortress-parapet/.env.local | sed 's/.*VITE_API_TOKEN=//')"` → expect **200**.
 - ⚠ Rotation does NOT scrub the old token from git history. If it was ever committed (it was, pre-2026-06-19), rotation is what makes the old value harmless; optional `git filter-repo`/BFG history scrub is cosmetic afterward.
 
 ---
@@ -168,7 +174,7 @@ JWT token managed by QuantData MCP.
 | `/api/orders/expire-stale` | POST | Bulk-expire all stale DAY `submitted` orders (run at EOD) |
 
 ```bash
-TOKEN="07f03fb6e664859ac5e8113eaf1102ac43a3cb785c581af756671072b426db21"
+TOKEN=$(cat ~/.fortress_api_token)   # never hardcode — read the untracked secret file
 
 # Force-cancel a stuck order
 curl -s -X DELETE "http://localhost:8081/api/orders/pending/{ID}/force" \
