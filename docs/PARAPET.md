@@ -1,5 +1,17 @@
 # Parapet — Frontend Reference
-**v2.6 · Updated 2026-06-18**
+**v2.7 · Updated 2026-06-19**
+
+> **v2.7 (2026-06-19):** New **data-source integrity badge** in the header on every
+> page (`SourceBadge.tsx`). A shared `useIntegrity()` hook polls `getDataIntegrity()`
+> (→ `/api/data-integrity`, falls back to `/api/ibkr/capability`) every 60s and drives
+> three things: the badge itself (green ● Live / amber ▲ Delayed / red ■ No data), a
+> **header-bar tint** (amber on fallback, red on down) applied in `Layout.tsx`, and a
+> dashed **"↻ Restart gateway"** pill shown inline next to the badge when degraded
+> (full `docker restart cp-gateway` / Sync steps on hover). This is the always-visible
+> "are the numbers real-time?" signal — it reads the gateway, not the false-fresh
+> `staleness` field. New `api.ts` exports: `getDataIntegrity`, `IntegrityData`/
+> `IntegrityState` types. Files: components/SourceBadge.tsx (new), components/Layout.tsx,
+> lib/api.ts. Tracked in `deploy_parapet.sh` FILES (and so auto-drift-checked by sync_check).
 
 > **v2.6 (2026-06-18):** BriefingPage event-horizon row now consumes the
 > catalyst gate's macro events (`getMacroEvents()` → `/api/options/macro-events`)
@@ -129,7 +141,8 @@ src/
 │   └── useSettings.ts         useSettings()/useThresholds() — settings-driven thresholds (#80)
 ├── styles/global.css          CSS custom properties, base styles
 ├── components/
-│   ├── Layout.tsx             Page shell (sidebar + header + refresh + keyboard shortcuts + 60s market chip poll #88)
+│   ├── Layout.tsx             Page shell (sidebar + header + refresh + keyboard shortcuts + 60s market chip poll #88; owns useIntegrity() → header tint + SourceBadge, v2.7)
+│   ├── SourceBadge.tsx        Data-source integrity badge + useIntegrity() hook + headerTint()/integrityState() helpers + "↻ Restart gateway" pill (v2.7)
 │   ├── Sidebar.tsx            6-item nav; Triage carries both badges (ACT red + orders amber, #78)
 │   ├── Card.tsx               Surface container
 │   ├── StatRow.tsx            Horizontal stat tiles (+ compact tier, #92)
@@ -164,13 +177,14 @@ src/
 
 **Module-level GET cache:** 30-second TTL. Write operations (POST/DELETE/PATCH) invalidate the full cache.
 
-**Core types:** `BriefingData` · `IbkrStatusData` · `PositionData` · `PnLData` · `OrderData` · `AlertData` · `CandidateRow` · `IvRankData` · `ForwardPnlData`
+**Core types:** `BriefingData` · `IbkrStatusData` · `IntegrityData`/`IntegrityState` · `PositionData` · `PnLData` · `OrderData` · `AlertData` · `CandidateRow` · `IvRankData` · `ForwardPnlData`
 
 **Key endpoints:**
 
 | Function | Endpoint |
 |---|---|
 | `getBriefing()` | `GET /api/briefing` |
+| `getDataIntegrity()` | `GET /api/data-integrity` (→ falls back to `/api/ibkr/capability`) |
 | `getPositions()` | `GET /api/positions` |
 | `getCandidates()` | `GET /api/candidates` |
 | `getIvRank(ticker)` | `GET /api/qd/iv-rank/{ticker}` |
@@ -209,6 +223,7 @@ src/
 | Candidates | 5 min | Silent |
 | Market | 5 min | Silent |
 | Positions | 5 min | Silent |
+| Header data-source badge | 60s | `useIntegrity()` in Layout (v2.7) — drives badge + header tint + restart pill |
 | Sidebar IBKR dot | 30s | Independent poll |
 | Sidebar ACT badge | 5 min | `getStopLossAll()` |
 | Sidebar orders badge | 2 min | `getPendingOrders()` |

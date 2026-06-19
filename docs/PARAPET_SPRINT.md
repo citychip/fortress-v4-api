@@ -1,6 +1,21 @@
 # Parapet Sprint Planning
 
-_Updated: 2026-06-10 (post Sprint 13)_
+_Updated: 2026-06-19_
+
+---
+
+## v2.7 addendum — data-source integrity badge (deployed 2026-06-19)
+
+First item off the 2026-06-18 optimization backlog: **gateway-down integrity guard + source badge**. Backend ships `GET /api/data-integrity` (live IBKR snapshot probe → `live`/`fallback`/`down`, bypassing the false-fresh `staleness` field — see `DATA_SOURCES.md` v1.4). Frontend:
+
+| Change | Files |
+|---|---|
+| `getDataIntegrity()` + `IntegrityData`/`IntegrityState` types; falls back to `/api/ibkr/capability` if the route isn't deployed yet | lib/api.ts |
+| `SourceBadge.tsx` (new) — always-visible top-bar badge (green ● Live / amber ▲ Delayed / red ■ No data); `useIntegrity()` 60s poll hook; `integrityState()`/`headerTint()` helpers; inline dashed "↻ Restart gateway" pill when degraded (full recovery steps on hover) | components/SourceBadge.tsx |
+| Layout owns `useIntegrity()`, tints the header bar amber/red on degraded state, passes data to `<SourceBadge>` | components/Layout.tsx |
+| Added `src/components/SourceBadge.tsx` to deploy FILES (and so auto-covered by `sync_check.sh`'s Parapet drift check) | deploy_parapet.sh |
+
+Verified: prod `tsc && vite build` clean (777 modules); live route returned `{"integrity":"live","source":"ibkr","spot":746.94}`. Commit `0456102`.
 
 ---
 

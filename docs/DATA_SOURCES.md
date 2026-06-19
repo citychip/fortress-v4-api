@@ -1,5 +1,16 @@
 # Fortress — Strategy Data Attributes & Sources
-**v1.3 · 2026-06-16 · companion to Strategy v3.9 / Parapet v2.5.1**
+**v1.4 · 2026-06-19 · companion to Strategy v3.9 / Parapet v2.7**
+
+> **v1.4 — Gateway-down integrity guard + source badge SHIPPED (2026-06-19):**
+> New backend route `GET /api/data-integrity` (`options_analytics.py`) live-probes the
+> IBKR CP Gateway (SPY snapshot) and returns an honest verdict — `live` (source `ibkr`),
+> `fallback` (gateway down, ~15m-delayed yfinance answering), or `down` (nothing). It
+> **bypasses the `staleness` field entirely**, closing the "frozen feed reads fresh" trap
+> in the reliability ledger below. Parapet surfaces it as an always-visible top-bar badge
+> (`SourceBadge.tsx`, green ● Live / amber ▲ Delayed / red ■ No data) that also tints the
+> header and shows a "↻ Restart gateway" hint when degraded. Use this (or `get_ibkr_status`'s
+> `active_backend`) as the gateway-up check — **never trust `staleness.state` alone.**
+> Verified live: `{"integrity":"live","source":"ibkr","spot":746.94}`.
 
 > **v1.3 — GEX/skew/liquidity NaN-500 fixed (2026-06-16):** `get_gex`, `get_vol_skew`,
 > and `check_liquidity` could throw an uncatchable HTTP 500 on certain tickers (AAPL, TER, V).
@@ -102,7 +113,7 @@ Since Sprint 13 (#80), Parapet reads these live — no hardcoded copies.
 | Source | Status |
 |---|---|
 | IBKR (account/positions/greeks) | ✅ authoritative; LIMITED MODE banner if sync >5m stale during RTH |
-| **Gateway-down silent fallback** | ⚠ when CP Gateway drops, backend silently serves a FROZEN snapshot on `bs_yfinance` but `staleness.state` still reads "fresh" — data looks live while stuck at last good `synced_at`. `retry_ibkr_sync()` does NOT fix a 401/iBeam-auth failure (re-runs on stale fallback). Confirm with `get_ibkr_status` (look for `active_backend`); fix = iBeam restart (`docker restart cp-gateway` / Parapet Reconnect), not a sync retry. Hit + recovered 2026-06-15 |
+| **Gateway-down silent fallback** | ⚠ when CP Gateway drops, backend silently serves a FROZEN snapshot on `bs_yfinance` but `staleness.state` still reads "fresh" — data looks live while stuck at last good `synced_at`. `retry_ibkr_sync()` does NOT fix a 401/iBeam-auth failure (re-runs on stale fallback). Confirm with `get_ibkr_status` (look for `active_backend`); fix = iBeam restart (`docker restart cp-gateway` / Parapet Reconnect), not a sync retry. Hit + recovered 2026-06-15. **✅ Now guarded (2026-06-19):** `GET /api/data-integrity` live-probes the gateway and the Parapet top-bar badge shows live/fallback/down — the false-fresh staleness no longer hides a dead gateway |
 | Pacing counter (entries/week) | ⚠ only increments on Fortress-staged orders — manual IBKR fills are NOT counted (showed 0/5 after 4 manual fills 2026-06-15). Track manual entries yourself |
 | `get_gex` / `get_vol_skew` / `check_liquidity` routes | ✅ NaN-in-JSON 500 fixed 2026-06-16 (`_f()` NaN/Inf guard + finite-skip; was: AAPL/TER/V 500s on yfinance NaN OI/bid/ask). get_gex verified live V/AAPL. `check_liquidity` trap was latent (fires only on yfinance fallback when gateway down) — now guarded |
 | **IBKR CP marketdata snapshot** (spot 31, bid/ask 84/86, IV 7633/7283 via `ibkr_marketdata.py`) | ✅ live primary for alert spot, liquidity, IV rank, skew (verified Jun 10). Computed IV fields need polling — handled. 0DTE dailies may not yield IV → falls back |

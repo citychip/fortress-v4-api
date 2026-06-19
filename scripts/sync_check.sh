@@ -32,6 +32,7 @@ MAP=(
   "snapshot_iv.sh:$API/scripts/snapshot_iv.sh"
   "test_ibkr_oauth.py:$API/scripts/test_ibkr_oauth.py"
   "fortress_mcp_v452.py:$MCP/fortress_mcp.py"
+  "sync_check.sh:$API/scripts/sync_check.sh"
 )
 
 echo "── File-content drift (OneDrive → repo) ──"

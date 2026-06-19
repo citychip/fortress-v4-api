@@ -47,7 +47,7 @@ journalctl -u fortress-dashboard-v4 -f          # live tail
 
 **PAT:** Stored in WSL `~/.git-credentials` — do not paste in docs.
 
-**Sync convention (OneDrive ↔ repos):** the OneDrive `2606Fortress` folder is the dev/edit copy; deploys copy files **into** the repos, which push to GitHub. A file edited in OneDrive but never deployed/committed leaves GitHub stale while `git status` looks clean. Run `bash sync_check.sh` (in the OneDrive folder) at every session wrap to content-diff all mapped files + show per-repo git status. Any new OneDrive script must be added to that script's `MAP` (and to `deploy_data_sources.sh` if backend-related). `deploy_data_sources.sh` now reads the token from `~/.fortress_api_token` (no hardcoded secret) — keep it OneDrive-only by convention regardless. Runtime-state policy: gitignore `iv_history.json` / `pending_orders.json` / `*.pre-ibkr-bak`; commit `conditional_alerts.json` / `macro_events.json` / `trade_outcomes.json`.
+**Sync convention (OneDrive ↔ repos):** the OneDrive `2606Fortress` folder is the dev/edit copy; deploys copy files **into** the repos, which push to GitHub. A file edited in OneDrive but never deployed/committed leaves GitHub stale while `git status` looks clean. Run `bash sync_check.sh` (in the OneDrive folder) at every session wrap to content-diff all mapped files + show per-repo git status. Canonical repo copy: `~/fortress-v4-api/scripts/sync_check.sh` (it self-checks via its own `MAP` entry, added 2026-06-19). Any new OneDrive *backend* script must be added to that script's `MAP` (and to `deploy_data_sources.sh` if backend-related). **Parapet `src/` is auto-tracked (2026-06-19):** `sync_check.sh` derives the frontend file list from `deploy_parapet.sh`'s `FILES=()`, so adding a new Parapet file to that deploy list is enough to drift-check it — no second list. `deploy_data_sources.sh` now reads the token from `~/.fortress_api_token` (no hardcoded secret) — keep it OneDrive-only by convention regardless. Runtime-state policy: gitignore `iv_history.json` / `pending_orders.json` / `*.pre-ibkr-bak`; commit `conditional_alerts.json` / `macro_events.json` / `trade_outcomes.json`.
 
 Set remotes:
 ```bash
@@ -179,6 +179,7 @@ JWT token managed by QuantData MCP.
 | `/api/ibkr/reconnect` | POST | Restart cp-gateway, poll until authenticated |
 | `/api/orders/pending/{id}/force` | DELETE | Force-cancel any order regardless of status |
 | `/api/orders/expire-stale` | POST | Bulk-expire all stale DAY `submitted` orders (run at EOD) |
+| `/api/data-integrity` | GET | **(2026-06-19)** Gateway-down integrity guard — live IBKR snapshot probe (SPY) → `live`/`fallback`/`down` verdict + `source`/`spot`/`message`. Bypasses the false-fresh `staleness` field; drives the Parapet top-bar source badge. In `options_analytics.py` |
 
 ```bash
 TOKEN=$(cat ~/.fortress_api_token)   # never hardcode — read the untracked secret file
