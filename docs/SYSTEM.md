@@ -47,7 +47,7 @@ journalctl -u fortress-dashboard-v4 -f          # live tail
 
 **PAT:** Stored in WSL `~/.git-credentials` — do not paste in docs.
 
-**Sync convention (OneDrive ↔ repos):** the OneDrive `2606Fortress` folder is the dev/edit copy; deploys copy files **into** the repos, which push to GitHub. A file edited in OneDrive but never deployed/committed leaves GitHub stale while `git status` looks clean. Run `bash sync_check.sh` (in the OneDrive folder) at every session wrap to content-diff all mapped files + show per-repo git status. Any new OneDrive script must be added to that script's `MAP` (and to `deploy_data_sources.sh` if backend-related). **Do NOT commit `deploy_data_sources.sh` — it carries the hardcoded API token.** Runtime-state policy: gitignore `iv_history.json` / `pending_orders.json` / `*.pre-ibkr-bak`; commit `conditional_alerts.json` / `macro_events.json` / `trade_outcomes.json`.
+**Sync convention (OneDrive ↔ repos):** the OneDrive `2606Fortress` folder is the dev/edit copy; deploys copy files **into** the repos, which push to GitHub. A file edited in OneDrive but never deployed/committed leaves GitHub stale while `git status` looks clean. Run `bash sync_check.sh` (in the OneDrive folder) at every session wrap to content-diff all mapped files + show per-repo git status. Any new OneDrive script must be added to that script's `MAP` (and to `deploy_data_sources.sh` if backend-related). `deploy_data_sources.sh` now reads the token from `~/.fortress_api_token` (no hardcoded secret) — keep it OneDrive-only by convention regardless. Runtime-state policy: gitignore `iv_history.json` / `pending_orders.json` / `*.pre-ibkr-bak`; commit `conditional_alerts.json` / `macro_events.json` / `trade_outcomes.json`.
 
 Set remotes:
 ```bash
@@ -55,6 +55,31 @@ git -C ~/fortress-parapet remote set-url origin https://citychip:$(cat ~/.pat)@g
 ```
 
 **API token:** stored untracked in WSL `~/.fortress_api_token` (single line, no quotes) and in the systemd unit's `FORTRESS_API_TOKEN`. Scripts read it via `TOKEN=$(cat ~/.fortress_api_token)`. **Never paste the literal token into any tracked file.**
+
+**Token-rotation runbook** (do this if the token is ever exposed, or on a routine cycle). The token lives in **4 places** — all must move together:
+```bash
+# 1. Generate + set on the backend (systemd), then reload + restart
+NEW=$(openssl rand -hex 32)
+sudo sed -i "s|FORTRESS_API_TOKEN=[^ \"]*|FORTRESS_API_TOKEN=$NEW|" /etc/systemd/system/fortress-dashboard-v4.service
+sudo systemctl daemon-reload && sudo systemctl restart fortress-dashboard-v4 && sleep 3
+
+# 2. Update the untracked WSL secret file
+printf '%s' "$NEW" > ~/.fortress_api_token   # no trailing newline
+
+# 3. Verify: new token works, old token is dead
+curl -s http://localhost:8081/api/briefing -H "Authorization: Bearer $(cat ~/.fortress_api_token)" | head -c 120; echo
+curl -s -o /dev/null -w "old => HTTP %{http_code}\n" http://localhost:8081/api/briefing -H "Authorization: Bearer <OLD_TOKEN>"  # expect 401
+```
+4. **Desktop app (Cowork) — live MCP launcher config (4th place):** the connector reads `env.FORTRESS_API_TOKEN` from the **packaged-app** `claude_desktop_config.json` (NOT the OneDrive copy — that's only a backup the app does not read, though keep it in sync). Live path:
+   `C:\Users\cityc.000\AppData\Local\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\claude_desktop_config.json`
+   ```bash
+   LIVE="/mnt/c/Users/cityc.000/AppData/Local/Packages/Claude_pzs8sxrjxfjjc/LocalCache/Roaming/Claude/claude_desktop_config.json"
+   cp "$LIVE" "$LIVE.bak"
+   sed -i -E 's/("FORTRESS_API_TOKEN":[[:space:]]*")[^"]*(")/\1'"$NEW"'\2/' "$LIVE"
+   grep FORTRESS_API_TOKEN "$LIVE"   # confirm new value
+   ```
+   ⚠ The **Customize → Connectors** UI only sets per-tool permissions — it does NOT expose the token. Edit the file, then **fully quit + reopen** the app. Test with `get_briefing`; a 401 = connector still on the old value. (Also sync the OneDrive copy + `claude_desktop_config.json` backup to match.)
+- ⚠ Rotation does NOT scrub the old token from git history. If it was ever committed (it was, pre-2026-06-19), rotation is what makes the old value harmless; optional `git filter-repo`/BFG history scrub is cosmetic afterward.
 
 ---
 
