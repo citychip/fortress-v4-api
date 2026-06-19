@@ -56,7 +56,7 @@ git -C ~/fortress-parapet remote set-url origin https://citychip:$(cat ~/.pat)@g
 
 **API token:** stored untracked in WSL `~/.fortress_api_token` (single line, no quotes) and in the systemd unit's `FORTRESS_API_TOKEN`. Scripts read it via `TOKEN=$(cat ~/.fortress_api_token)`. **Never paste the literal token into any tracked file.**
 
-**Token-rotation runbook** (do this if the token is ever exposed, or on a routine cycle). The token lives in **4 places** — all must move together:
+**Token-rotation runbook** (do this if the token is ever exposed, or on a routine cycle). The token lives in **5 places** — all must move together: (1) backend systemd unit, (2) `~/.fortress_api_token`, (3) packaged-app `claude_desktop_config.json`, (4) OneDrive config backup, (5) the Parapet build (Vite inlines `VITE_API_TOKEN` at build time → must rebuild). A 401 in Parapet (`localhost:4000`) after rotation = step 5 was missed.
 ```bash
 # 1. Generate + set on the backend (systemd), then reload + restart
 NEW=$(openssl rand -hex 32)
@@ -79,6 +79,12 @@ curl -s -o /dev/null -w "old => HTTP %{http_code}\n" http://localhost:8081/api/b
    grep FORTRESS_API_TOKEN "$LIVE"   # confirm new value
    ```
    ⚠ The **Customize → Connectors** UI only sets per-tool permissions — it does NOT expose the token. Edit the file, then **fully quit + reopen** the app. Test with `get_briefing`; a 401 = connector still on the old value. (Also sync the OneDrive copy + `claude_desktop_config.json` backup to match.)
+5. **Parapet frontend (5th place):** Vite inlines `VITE_API_TOKEN` into the built JS, so the deployed bundle must be **rebuilt** — it won't pick up the new token otherwise. `deploy_parapet.sh` reads the token from the systemd unit (already rotated in step 1), so just re-run it, then hard-refresh `localhost:4000` (Ctrl+Shift+R):
+   ```bash
+   bash /mnt/c/Users/cityc.000/OneDrive/_Stocks26/2606Fortress/deploy_parapet.sh
+   grep -ol "$NEW" ~/fortress-parapet/dist/assets/*.js && echo "new token baked in ✓"
+   ```
+   A 401 (`{"detail":"invalid_token"}`) in Parapet after rotation means this step was skipped.
 - ⚠ Rotation does NOT scrub the old token from git history. If it was ever committed (it was, pre-2026-06-19), rotation is what makes the old value harmless; optional `git filter-repo`/BFG history scrub is cosmetic afterward.
 
 ---
