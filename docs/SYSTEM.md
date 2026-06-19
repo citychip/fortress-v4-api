@@ -79,6 +79,13 @@ curl -s -o /dev/null -w "old => HTTP %{http_code}\n" http://localhost:8081/api/b
    grep FORTRESS_API_TOKEN "$LIVE"   # confirm new value
    ```
    ⚠ The **Customize → Connectors** UI only sets per-tool permissions — it does NOT expose the token. Edit the file, then **fully quit + reopen** the app. Test with `get_briefing`; a 401 = connector still on the old value. (Also sync the OneDrive copy + `claude_desktop_config.json` backup to match.)
+   **How to (re)locate this file** if the path ever changes (e.g. new package ID): Claude Desktop is an MSIX/Store-packaged app, so its AppData is redirected under `Local\Packages\Claude_*\LocalCache\Roaming\Claude\` — NOT the plain `%APPDATA%\Roaming\Claude\`. Find it by **filename (no shallow depth limit** — a `-maxdepth 3` misses it):
+   ```bash
+   find /mnt/c/Users/cityc.000/AppData -iname "claude_desktop_config.json" 2>/dev/null
+   # or by content:
+   grep -rls "FORTRESS_API_TOKEN" /mnt/c/Users/cityc.000/AppData/Local/Packages/ 2>/dev/null
+   ```
+   Cross-check: the package folder (`Claude_pzs8sxrjxfjjc`) matches the `bundleId` prefix returned by the computer-use `request_access` grant.
 5. **Parapet frontend (5th place):** Vite inlines `VITE_API_TOKEN` into the built JS at build time, so the bundle must be **rebuilt** — it won't pick up a new token otherwise. `deploy_parapet.sh` (fixed 2026-06-19) now reads the token from `~/.fortress_api_token` and writes **both `.env` and `.env.local`**, then rebuilds + redeploys:
    ```bash
    bash /mnt/c/Users/cityc.000/OneDrive/_Stocks26/2606Fortress/deploy_parapet.sh
