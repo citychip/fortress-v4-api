@@ -1,5 +1,5 @@
 # Fortress — Session Handoff & Start-Here Guide
-**Last updated: 2026-06-18 · Read this top-to-bottom to start any Cowork session. Everything needed to be operational is here; deep detail is pointed to in the Documentation Index.**
+**Last updated: 2026-06-19 · Read this top-to-bottom to start any Cowork session. Everything needed to be operational is here; deep detail is pointed to in the Documentation Index.**
 
 ---
 
@@ -45,18 +45,18 @@
 
 ---
 
-## Current State (snapshot 2026-06-18 ~16:21 UTC, post-FOMC — re-pull `get_briefing` to confirm live)
+## Current State (live read 2026-06-19 ~09:05 UTC — Juneteenth, markets closed; re-pull `get_briefing` next session)
 
 | Metric | Value |
 |---|---|
-| Net Liq | ~$70,767 (€61,666) |
-| Available / Excess Liq | ~$35,385 / ~$38,308 (both above floors $17k/$25k) |
-| β-weighted Δ | **212** (target ~320 — now conservative after de-risk + SPY hedge) |
-| VIX / Regime | ~17 / **bearish** |
-| Realized P&L (today) | **−$1,626** (MSFT BPS close −$241 + MSFT de-risk −$1,385) |
+| Net Liq | ~$71,074 (€61,998) |
+| Available / Excess Liq | ~$35,545 / ~$38,643 (both above floors $17k/$25k) |
+| β-weighted Δ | **213.7** (target ~320 — conservative after de-risk + SPY hedge) |
+| VIX / Regime | 16.8 / **bearish** |
+| Realized P&L | No trades 06-19 (holiday). Prior session (06-18): **−$1,626** (MSFT BPS close −$241 + de-risk −$1,385) |
 | Pacing | 0/5 logged ⚠ (manual fills not counted — track manually) |
 
-**Concentration:** MSFT **26.5%** (de-risked from 41.9% over the week), AAPL 19.9%, GOOGL 14.4%, AMZN 10.7%, NVDA 9.7%, SPY-hedge 2.9%. Others ≤1%.
+**Concentration:** MSFT **26.6%** (de-risked from 41.9% over the week), AAPL 19.9%, GOOGL 14.5%, AMZN 10.7%, NVDA 9.8%, SPY-hedge 2.8%. Others ≤1%.
 
 **Open book (full detail in `PORTFOLIO.md` / `get_positions`):** MSFT (LEAPs 310C×1 + **340C×1** [sold 1 today], short 490C×2 / **510C×2** [bought back 1 today] / 465C-long) · AAPL LEAPs 290C+240C · GOOGL/AMZN/NVDA PMCCs · META Jul31 545/525 PCS · AMD Jun26 + Jul31 450/430 PCS · V Jul17 300/295 + Jul31 305/290 PCS · **SPY Aug21 705P ×3 (hedge, NEW)** · OST stock (ignore).
 
@@ -70,7 +70,7 @@
 3. **AMD Jun26 380/375 PCS** — far OTM (AMD ~$535), let expire Jun 26 for +~$131, then log via `log_trade_outcome`.
 4. **MSFT de-risking** — trimmed to **26.5%** today (sold 1× Jan28 340C + bought back 1× Dec18 510C). Continue toward the 20% standard opportunistically on strength; no new MSFT LEAP legs. Still below 200-SMA. No tax friction (Dutch Box 3).
 5. **SPY hedge** — 3× Aug21 705P on (§2.D gap closed). Maintain while regime is bearish.
-6. **MSFT alerts cleanup (still pending):** `8bd4926b` (price_below 385) stuck `triggered` from a Jun 11 wick — re-arm close-based; the `>$412` alert is missing.
+6. ✅ **DONE (2026-06-19) — MSFT alert re-armed:** `8bd4926b` cleared from its stuck Jun-11 `triggered` state; threshold moved **385→375** (GEX put-support shelf, spot $379), message updated to a generic "next de-risk tranche toward 20%". Goes live Monday's open. (The old `>$412` staged-exit alert remains un-recreated — only needed if resuming a staged upside exit.)
 7. **OAuth Stage 2** — still pending IBKR. Re-test with `test_ibkr_oauth.py` (NOT `get_ibkr_status.oauth`). Live data unaffected (web_api).
 
 ## Optimization backlog (from 2026-06-18 review — not yet built)
@@ -80,8 +80,8 @@ Data-source: gateway-down integrity guard + Parapet source badges (top); fix `ch
 | ID | Ticker | Trigger | Status | Note |
 |---|---|---|---|---|
 | `320fc5ae` | META | dte_lte 8 | armed | Close Jul31 PCS before Jul 29 earnings (~Jul 23) |
-| `8bd4926b` | MSFT | price_below 385 | **triggered** ⚠ | Fired on Jun 11 intraday wick; re-arm close-based |
-| (missing) | MSFT | price_above 412 | — | Recreate if continuing staged exit |
+| `8bd4926b` | MSFT | price_below 375 | armed | Re-armed 06-19 (was 385/stuck-triggered). Close < $375 → next de-risk tranche toward 20%. Confirm on daily close (fires on intraday spot). |
+| (missing) | MSFT | price_above 412 | — | Recreate only if resuming a staged upside exit |
 
 ---
 
@@ -121,6 +121,7 @@ journalctl -u fortress-dashboard-v4 -n 50 --no-pager  # logs
 docker restart cp-gateway                             # restart IBKR gateway / iBeam
 bash deploy_data_sources.sh                           # deploy IBKR-first data layer
 bash deploy_parapet.sh                                # deploy Parapet
+bash sync_check.sh                                    # OneDrive↔GitHub drift guard — run at session wrap
 # Force-decline a stuck order / expire stale DAY orders:
 curl -s -X DELETE "http://localhost:8081/api/orders/pending/{ID}/force" -H "Authorization: Bearer $TOKEN"
 curl -s -X POST   "http://localhost:8081/api/orders/expire-stale"       -H "Authorization: Bearer $TOKEN"

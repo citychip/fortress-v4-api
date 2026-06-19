@@ -47,6 +47,8 @@ journalctl -u fortress-dashboard-v4 -f          # live tail
 
 **PAT:** Stored in WSL `~/.git-credentials` — do not paste in docs.
 
+**Sync convention (OneDrive ↔ repos):** the OneDrive `2606Fortress` folder is the dev/edit copy; deploys copy files **into** the repos, which push to GitHub. A file edited in OneDrive but never deployed/committed leaves GitHub stale while `git status` looks clean. Run `bash sync_check.sh` (in the OneDrive folder) at every session wrap to content-diff all mapped files + show per-repo git status. Any new OneDrive script must be added to that script's `MAP` (and to `deploy_data_sources.sh` if backend-related). **Do NOT commit `deploy_data_sources.sh` — it carries the hardcoded API token.** Runtime-state policy: gitignore `iv_history.json` / `pending_orders.json` / `*.pre-ibkr-bak`; commit `conditional_alerts.json` / `macro_events.json` / `trade_outcomes.json`.
+
 Set remotes:
 ```bash
 git -C ~/fortress-parapet remote set-url origin https://citychip:$(cat ~/.pat)@github.com/citychip/fortress-parapet.git
