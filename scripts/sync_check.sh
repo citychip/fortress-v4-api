@@ -33,6 +33,16 @@ MAP=(
   "test_ibkr_oauth.py:$API/scripts/test_ibkr_oauth.py"
   "fortress_mcp_v452.py:$MCP/fortress_mcp.py"
   "sync_check.sh:$API/scripts/sync_check.sh"
+  # Sprint 0 (2026-06-19): out-of-mount backend route/service files pulled into
+  # OneDrive so pretrade_check / regime / strategy_metrics / pacing are now
+  # dev-editable + drift-tracked + deployable (see deploy_data_sources.sh ROUTE_FILES).
+  "manage.py:$API/app/routes/manage.py"
+  "options.py:$API/app/routes/options.py"
+  "briefing.py:$API/app/routes/briefing.py"
+  "market_intelligence.py:$API/app/routes/market_intelligence.py"
+  "settings.py:$API/app/routes/settings.py"
+  "config_store.py:$API/app/services/config_store.py"
+  "state.py:$API/app/services/state.py"
 )
 
 echo "── File-content drift (OneDrive → repo) ──"

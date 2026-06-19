@@ -712,23 +712,44 @@ def get_strategy_metrics(
     if not spot or spot <= 0:
         raise HTTPException(status_code=404, detail="Cannot fetch spot price")
 
-    # ── Pull market intelligence for IVR, earnings, regime ───────────────────
-    iv: float = 0.30        # fallback
+    # ── Real vol + earnings from canonical sources (Sprint 15.1) ─────────────
+    # Previously IV/IVR/DTE were read off get_market_intelligence, but that path
+    # was doubly broken: imported from app.routes.market (wrong module → throws)
+    # AND the intel payload never emits current_iv / iv_rank / days_to_earnings.
+    # Every call therefore silently fell back to IV 0.30 / IVR 50 / DTE 999 — the
+    # exact placeholder the strategy_metrics caveat warned about. Now:
+    #   • IV + IVR ← get_iv_rank (IBKR-first; BS-inversion / HV-proxy fallback)
+    #   • DTE      ← state.days_to_earnings (same source as briefing / manage)
+    # Regime sourcing is deliberately left at the neutral fallback here; wiring
+    # it (incl. VIX term) is Sprint 15.3.
+    iv: float = 0.30        # last-resort fallback only
     ivr: float = 50.0
     days_to_earnings: int = 999
     regime_overall: str = "neutral"
     gex_regime: str = "neutral"
+    vol_source: str = "placeholder"
 
     try:
-        from app.routes.market import get_market_intelligence  # type: ignore
-        intel = get_market_intelligence(ticker)
-        iv  = (intel.get("current_iv") or 0) / 100 if (intel.get("current_iv") or 0) > 1 else (intel.get("current_iv") or 0.30)
-        ivr = intel.get("iv_rank") or 50.0
-        days_to_earnings = intel.get("days_to_earnings") or 999
-        regime_overall   = (intel.get("regime") or {}).get("overall", "neutral")
-        gex_regime       = (intel.get("regime") or {}).get("gex_regime", "neutral")
+        from app.routes.options_analytics import get_iv_rank
+        ivd = get_iv_rank(ticker)
+        if isinstance(ivd, dict) and not ivd.get("error"):
+            ci = ivd.get("current_iv")
+            if ci and ci > 0:
+                iv = ci / 100.0 if ci > 1 else ci
+                vol_source = ivd.get("iv_source") or ivd.get("source") or "iv_rank"
+            r = ivd.get("iv_rank")
+            if r is not None:
+                ivr = float(r)
     except Exception as e:
-        _log.debug("market intel unavailable for %s: %s", ticker, e)
+        _log.warning("get_iv_rank unavailable for %s: %s — using fallback vol", ticker, e)
+
+    try:
+        from app.services import state as _state
+        _d = _state.days_to_earnings(ticker, _state.get_earnings_blocklist())
+        if _d is not None:
+            days_to_earnings = _d
+    except Exception as e:
+        _log.debug("earnings distance unavailable for %s: %s", ticker, e)
 
     if iv <= 0:
         iv = 0.30
@@ -984,6 +1005,7 @@ def get_strategy_metrics(
         "spot":             round(spot, 2),
         "iv":               round(iv * 100, 1),
         "ivr":              round(ivr, 1),
+        "vol_source":       vol_source,
         "days_to_earnings": days_to_earnings,
         "regime":           regime_overall,
         "gex_regime":       gex_regime,

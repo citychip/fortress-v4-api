@@ -81,3 +81,4 @@ quant/*.md
 # transient runtime state (regenerated each session)
 data/iv_history.json
 quant/pending_orders.json
+*.pre-sprint0-bak
