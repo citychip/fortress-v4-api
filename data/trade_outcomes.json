@@ -1,0 +1,23 @@
+{
+  "records": [
+    {
+      "ticker": "MSFT",
+      "strategy": "BPS",
+      "closed": "2026-06-18",
+      "realized_pnl": -241.49,
+      "exit_reason": "closed_pre_assignment",
+      "notes": "Jun18 380/370 bull put spread bought back pre-expiry. Post-FOMC MSFT fell through the 380 short strike (375), so closed to avoid assignment of 100 shares. Entry conditions (IVR/DTE/delta) not captured at open \u2014 first record before auto-capture was in place.",
+      "logged_at": "2026-06-18T15:56:34.947528Z"
+    },
+    {
+      "ticker": "MSFT",
+      "strategy": "PMCC_derisk",
+      "closed": "2026-06-18",
+      "realized_pnl": -1384.81,
+      "exit_reason": "concentration_trim",
+      "notes": "Sold 1x Jan'28 340C LEAP + bought back 1x Dec'26 510C short (paired size-down) to trim MSFT concentration 38.1%->26.5% while below 200-SMA (Strategy \u00a77 accelerated de-risk). Net ~$8.7k credit freed. Realized loss because the 340C LEAP was underwater (cost ~120.6, sold ~95) as MSFT fell post-FOMC. Coverage ratio preserved (3 long:4 short). Dutch Box 3 = no tax friction.",
+      "logged_at": "2026-06-18T16:25:02.785314Z"
+    }
+  ],
+  "updated_at": "2026-06-18T16:25:02.786935Z"
+}

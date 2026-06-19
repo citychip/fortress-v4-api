@@ -1,0 +1,41 @@
+{
+  "events": [
+    {
+      "label": "FOMC",
+      "date": "2026-06-17",
+      "impact": "high",
+      "note": "Rate decision + dot plot (Warsh chair). Defer new premium-selling entries until it clears."
+    },
+    {
+      "label": "PCE (May)",
+      "date": "2026-06-25",
+      "impact": "high",
+      "note": "Fed's preferred inflation gauge (Personal Income & Outlays)"
+    },
+    {
+      "label": "NFP (Jun)",
+      "date": "2026-07-02",
+      "impact": "high",
+      "note": "Employment Situation; released Thu ahead of Jul 4 holiday"
+    },
+    {
+      "label": "CPI (Jun)",
+      "date": "2026-07-14",
+      "impact": "high",
+      "note": "Consumer inflation"
+    },
+    {
+      "label": "PPI (Jun)",
+      "date": "2026-07-15",
+      "impact": "high",
+      "note": "Producer inflation"
+    },
+    {
+      "label": "FOMC",
+      "date": "2026-07-29",
+      "impact": "high",
+      "note": "Rate decision (no dot plot)"
+    }
+  ],
+  "updated_at": "2026-06-16T15:03:08.369460Z"
+}

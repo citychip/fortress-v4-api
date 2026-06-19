@@ -75,3 +75,9 @@ app/static/index.html
 
 # Quant workflow outputs
 quant/*.md
+
+# stale backups
+*.pre-ibkr-bak
+# transient runtime state (regenerated each session)
+data/iv_history.json
+quant/pending_orders.json
