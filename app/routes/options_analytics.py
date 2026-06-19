@@ -1161,3 +1161,84 @@ def get_contract_price(
     except Exception as e:
         logger.error("Contract price error %s %s%s %s: %s", ticker, strike, right_up, expiry, e, exc_info=True)
         return {"error": str(e), "ticker": ticker}
+
+
+# ── Gateway-down integrity guard ──────────────────────────────────────────────
+# The briefing's `staleness` field can falsely read "fresh" when the IBKR CP
+# Gateway is actually down — the last good sync timestamp lingers, so a frozen
+# feed looks current (Handoff Step 0 / DATA_SOURCES.md). This route is the
+# honest signal: it live-probes the gateway right now and reports whether
+# real-time data is flowing, so the UI can badge LIVE vs FALLBACK vs DOWN and
+# the operator never trades on frozen numbers.
+
+_INTEGRITY_PROBE_TICKER = "SPY"   # most liquid — if its snapshot fails, the gateway is effectively down
+
+
+@router.get("/data-integrity")
+def get_data_integrity(
+    probe_ticker: str = Query(default=_INTEGRITY_PROBE_TICKER,
+                              description="Ticker used for the live gateway probe (default SPY)."),
+):
+    """
+    Authoritative live / fallback / down verdict for the market-data backbone.
+
+    Performs a real-time IBKR CP Gateway snapshot probe instead of trusting the
+    briefing `staleness` field (which lingers "fresh" after the gateway dies).
+    Consumed by the Parapet source badge at the top of the UI.
+
+    Returns:
+      integrity    : 'live' | 'fallback' | 'down'
+      live         : bool — True only when the gateway returned a real-time quote
+      source       : 'ibkr' | 'yfinance' | 'none' — feed actually serving data
+      delayed      : bool — True on the ~15-min-delayed yfinance fallback
+      probe_ticker, spot, checked_at, message
+    """
+    probe = (probe_ticker or _INTEGRITY_PROBE_TICKER).upper()
+    checked_at = _utcnow()
+
+    # 1. Live gateway probe — the honest signal (bypasses staleness entirely).
+    try:
+        ib_spot = _try_ibkr_spot(probe)
+    except Exception:
+        ib_spot = None
+    if ib_spot and ib_spot > 0:
+        return {
+            "integrity": "live",
+            "live": True,
+            "source": "ibkr",
+            "delayed": False,
+            "probe_ticker": probe,
+            "spot": round(float(ib_spot), 2),
+            "checked_at": checked_at,
+            "message": "IBKR CP Gateway live — real-time data flowing.",
+        }
+
+    # 2. Gateway not serving → can yfinance still answer? (degraded but usable)
+    try:
+        yf_spot = _spot(yf.Ticker(probe))
+    except Exception:
+        yf_spot = None
+    if yf_spot and yf_spot > 0:
+        return {
+            "integrity": "fallback",
+            "live": False,
+            "source": "yfinance",
+            "delayed": True,
+            "probe_ticker": probe,
+            "spot": round(float(yf_spot), 2),
+            "checked_at": checked_at,
+            "message": ("IBKR gateway DOWN — serving ~15-min-delayed yfinance "
+                        "data. Do not trade on these numbers; restart cp-gateway."),
+        }
+
+    # 3. Nothing is answering.
+    return {
+        "integrity": "down",
+        "live": False,
+        "source": "none",
+        "delayed": True,
+        "probe_ticker": probe,
+        "spot": None,
+        "checked_at": checked_at,
+        "message": "No market-data backend responding (gateway and yfinance both failed).",
+    }
