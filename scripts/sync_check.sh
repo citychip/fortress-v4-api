@@ -8,13 +8,20 @@
 # This script content-diffs every known OneDrive source file against its repo
 # destination, then prints per-repo git sync status. Run it at every session wrap.
 #
-# Convention: any NEW script created in OneDrive must be added to the MAP below
-# (and ideally to deploy_data_sources.sh) so it can never silently miss GitHub.
+# Convention: any NEW backend script created in OneDrive must be added to the MAP
+# below (and ideally to deploy_data_sources.sh) so it can never silently miss
+# GitHub. Parapet frontend files are tracked AUTOMATICALLY — the Parapet section
+# below derives its file list from deploy_parapet.sh's FILES=() array, so any
+# file you add to that deploy list is drift-checked here with no second list to
+# maintain. (Add new Parapet files to deploy_parapet.sh's FILES and you're done.)
 
 set -u
 SRC=/mnt/c/Users/cityc.000/OneDrive/_Stocks26/2606Fortress
 API=~/fortress-v4-api
 MCP=~/fortress-mcp
+PARA_SRC=$SRC/fortress-parapet      # OneDrive dev/edit copy
+PARA_REPO=~/fortress-parapet        # WSL repo (what pushes to GitHub)
+DEPLOY_PARAPET=$SRC/deploy_parapet.sh
 
 # OneDrive-relative-path : repo-destination-path
 MAP=(
@@ -37,6 +44,27 @@ for pair in "${MAP[@]}"; do
   else                                          echo "  ✗ DIFFERS        : $s  → needs copy + commit"; drift=1
   fi
 done
+
+echo ""
+echo "── Parapet drift (OneDrive → WSL repo; file list from deploy_parapet.sh) ──"
+# Extract the quoted entries from deploy_parapet.sh's FILES=( ... ) array so this
+# check always tracks exactly what the deploy copies — no second list to drift.
+mapfile -t PARAPET_FILES < <(
+  awk '/^FILES=\(/{f=1;next} f&&/^\)/{exit} f{gsub(/[" \t]/,"");if($0!="")print}' "$DEPLOY_PARAPET" 2>/dev/null
+)
+if [ ! -f "$DEPLOY_PARAPET" ]; then
+  echo "  ⚠ deploy_parapet.sh not found at $DEPLOY_PARAPET — cannot derive file list"; drift=1
+elif [ "${#PARAPET_FILES[@]}" -eq 0 ]; then
+  echo "  ⚠ could not parse FILES=() from deploy_parapet.sh — check its format"; drift=1
+else
+  for f in "${PARAPET_FILES[@]}"; do
+    if   [ ! -f "$PARA_SRC/$f" ];                            then echo "  ⚠ SRC MISSING    : $f"; drift=1
+    elif [ ! -f "$PARA_REPO/$f" ];                           then echo "  ⚠ MISSING IN REPO: $f  (expected $PARA_REPO/$f)"; drift=1
+    elif diff -q "$PARA_SRC/$f" "$PARA_REPO/$f" >/dev/null;  then echo "  ✓ in sync         : $f"
+    else                                                          echo "  ✗ DIFFERS         : $f  → run deploy_parapet.sh + commit"; drift=1
+    fi
+  done
+fi
 
 echo ""
 echo "── Repo git status (ahead/behind origin + working tree) ──"
