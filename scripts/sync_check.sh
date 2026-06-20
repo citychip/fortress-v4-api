@@ -32,6 +32,10 @@ MAP=(
   "snapshot_iv.sh:$API/scripts/snapshot_iv.sh"
   "test_ibkr_oauth.py:$API/scripts/test_ibkr_oauth.py"
   "fortress_mcp_v452.py:$MCP/fortress_mcp.py"
+  # Live MCP the desktop plugin actually runs (Windows path, NOT the repo copy).
+  # Tracked so an MCP code change can't reach git+repo yet miss the runtime the
+  # connector launches. Added 2026-06-20 with the file-preferred token loader.
+  "fortress_mcp_v452.py:/mnt/c/Users/cityc.000/fortress_mcp/fortress_mcp.py"
   "sync_check.sh:$API/scripts/sync_check.sh"
   # Sprint 0 (2026-06-19): out-of-mount backend route/service files pulled into
   # OneDrive so pretrade_check / regime / strategy_metrics / pacing are now
