@@ -517,7 +517,7 @@ def get_vol_skew(
 def check_liquidity(
     ticker: str,
     expiry: str = Query(default=None, description="Expiry YYYY-MM-DD. Defaults to nearest 21-60 DTE."),
-    moneyness_range: float = Query(default=0.15, description="Strike range from spot (default 15%)"),
+    moneyness_range: float = Query(default=0.20, description="Strike range from spot (default 20% — wide enough to reach the ~0.20Δ short legs on both wings)"),
 ):
     """
     Advisory bid-ask spread quality check for a ticker's options chain.
@@ -578,7 +578,7 @@ def check_liquidity(
         source = "yfinance"
         call_data: list = []
         put_data:  list = []
-        ib = _try_ibkr_quotes(ticker, spot, chosen_exp, n_strikes=24)
+        ib = _try_ibkr_quotes(ticker, spot, chosen_exp, n_strikes=32)
         if ib and ib.get("n_live", 0) >= 4:
             for (k, right), q in ib["quotes"].items():
                 if not (lo <= k <= hi):
@@ -611,11 +611,60 @@ def check_liquidity(
         if not all_data:
             return {"error": "No strikes with valid bid/ask in range", "ticker": ticker, "expiry": chosen_exp}
 
+        # ── Short-leg (OTM) liquidity — the strikes actually sold (~0.20Δ) ──────
+        # The old flat-band grade was dominated by tight near-spot strikes (ATM
+        # clustering): a chain could grade 'A' while the 0.20Δ leg you'd actually
+        # sell was 'wide'. Fix: attach a BS delta to every strike (a single ATM
+        # IV is plenty for *selection*), grade the short legs with the same
+        # _spread_grade thresholds get_contract_price uses, and base the headline
+        # grade on the OTM tradeable zone (|Δ| ≤ 0.35). Falls back to the legacy
+        # all-strikes grade when IV/delta is unavailable.
+        sigma = None
+        ib_iv = _try_ibkr_atm_iv(ticker, spot, chosen_exp)
+        if ib_iv and ib_iv.get("iv"):
+            v = float(ib_iv["iv"]); sigma = v / 100.0 if v > 1 else v
+        if not sigma or sigma <= 0:
+            a = _atm_iv(t, spot)
+            if a and a[0]:
+                sigma = a[0] / 100.0
+        T = max(dte, 1) / 365.0
+
+        for r in call_data:
+            r["delta"] = round(_bs_delta(spot, r["strike"], T, sigma, "call"), 3) if sigma else None
+        for r in put_data:
+            r["delta"] = round(_bs_delta(spot, r["strike"], T, sigma, "put"), 3) if sigma else None
+
+        def _short_leg(rows, target=0.20):
+            cand = [r for r in rows if r.get("delta") is not None]
+            if not cand:
+                return None
+            p = min(cand, key=lambda r: abs(abs(r["delta"]) - target))
+            return {"strike": p["strike"], "delta": p["delta"],
+                    "spread_pct": p["spread_pct"], "status": p["status"]}
+
+        short_call = _short_leg(call_data)
+        short_put  = _short_leg(put_data)
+
+        sl = [x["spread_pct"] for x in (short_put, short_call) if x and x["spread_pct"] is not None]
+        tradeable_spread_pct = round(max(sl), 1) if sl else None   # worst short-leg = what you'll face
+        tradeable_status = (
+            "good" if tradeable_spread_pct < 5 else "advisory" if tradeable_spread_pct <= 10 else "wide"
+        ) if tradeable_spread_pct is not None else None
+
+        # ── Grading ────────────────────────────────────────────────────────────
         good     = sum(1 for s in all_data if s["status"] == "good")
         advisory = sum(1 for s in all_data if s["status"] == "advisory")
         wide     = sum(1 for s in all_data if s["status"] == "wide")
         total    = len(all_data)
-        good_pct = good / total if total else 0
+
+        tradeable = [s for s in all_data if s.get("delta") is not None and abs(s["delta"]) <= 0.35]
+        if len(tradeable) >= 3:
+            graded, grade_basis = tradeable, "otm_tradeable"
+        else:
+            graded, grade_basis = all_data, ("all_strikes" if sigma else "all_strikes_no_iv")
+        g_total  = len(graded)
+        g_good   = sum(1 for s in graded if s["status"] == "good")
+        good_pct = g_good / g_total if g_total else 0
         grade    = "A" if good_pct >= 0.80 else "B" if good_pct >= 0.60 else "C" if good_pct >= 0.40 else "D"
 
         atm_call = min(call_data, key=lambda s: abs(s["strike"] - spot), default=None)
@@ -628,15 +677,21 @@ def check_liquidity(
             "spot":            round(spot, 2),
             "expiry":          chosen_exp,
             "dte":             dte,
-            "liquidity_grade": grade,
-            "atm_spread_pct":  atm_spread_pct,
+            "liquidity_grade": grade,           # now graded on the OTM tradeable zone
+            "grade_basis":     grade_basis,     # 'otm_tradeable' | 'all_strikes' | 'all_strikes_no_iv'
+            "atm_spread_pct":  atm_spread_pct,  # ATM reference (kept for back-compat)
             "atm_advisory":    (atm_spread_pct or 0) >= 5,
+            "tradeable_spread_pct": tradeable_spread_pct,   # worst ~0.20Δ short-leg spread
+            "tradeable_status":     tradeable_status,
+            "short_leg":       {"put": short_put, "call": short_call},
             "summary": {
-                "total":    total,
-                "good":     good,
-                "advisory": advisory,
-                "wide":     wide,
-                "good_pct": round(good_pct * 100, 1),
+                "total":             total,
+                "good":              good,
+                "advisory":          advisory,
+                "wide":              wide,
+                "good_pct":          round((good / total * 100) if total else 0, 1),
+                "tradeable_strikes": len(tradeable),
+                "graded_on":         grade_basis,
             },
             "strikes": sorted(all_data, key=lambda s: (s["strike"], s["right"])),
             "source":  source,
