@@ -56,6 +56,8 @@ git -C ~/fortress-parapet remote set-url origin https://citychip:$(cat ~/.pat)@g
 
 **API token:** stored untracked in WSL `~/.fortress_api_token` (single line, no quotes) and in the systemd unit's `FORTRESS_API_TOKEN`. Scripts read it via `TOKEN=$(cat ~/.fortress_api_token)`. **Never paste the literal token into any tracked file.**
 
+> **2026-06-20 — MCP connector is now file-driven (token loader rewrite).** `fortress_mcp.py` resolves its bearer token via `_resolve_api_token()`, which **prefers `~/.fortress_api_token` over the `FORTRESS_API_TOKEN` env var**. Because the desktop plugin launches the MCP as a *Windows* Python process (`C:\Users\cityc.000\fortress_mcp\fortress_mcp.py`), its home is `%USERPROFILE%`, so it reads **`C:\Users\cityc.000\.fortress_api_token`** (a Windows-side copy of the WSL secret). This neutralizes the old failure mode where the plugin's **per-session** `…\rpm\plugin_*\.mcp.json` (regenerated each session from the install source) injected a *stale* token and 401'd the connector even after `claude_desktop_config.json` was fixed. The connector now ignores whatever `.mcp.json` injects. **Net effect on rotation: drop steps 3 + 4 below from the critical path; instead update the Windows token file (one `cp`).** The live Windows MCP copy is drift-tracked in `sync_check.sh` (maps `fortress_mcp_v452.py` → `/mnt/c/Users/cityc.000/fortress_mcp/fortress_mcp.py`).
+
 **Token-rotation runbook** (do this if the token is ever exposed, or on a routine cycle). The token lives in **5 places** — all must move together: (1) backend systemd unit, (2) `~/.fortress_api_token`, (3) packaged-app `claude_desktop_config.json`, (4) OneDrive config backup, (5) the Parapet build (Vite inlines `VITE_API_TOKEN` at build time → must rebuild). A 401 in Parapet (`localhost:4000`) after rotation = step 5 was missed.
 ```bash
 # 1. Generate + set on the backend (systemd), then reload + restart
@@ -63,14 +65,16 @@ NEW=$(openssl rand -hex 32)
 sudo sed -i "s|FORTRESS_API_TOKEN=[^ \"]*|FORTRESS_API_TOKEN=$NEW|" /etc/systemd/system/fortress-dashboard-v4.service
 sudo systemctl daemon-reload && sudo systemctl restart fortress-dashboard-v4 && sleep 3
 
-# 2. Update the untracked WSL secret file
-printf '%s' "$NEW" > ~/.fortress_api_token   # no trailing newline
+# 2. Update the untracked secret files — BOTH the WSL one AND the Windows copy
+#    the MCP reads (file-preferred loader, 2026-06-20). One source, two locations.
+printf '%s' "$NEW" > ~/.fortress_api_token                         # WSL: backend scripts + MCP-in-WSL
+printf '%s' "$NEW" > /mnt/c/Users/cityc.000/.fortress_api_token    # Windows: the desktop plugin's MCP
 
 # 3. Verify: new token works, old token is dead
 curl -s http://localhost:8081/api/briefing -H "Authorization: Bearer $(cat ~/.fortress_api_token)" | head -c 120; echo
 curl -s -o /dev/null -w "old => HTTP %{http_code}\n" http://localhost:8081/api/briefing -H "Authorization: Bearer <OLD_TOKEN>"  # expect 401
 ```
-4. **Desktop app (Cowork) — live MCP launcher config (4th place):** the connector reads `env.FORTRESS_API_TOKEN` from the **packaged-app** `claude_desktop_config.json` (NOT the OneDrive copy — that's only a backup the app does not read, though keep it in sync). Live path:
+4. **Desktop app (Cowork) — live MCP launcher config (4th place) — ⚠ NO LONGER REQUIRED since 2026-06-20** (the MCP is file-driven; keep this only as a belt-and-suspenders / for older builds): the connector reads `env.FORTRESS_API_TOKEN` from the **packaged-app** `claude_desktop_config.json` (NOT the OneDrive copy — that's only a backup the app does not read, though keep it in sync). Live path:
    `C:\Users\cityc.000\AppData\Local\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\claude_desktop_config.json`
    ```bash
    LIVE="/mnt/c/Users/cityc.000/AppData/Local/Packages/Claude_pzs8sxrjxfjjc/LocalCache/Roaming/Claude/claude_desktop_config.json"

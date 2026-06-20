@@ -209,6 +209,8 @@ short call expiring after the ex-div date, flag early-assignment risk.
 
 Verified 2026-06-16: FMP `dividends-calendar` works on the current tier (only `economics` is paywalled). Rule of thumb: **only ITM calls carry real dividend-capture risk** — deep-OTM short calls (e.g. the current MSFT 490/510) are safe regardless of ex-div. Non-dividend names (AMZN, GOOGL, NVDA, META) are never at ex-div risk. No action needed when no held name has an ex-div before its short-call expiry (the case on 2026-06-16).
 
+**Automated since 2026-06-20 (Sprint 15.4):** this check is now codified as a Claude-curated gate (same pattern as the catalyst gate). Curate the upcoming ex-div dates from FMP for the held dividend-paying names, then push them in: `set_ex_div_events([{ticker, ex_date, amount?}, ...])` (write). `get_ex_div()` then cross-references the **live short-call legs** and returns `assignment_risks[]` (severity `high`=ITM / `watch`=near-ITM) with `has_assignment_risk` — deep-OTM and non-dividend names never flag. Run `set_ex_div_events` ~weekly (or when a new dividend-payer short call is opened); `get_ex_div` is cheap to call in the daily briefing.
+
 ## Key Claude Commands
 
 ```

@@ -100,15 +100,17 @@ Since Sprint 13 (#80), Parapet reads these live — no hardcoded copies.
 | Pending orders + IBKR status | Approval workflow | Backend order store + IBKR | `/api/orders/pending` | Triage (read-only; approve via Claude MCP) |
 | Forward P&L curve, breakevens, max P/L | Exit planning, IV-crush scenario | Backend BS model | `/api/options/forward-pnl` | Positions > Risk |
 
-> ⚠ **`strategy_metrics` runs on placeholder vol (verified 2026-06-15).** Its IV/IVR/regime/DTE
-> inputs returned hardcoded defaults (IV 30 / IVR 50 / regime "neutral" / DTE 999) for TER, AMD,
-> META, V — NOT the live `get_iv_rank` values. Its estimated credit / POP / annualized-yield
-> figures are therefore unreliable for sizing. Use it only for the regime-fit *strategy ranking*;
-> for actual credit and POP, cross-check `get_iv_rank(ticker)` + a live chain (quantdata/massive).
+> ✅ **`strategy_metrics` vol FIXED 2026-06-20 (Sprint 15.1).** IV/IVR now come from `get_iv_rank`
+> (IBKR-first) and DTE from `state.days_to_earnings` — the old hardcoded IV30/IVR50/DTE999
+> defaults are gone (root cause: a wrong-module import that always threw + an intel payload that
+> never emitted those keys). The payload now carries `vol_source` (`ibkr`/`bs_inversion`/`hv_proxy`
+> = real; `placeholder` = fallback only). Credit/POP/IVR are trustworthy. ⚠ **`regime` is still the
+> `neutral` placeholder** until Sprint 15.3 wires the real regime read — so `regime_score` ranking
+> is not yet meaningful; treat strategy ordering as provisional until then.
 
 ---
 
-## Reliability ledger (as of 2026-06-16)
+## Reliability ledger (as of 2026-06-20)
 
 | Source | Status |
 |---|---|
@@ -116,6 +118,8 @@ Since Sprint 13 (#80), Parapet reads these live — no hardcoded copies.
 | **Gateway-down silent fallback** | ⚠ when CP Gateway drops, backend silently serves a FROZEN snapshot on `bs_yfinance` but `staleness.state` still reads "fresh" — data looks live while stuck at last good `synced_at`. `retry_ibkr_sync()` does NOT fix a 401/iBeam-auth failure (re-runs on stale fallback). Confirm with `get_ibkr_status` (look for `active_backend`); fix = iBeam restart (`docker restart cp-gateway` / Parapet Reconnect), not a sync retry. Hit + recovered 2026-06-15. **✅ Now guarded (2026-06-19):** `GET /api/data-integrity` live-probes the gateway and the Parapet top-bar badge shows live/fallback/down — the false-fresh staleness no longer hides a dead gateway |
 | Pacing counter (entries/week) | ⚠ only increments on Fortress-staged orders — manual IBKR fills are NOT counted (showed 0/5 after 4 manual fills 2026-06-15). Track manual entries yourself |
 | `get_gex` / `get_vol_skew` / `check_liquidity` routes | ✅ NaN-in-JSON 500 fixed 2026-06-16 (`_f()` NaN/Inf guard + finite-skip; was: AAPL/TER/V 500s on yfinance NaN OI/bid/ask). get_gex verified live V/AAPL. `check_liquidity` trap was latent (fires only on yfinance fallback when gateway down) — now guarded |
+| `check_liquidity` grade basis | ✅ **Fixed 2026-06-20 (Sprint 15.2):** was a flat ±15% band where tight ATM strikes inflated the grade. Now attaches a BS delta per strike, grades the OTM tradeable zone (\|Δ\|≤0.35), and reports the actual ~0.20Δ `short_leg` spreads + `tradeable_spread_pct` (the worst short-leg you'd face). Read those, not just `atm_spread_pct`. Falls back to the legacy all-strikes grade when IV/delta unavailable (`grade_basis` says which) |
+| `get_ex_div` ex-div assignment gate | ✅ **NEW 2026-06-20 (Sprint 15.4):** Claude-curated store (`set_ex_div_events` from FMP) cross-referenced against live short calls; flags ITM/near-ITM with ex-div ≤ expiry. Advisory only; deep-OTM/non-dividend never flag. Store empty until curated (`stale:true`) |
 | **IBKR CP marketdata snapshot** (spot 31, bid/ask 84/86, IV 7633/7283 via `ibkr_marketdata.py`) | ✅ live primary for alert spot, liquidity, IV rank, skew (verified Jun 10). Computed IV fields need polling — handled. 0DTE dailies may not yield IV → falls back |
 | yfinance lastPrice + price history | ✅ good (delayed ~15m) — fallback + structural source (expiries, strikes, OI, history) |
 | yfinance IV column | ❌ never trusted — eliminated from ALL paths since v1.1 (sanity-banded or BS-inverted) |
