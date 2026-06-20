@@ -1014,6 +1014,201 @@ def set_macro_events(payload: dict):
         return {"error": str(e), "ok": False}
 
 
+# ── Ex-dividend assignment-risk gate (Sprint 15.4, 2026-06-20) ────────────────
+# Early assignment on a SHORT CALL spikes when it's ITM near an ex-dividend date
+# (the counterparty exercises early to capture the dividend). The backend has no
+# FMP credentials, so Claude curates the ex-div calendar from FMP's
+# dividends-calendar and pushes it here via set_ex_div_events — the same
+# Claude-curated store pattern as macro_events / earnings_blocklist. The backend
+# stores it and cross-references the LIVE short-call legs: ITM (spot ≥ strike)
+# with an ex-div on/before expiry = 'high' assignment risk; within near_itm_pct
+# below the strike = 'watch'. Deep-OTM calls and non-dividend names never flag.
+# Advisory only — never blocks (Strategy §15.1).
+
+EX_DIV_EVENTS_PATH = os.environ.get(
+    "FORTRESS_EX_DIV_EVENTS",
+    os.path.expanduser("~/fortress-v4-api/data/ex_div_events.json"),
+)
+NEAR_ITM_PCT_DEFAULT = 0.02   # within 2% below the strike → near-ITM 'watch'
+
+
+def _load_ex_div_events() -> dict:
+    try:
+        with open(EX_DIV_EVENTS_PATH) as f:
+            return json.load(f)
+    except Exception:
+        return {"events": [], "updated_at": None}
+
+
+def _save_ex_div_events(payload: dict) -> None:
+    os.makedirs(os.path.dirname(EX_DIV_EVENTS_PATH), exist_ok=True)
+    with open(EX_DIV_EVENTS_PATH, "w") as f:
+        json.dump(payload, f, indent=2)
+
+
+def _live_positions() -> dict | None:
+    """Per-leg live book (incl. expiry + bs_inputs.spot). Best-effort; None on failure."""
+    try:
+        from app.routes import positions as _posmod
+        fn = getattr(_posmod, "get_positions", None) or getattr(_posmod, "list_positions", None)
+        if not fn:
+            return None
+        try:
+            return fn(aggregated=False)
+        except TypeError:
+            return fn()
+    except Exception as e:
+        logger.debug("live positions unavailable for ex-div gate: %s", e)
+        return None
+
+
+def _short_calls_from_positions() -> list[dict]:
+    data = _live_positions()
+    if not isinstance(data, dict):
+        return []
+    out = []
+    for p in data.get("positions", []):
+        if p.get("sec_type") != "OPT" or str(p.get("right") or "").upper() != "C":
+            continue
+        if float(p.get("qty") or 0) >= 0:   # short only
+            continue
+        bi = p.get("bs_inputs") or {}
+        spot = bi.get("spot")
+        if not spot:
+            spot = _try_ibkr_spot(str(p.get("ticker") or "").upper())
+        out.append({
+            "ticker": str(p.get("ticker") or "").upper(),
+            "strike": float(p.get("strike") or 0),
+            "expiry": p.get("expiry"),
+            "qty":    float(p.get("qty") or 0),
+            "spot":   float(spot) if spot else None,
+        })
+    return out
+
+
+@router.get("/options/ex-div")
+def get_ex_div(near_itm_pct: float = Query(default=NEAR_ITM_PCT_DEFAULT, ge=0.0, le=0.2)):
+    """
+    Ex-dividend assignment-risk gate for short calls (Strategy §4). Reads the
+    Claude-curated ex-div store, then cross-references the live short-call legs:
+    a call that is ITM/near-ITM with an ex-div on/before its expiry is flagged
+    for early-assignment (dividend-capture) risk. Advisory only — never blocks.
+
+    Returns:
+      events[]            : {ticker, ex_date, days_until, amount, note}
+      assignment_risks[]  : {ticker, strike, expiry, spot, ex_date, ex_days_until,
+                             dividend, moneyness_pct, severity 'high'|'watch', note}
+      has_assignment_risk : bool
+      near_itm_pct, updated_at, stale, source, as_of
+    """
+    try:
+        store = _load_ex_div_events()
+        today = date.today()
+        by_ticker: dict = {}
+        events_out = []
+        for ev in store.get("events", []):
+            tk = str(ev.get("ticker", "")).upper()
+            d_str = ev.get("ex_date") or ev.get("date")
+            try:
+                d = date.fromisoformat(d_str)
+            except Exception:
+                continue
+            days = (d - today).days
+            if days < 0:
+                continue   # past — pruned on read
+            row = {"ticker": tk, "ex_date": d_str, "days_until": days,
+                   "amount": ev.get("amount"), "note": ev.get("note")}
+            events_out.append(row)
+            by_ticker.setdefault(tk, []).append((d, row))
+        events_out.sort(key=lambda e: e["days_until"])
+
+        risks = []
+        for sc in _short_calls_from_positions():
+            tk, spot, strike, exp = sc["ticker"], sc["spot"], sc["strike"], sc["expiry"]
+            if tk not in by_ticker or not spot or not strike or not exp:
+                continue
+            try:
+                exp_d = date.fromisoformat(exp)
+            except Exception:
+                continue
+            relevant = [r for (d, r) in by_ticker[tk] if d <= exp_d]
+            if not relevant:
+                continue
+            nearest = min(relevant, key=lambda r: r["days_until"])
+            if spot >= strike:
+                sev = "high"
+            elif spot >= strike * (1 - near_itm_pct):
+                sev = "watch"
+            else:
+                continue   # safely OTM
+            risks.append({
+                "ticker": tk, "strike": strike, "expiry": exp, "spot": round(spot, 2),
+                "ex_date": nearest["ex_date"], "ex_days_until": nearest["days_until"],
+                "dividend": nearest.get("amount"),
+                "moneyness_pct": round((spot - strike) / strike * 100, 2),
+                "severity": sev,
+                "note": (
+                    f"Short {tk} {strike:.0f}C is {'ITM' if sev == 'high' else 'near-ITM'} "
+                    f"with ex-div {nearest['ex_date']} on/before expiry {exp} — early-assignment "
+                    f"(dividend-capture) risk; consider rolling up/out before ex-div."
+                ),
+            })
+        risks.sort(key=lambda r: (r["severity"] != "high", r["ex_days_until"]))
+
+        return {
+            "events": events_out,
+            "assignment_risks": risks,
+            "has_assignment_risk": bool(risks),
+            "near_itm_pct": near_itm_pct,
+            "updated_at": store.get("updated_at"),
+            "stale": store.get("updated_at") is None,
+            "source": "claude_curated",
+            "as_of": _utcnow(),
+        }
+    except Exception as e:
+        logger.error("Ex-div gate error: %s", e, exc_info=True)
+        return {"error": str(e), "events": [], "assignment_risks": [], "has_assignment_risk": False}
+
+
+@router.post("/options/ex-div")
+def set_ex_div(payload: dict):
+    """
+    Replace the ex-dividend store. Body: {"events": [{ticker, ex_date 'YYYY-MM-DD',
+    amount?, note?}, ...]}. Claude curates from FMP's dividends-calendar via the
+    MCP set_ex_div_events write tool. Invalid/dateless rows are dropped; past
+    events are pruned on read.
+    """
+    try:
+        events = payload.get("events", []) if isinstance(payload, dict) else []
+        clean = []
+        for ev in events:
+            if not isinstance(ev, dict):
+                continue
+            tk = str(ev.get("ticker", "")).strip().upper()
+            d_str = str(ev.get("ex_date", ev.get("date", ""))).strip()
+            if not tk or not d_str:
+                continue
+            try:
+                date.fromisoformat(d_str)
+            except Exception:
+                continue
+            rec = {"ticker": tk, "ex_date": d_str}
+            if ev.get("amount") is not None:
+                try:
+                    rec["amount"] = float(ev["amount"])
+                except Exception:
+                    pass
+            if ev.get("note"):
+                rec["note"] = str(ev["note"])
+            clean.append(rec)
+        store = {"events": clean, "updated_at": _utcnow()}
+        _save_ex_div_events(store)
+        return {"ok": True, "stored": len(clean), "updated_at": store["updated_at"]}
+    except Exception as e:
+        logger.error("Ex-div save error: %s", e, exc_info=True)
+        return {"error": str(e), "ok": False}
+
+
 # ── VIX term structure (premium-selling regime input, 2026-06-16) ─────────────
 # Spot VIX vs VIX3M (3-month). For a net premium seller the *shape* of the curve
 # is a cleaner regime light than VIX level alone:

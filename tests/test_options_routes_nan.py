@@ -143,6 +143,12 @@ def test_contract_price_nan_safe(monkeypatch):
     _assert_wire_safe("get_contract_price", oa.get_contract_price("AAPL", 100.0, "2026-07-17", "C"))
 
 
+def test_ex_div_nan_safe(monkeypatch):
+    # store-backed + position cross-ref route — confirm it serializes cleanly
+    # (empty store / no positions still returns a clean, wire-safe payload)
+    _assert_wire_safe("get_ex_div", oa.get_ex_div(0.02))
+
+
 if __name__ == "__main__":
     import sys
     _patch(None)
@@ -154,6 +160,7 @@ if __name__ == "__main__":
         ("get_macro_events", lambda: oa.get_macro_events(2)),
         ("get_trade_outcomes", lambda: oa.get_trade_outcomes()),
         ("get_contract_price", lambda: oa.get_contract_price("AAPL", 100.0, "2026-07-17", "C")),
+        ("get_ex_div",         lambda: oa.get_ex_div(0.02)),
     ]:
         try:
             _assert_wire_safe(name, fn())
