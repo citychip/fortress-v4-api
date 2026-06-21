@@ -48,6 +48,152 @@ def _parse_price(v) -> Optional[float]:
         return None
 
 
+def _parse_trade_time(v) -> Optional[str]:
+    """CP /iserver/account/trades `trade_time` arrives as 'YYYYMMDD-HH:MM:SS'
+    (UTC). Normalize to ISO-8601 UTC. `trade_time_r` (epoch ms) is used as a
+    fallback. Returns None if unparseable."""
+    import datetime as _dt
+    if v in (None, "", 0):
+        return None
+    s = str(v).strip()
+    # Epoch milliseconds?
+    if s.isdigit() and len(s) >= 12:
+        try:
+            return _dt.datetime.fromtimestamp(int(s) / 1000, _dt.timezone.utc).isoformat()
+        except Exception:
+            return None
+    # 'YYYYMMDD-HH:MM:SS'
+    try:
+        d = _dt.datetime.strptime(s, "%Y%m%d-%H:%M:%S").replace(tzinfo=_dt.timezone.utc)
+        return d.isoformat()
+    except Exception:
+        pass
+    try:  # already ISO-ish
+        return _dt.datetime.fromisoformat(s.replace("Z", "+00:00")).isoformat()
+    except Exception:
+        return None
+
+
+# ── Sprint 16 keystone: recent executions (fills) reader ──────────────────────
+# Self-contained GET against the CP Gateway (iBeam) /iserver/account/trades
+# endpoint, which returns up to the last 7 days of executions. We hit the gateway
+# directly (config strategy: cp_gateway_url) rather than the out-of-mount
+# ibkr_web client, so this stays inspectable and dependency-free. Same failure
+# contract as the rest of this module: returns None on ANY failure → callers
+# degrade gracefully (pacing falls back to journal-only, entry-capture skips).
+
+_FILLS_CACHE: dict = {}      # 'all' → (ts, fills)
+_FILLS_TTL_S = 120
+
+
+def _norm_side(v) -> Optional[str]:
+    """Normalize IBKR side to 'BUY'|'SELL'. Accepts B/S, BOT/SLD, BUY/SELL."""
+    if v is None:
+        return None
+    s = str(v).strip().upper()
+    if s in ("B", "BOT", "BUY"):
+        return "BUY"
+    if s in ("S", "SLD", "SELL"):
+        return "SELL"
+    return None
+
+
+def _parse_opt_from_desc(desc: str) -> dict:
+    """Best-effort parse of strike/expiry/right from an IBKR option description
+    like 'MSFT JAN16'26 490 CALL' or 'MSFT 26JAN26 490 C'. Returns {} if it
+    can't — callers must tolerate missing fields."""
+    out: dict = {}
+    if not desc:
+        return out
+    s = str(desc).upper()
+    m = re.search(r"\b(\d{2,5}(?:\.\d+)?)\s*(C|P|CALL|PUT)\b", s)
+    if m:
+        try:
+            out["strike"] = float(m.group(1))
+        except ValueError:
+            pass
+        out["right"] = "C" if m.group(2).startswith("C") else "P"
+    return out
+
+
+def ibkr_recent_fills(days_back: int = 7) -> Optional[list]:
+    """
+    Recent executions from CP Gateway /iserver/account/trades (last ≤7 days).
+    Returns a list of normalized fills, newest-first:
+        {execution_id, time (ISO UTC), ticker, sec_type, side (BUY|SELL),
+         qty (float), price (float), strike, right, expiry, conid,
+         description, position_after, liquidation, raw}
+    or None on any failure. 120s cache.
+    """
+    now = time.time()
+    hit = _FILLS_CACHE.get("all")
+    if hit and now - hit[0] < _FILLS_TTL_S:
+        return hit[1]
+    try:
+        import requests
+        try:
+            from app.services.config_store import cfg
+            base = cfg("security.cp_gateway_url") or cfg("strategy.cp_gateway_url") \
+                or "https://localhost:5000"
+            verify = bool(cfg("security.cp_gateway_verify_ssl", False))
+            timeout = int(cfg("security.cp_gateway_timeout_s", 15) or 15)
+        except Exception:
+            base, verify, timeout = "https://localhost:5000", False, 15
+        base = base.rstrip("/")
+        url = f"{base}/v1/api/iserver/account/trades"
+        if not verify:
+            try:
+                import urllib3
+                urllib3.disable_warnings()
+            except Exception:
+                pass
+        resp = requests.get(url, params={"days": str(days_back)},
+                            verify=verify, timeout=timeout)
+        resp.raise_for_status()
+        rows = resp.json()
+        if not isinstance(rows, list):
+            return None
+
+        fills = []
+        for r in rows:
+            side = _norm_side(r.get("side"))
+            qty = r.get("size") if r.get("size") is not None else r.get("qty")
+            try:
+                qty = abs(float(qty)) if qty is not None else None
+            except (ValueError, TypeError):
+                qty = None
+            price = _parse_price(r.get("price"))
+            t = _parse_trade_time(r.get("trade_time") or r.get("trade_time_r"))
+            desc = (r.get("order_description") or r.get("contract_description_1")
+                    or r.get("description") or "")
+            sec = (r.get("sec_type") or r.get("secType") or "").upper()
+            opt = _parse_opt_from_desc(desc) if sec in ("OPT", "FOP") else {}
+            fills.append({
+                "execution_id": r.get("execution_id") or r.get("exec_id"),
+                "time": t,
+                "ticker": (r.get("symbol") or r.get("ticker") or "").upper(),
+                "sec_type": sec,
+                "side": side,
+                "qty": qty,
+                "price": price,
+                "strike": opt.get("strike"),
+                "right": opt.get("right"),
+                "expiry": r.get("expiry") or r.get("expiration"),
+                "conid": r.get("conid") or r.get("conidex"),
+                "description": desc,
+                "position_after": r.get("position"),
+                "liquidation": bool(r.get("liquidation_trade")) if r.get("liquidation_trade") is not None else None,
+                "raw": r,
+            })
+        # newest-first by time (None times sink to the bottom)
+        fills.sort(key=lambda f: f["time"] or "", reverse=True)
+        _FILLS_CACHE["all"] = (now, fills)
+        return fills
+    except Exception as e:
+        logger.debug("ibkr_recent_fills failed: %s", e)
+        return None
+
+
 def _parse_iv_pct(v) -> Optional[float]:
     """
     IV fields (7633 / 7283) arrive as '23.4%', 23.4, or decimal 0.234.

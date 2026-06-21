@@ -237,11 +237,34 @@ def compute_pacing(journal: dict) -> dict:
         except ValueError:
             continue
     _max = cfg("strategy.entries_per_week_max", 2)
+    journal_used = len(opens_this_week)
+
+    # Sprint 16.5 — reconcile against the position-diff fill detector, which is
+    # authoritative because it sees MANUAL fills the journal misses (it diffs the
+    # IBKR-synced book, not just Fortress-staged orders). Prefer the position-diff
+    # count when available; fall back to journal-only (prior behaviour, no
+    # regression) when there aren't yet ≥2 snapshots to diff.
+    pd_used = None
+    pd_source = "journal_only"
+    try:
+        from app.routes.options_analytics import weekly_position_opens
+        pd = weekly_position_opens()
+        if pd.get("available"):
+            pd_used = int(pd.get("used", 0))
+            pd_source = "position_diff"
+    except Exception:
+        pass
+
+    used = pd_used if pd_used is not None else journal_used
     return {
         "max_per_week": _max,
-        "used": len(opens_this_week),
-        "remaining": max(0, _max - len(opens_this_week)),
-        "entries_this_week": opens_this_week,
+        "used": used,
+        "remaining": max(0, _max - used),
+        "entries_this_week": opens_this_week,   # journal detail (named entries)
+        # Sprint 16.5 transparency
+        "source": pd_source,
+        "journal_used": journal_used,
+        "position_diff_used": pd_used,
     }
 
 
@@ -469,6 +492,16 @@ def get_briefing():
         reverse=True
     )[:5]
     msft_warning = conc_dict.get("MSFT", 0) >= 50
+
+    # Sprint 16 — capture a daily position snapshot (idempotent per calendar day)
+    # so the position-diff fill detector accrues history. Best-effort: never let a
+    # snapshot failure break the briefing. The scheduled daily briefing means this
+    # runs ~once per trading day automatically; no separate scheduler needed.
+    try:
+        from app.routes.options_analytics import capture_position_snapshot
+        capture_position_snapshot(reason="briefing")
+    except Exception:
+        pass
 
     return {
         "as_of": datetime.now(timezone.utc).isoformat(),

@@ -379,6 +379,104 @@ def list_manageable_positions():
 
 
 # ---------------------------------------------------------------------------
+# Sprint 16.1 — Consolidated advisory layer (macro-defer + VIX-term + ex-div)
+# ---------------------------------------------------------------------------
+# These are ADVISORY sub-flags, deliberately kept separate from the five hard
+# gates: they never change the PROCEED/BLOCKED verdict, they only raise an amber
+# `caution` so Candidates/Triage can surface a "heads-up" chip. Each source is
+# soft-failed independently — a dead route degrades that one flag to `unknown`,
+# never the whole gate. macro_defer and vix_term are market-wide; ex_div is
+# filtered to the requested ticker's short-call legs.
+
+def _market_advisories() -> dict:
+    """Fetch the market-wide advisory inputs ONCE (so the batch endpoint doesn't
+    re-hit them per ticker). Returns the macro_defer + vix_term advisory dicts and
+    an ex-div-risk map keyed by ticker. Each source soft-fails to `unknown`."""
+    # ── Macro binary-event defer ──────────────────────────────────────────────
+    try:
+        from ..routes.options_analytics import get_macro_events
+        m = get_macro_events()
+        if m.get("error"):
+            macro_adv = {"name": "macro_defer", "level": "unknown", "detail": "macro events unavailable"}
+        else:
+            defer = bool(m.get("defer_advisory"))
+            macro_adv = {
+                "name": "macro_defer",
+                "level": "amber" if defer else "ok",
+                "detail": m.get("defer_reason") or "No high-impact macro event in the defer window",
+                "nearest_high_impact": m.get("nearest_high_impact"),
+            }
+    except Exception as e:
+        macro_adv = {"name": "macro_defer", "level": "unknown", "detail": str(e)}
+
+    # ── VIX term-structure ────────────────────────────────────────────────────
+    try:
+        from ..routes.options_analytics import get_vix_term
+        v = get_vix_term()
+        if v.get("error"):
+            vix_adv = {"name": "vix_term", "level": "unknown", "detail": "VIX term unavailable"}
+        else:
+            st = v.get("state")
+            vix_adv = {
+                "name": "vix_term",
+                "level": "amber" if st == "backwardation" else "ok",
+                "detail": v.get("signal") or f"VIX term: {st}",
+                "state": st, "ratio": v.get("ratio"),
+            }
+    except Exception as e:
+        vix_adv = {"name": "vix_term", "level": "unknown", "detail": str(e)}
+
+    # ── Ex-div assignment risk (all tickers in one call) ─────────────────────
+    exdiv_by_ticker: dict[str, list] = {}
+    exdiv_ok = True
+    try:
+        from ..routes.options_analytics import get_ex_div
+        x = get_ex_div()
+        if x.get("error"):
+            exdiv_ok = False
+        else:
+            for r in x.get("assignment_risks", []):
+                exdiv_by_ticker.setdefault(str(r.get("ticker", "")).upper(), []).append(r)
+    except Exception:
+        exdiv_ok = False
+
+    return {"macro": macro_adv, "vix": vix_adv,
+            "exdiv_by_ticker": exdiv_by_ticker, "exdiv_ok": exdiv_ok}
+
+
+def _exdiv_advisory(ticker: str, market: dict) -> dict:
+    """Build the ticker-specific ex-div advisory from prefetched market data."""
+    if not market.get("exdiv_ok"):
+        return {"name": "ex_div", "level": "unknown", "detail": "ex-div store unavailable"}
+    mine = market["exdiv_by_ticker"].get(ticker.upper(), [])
+    if mine:
+        worst = "high" if any(r.get("severity") == "high" for r in mine) else "watch"
+        return {"name": "ex_div", "level": "amber",
+                "detail": mine[0].get("note") or f"{len(mine)} ex-div assignment risk(s) on {ticker}",
+                "severity": worst, "risks": mine}
+    return {"name": "ex_div", "level": "ok",
+            "detail": f"No ex-div assignment risk on {ticker} short calls"}
+
+
+def _pretrade_advisories(ticker: str, market: dict | None = None) -> dict:
+    """Return {advisories:{name:..}, caution:bool, caution_flags:[]} for a ticker.
+
+    level ∈ {ok, amber, unknown}. caution = any amber. Pass `market` (from
+    _market_advisories) to reuse one fetch across many tickers; omit for a single
+    lookup. macro_defer/vix_term are market-wide; ex_div is ticker-specific.
+    """
+    ticker = (ticker or "").upper().strip()
+    if market is None:
+        market = _market_advisories()
+    items = [market["macro"], market["vix"], _exdiv_advisory(ticker, market)]
+    return {
+        "advisories": {a["name"]: a for a in items},
+        "caution": any(a["level"] == "amber" for a in items),
+        "caution_flags": [a["name"] for a in items if a["level"] == "amber"],
+    }
+
+
+# ---------------------------------------------------------------------------
 # Build Spec §8.0 — Pre-trade gate (composite, four checks)
 # ---------------------------------------------------------------------------
 @router.get("/manage/pre_trade_check")
@@ -506,6 +604,8 @@ def pre_trade_check(ticker: str):
         verdict = "BLOCKED"
         verdict_reason = f"{len(hard_failures)} gate(s) failed: {', '.join(g['name'] for g in hard_failures)}. Requires explicit acknowledgment per Strategy §15.1."
 
+    adv = _pretrade_advisories(ticker)
+
     return {
         "ticker": ticker,
         "verdict": verdict,
@@ -514,6 +614,10 @@ def pre_trade_check(ticker: str):
         "gates": {g["name"]: g for g in gates},
         "hard_failures": [g["name"] for g in hard_failures],
         "acknowledgment_required": not all_passed,
+        # Sprint 16.1 — advisory sub-flags (non-blocking; amber = heads-up)
+        "advisories": adv["advisories"],
+        "caution": adv["caution"],
+        "caution_flags": adv["caution_flags"],
     }
 
 
@@ -566,6 +670,9 @@ def pretrade_all():
     conc_limit = float(strategy_cfg.get("concentration_limit_pct", 50))
     leap_blackout_days = int(strategy_cfg.get("leap_earnings_blackout_days", 21))
 
+    # Sprint 16.1 — fetch market-wide advisories once, reuse per ticker
+    market_adv = _market_advisories()
+
     results = []
     for ticker in tickers:
         conc_pct = concentration.get(ticker, 0.0)
@@ -607,6 +714,8 @@ def pretrade_all():
 
         verdict = "PROCEED" if not failures else "BLOCKED"
 
+        adv = _pretrade_advisories(ticker, market_adv)
+
         results.append({
             "ticker": ticker,
             "verdict": verdict,
@@ -618,6 +727,9 @@ def pretrade_all():
             "excluded": is_excluded,
             "exclusion_reason": excluded_entry.get("reason") if excluded_entry else None,
             "has_leap": has_leap,
+            # Sprint 16.1 — advisory caution (non-blocking)
+            "caution": adv["caution"],
+            "caution_flags": adv["caution_flags"],
         })
 
     # Sort: PROCEED first, then by earnings proximity
@@ -633,9 +745,12 @@ def pretrade_all():
         "summary": {
             "proceed": sum(1 for r in results if r["verdict"] == "PROCEED"),
             "blocked": sum(1 for r in results if r["verdict"] == "BLOCKED"),
+            "caution": sum(1 for r in results if r.get("caution")),
             "vix": round(vix, 1),
             "vix_regime": macro.get("vix_state", "unknown"),
         },
+        # Sprint 16.1 — market-wide advisories (apply to all tickers)
+        "market_advisories": {"macro_defer": market_adv["macro"], "vix_term": market_adv["vix"]},
     }
 
 

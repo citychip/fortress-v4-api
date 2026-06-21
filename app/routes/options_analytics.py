@@ -1253,6 +1253,435 @@ def get_vix_term():
         return {"error": str(e)}
 
 
+# ── Sprint 16 keystone: IBKR fills feed + open/close classification ───────────
+# Consumes ibkr_marketdata.ibkr_recent_fills() and labels each execution
+# OPEN / CLOSE / REVERSE / FLAT using the `position` field (position AFTER the
+# trade) the CP trades payload carries — magnitude change is data-driven, not a
+# guess. Roll/hedge heuristics layer on top so pacing (16.5) can exclude them.
+# Hedge underlyings are configurable; default {SPY}.
+
+_HEDGE_TICKERS = {"SPY"}
+
+
+def _classify_fill_action(fill: dict) -> str:
+    """OPEN | CLOSE | REVERSE | FLAT | UNKNOWN from the post-trade position.
+
+    signed_qty = +qty for BUY, -qty for SELL.  position_before = position_after
+    - signed_qty.  Increasing |position| = OPEN, decreasing = CLOSE, crossing
+    zero = REVERSE.  Falls back to `liquidation`/side when position is absent."""
+    pa = fill.get("position_after")
+    side = fill.get("side")
+    qty = fill.get("qty")
+    if pa is not None and side and qty is not None:
+        try:
+            pa = float(pa)
+            signed = qty if side == "BUY" else -qty
+            pb = pa - signed
+            if pb == 0 and pa != 0:
+                return "OPEN"
+            if pa == 0 and pb != 0:
+                return "CLOSE"
+            if (pa > 0) != (pb > 0) and pb != 0 and pa != 0:
+                return "REVERSE"
+            if abs(pa) > abs(pb):
+                return "OPEN"
+            if abs(pa) < abs(pb):
+                return "CLOSE"
+            return "FLAT"
+        except (ValueError, TypeError):
+            pass
+    # Fallback: liquidation flag, else unknown (don't guess from side alone)
+    if fill.get("liquidation") is True:
+        return "CLOSE"
+    return "UNKNOWN"
+
+
+def classify_recent_fills(days_back: int = 7) -> dict:
+    """Normalized fills + per-fill action/roll/hedge labels + a weekly opens
+    tally (the input pacing 16.5 reconciles against the journal). Soft-fails to
+    an empty, non-error structure so callers never break."""
+    from datetime import datetime, timezone, timedelta
+    try:
+        from app.services.ibkr_marketdata import ibkr_recent_fills
+        fills = ibkr_recent_fills(days_back)
+    except Exception as e:
+        return {"available": False, "reason": str(e), "fills": [], "opens_this_week": []}
+    if fills is None:
+        return {"available": False, "reason": "gateway/trades unavailable",
+                "fills": [], "opens_this_week": []}
+
+    # Label actions
+    for f in fills:
+        f["action"] = _classify_fill_action(f)
+        f["is_hedge"] = (f.get("ticker") in _HEDGE_TICKERS)
+
+    # Roll detection: a ticker with BOTH an OPEN and a CLOSE option-leg on the
+    # same calendar day → mark that day's OPENs as likely_roll.
+    by_tk_day: dict = {}
+    for f in fills:
+        if f.get("sec_type") not in ("OPT", "FOP"):
+            continue
+        day = (f.get("time") or "")[:10]
+        by_tk_day.setdefault((f.get("ticker"), day), set()).add(f["action"])
+    for f in fills:
+        day = (f.get("time") or "")[:10]
+        acts = by_tk_day.get((f.get("ticker"), day), set())
+        f["likely_roll"] = (f["action"] == "OPEN" and "CLOSE" in acts and "OPEN" in acts)
+
+    # Weekly opens that COUNT toward pacing: OPEN, not roll, not hedge, option leg
+    now = datetime.now(timezone.utc)
+    monday = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    opens_week = []
+    for f in fills:
+        if f["action"] != "OPEN" or f.get("likely_roll") or f.get("is_hedge"):
+            continue
+        if f.get("sec_type") not in ("OPT", "FOP"):
+            continue
+        t = f.get("time")
+        if not t:
+            continue
+        try:
+            dt = datetime.fromisoformat(t.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if dt >= monday:
+            opens_week.append(f)
+
+    return {"available": True, "fills": fills, "opens_this_week": opens_week,
+            "as_of": _utcnow()}
+
+
+@router.get("/ibkr/fills")
+def get_ibkr_fills(days_back: int = Query(default=7, ge=1, le=7)):
+    """Recent IBKR executions with open/close/roll/hedge classification.
+
+    INSPECTION / ENRICHMENT ONLY — the CP Gateway /iserver/account/trades feed is
+    session-scoped and returns [] for trades placed outside the gateway session
+    (verified empty 2026-06-21 for a window with known fills). The authoritative
+    fill source for pacing/entry-capture is the POSITION-DIFF keystone below
+    (/api/positions/opens). This route stays for live debugging + opportunistic
+    price/time enrichment when the endpoint does return rows."""
+    data = classify_recent_fills(days_back)
+    pacing_opens = data.get("opens_this_week", [])
+    return {
+        **data,
+        "fill_count": len(data.get("fills", [])),
+        "pacing_opens_this_week": len(pacing_opens),
+        "note": "inspection/enrichment only — pacing uses /api/positions/opens (position-diff)",
+    }
+
+
+# ── Sprint 16 keystone: POSITION-DIFF fill detector (authoritative) ───────────
+# Robust alternative to the session-scoped /trades feed. Snapshots the IBKR-
+# synced leg book (state.get_active_positions, which the sync updates with manual
+# fills too) and diffs consecutive snapshots: a net increase in SHORT option legs
+# per ticker = new premium-selling entries; a decrease = closes. Rolls net to
+# zero (close 1 + open 1 → no net change), hedges (SPY) are excluded. Daily
+# granularity (driven by the scheduled briefing), which is enough for weekly
+# pacing and entry-condition capture. Snapshot store is transient runtime state
+# (gitignore, same policy as iv_history.json).
+
+POSITION_SNAPSHOTS_PATH = os.environ.get(
+    "FORTRESS_POSITION_SNAPSHOTS",
+    os.path.expanduser("~/fortress-v4-api/data/position_snapshots.json"),
+)
+_HEDGE_TICKERS_PD = {"SPY"}
+
+
+def _load_position_snapshots() -> dict:
+    try:
+        with open(POSITION_SNAPSHOTS_PATH) as f:
+            return json.load(f)
+    except Exception:
+        return {"snapshots": []}
+
+
+def _save_position_snapshots(payload: dict) -> None:
+    os.makedirs(os.path.dirname(POSITION_SNAPSHOTS_PATH), exist_ok=True)
+    with open(POSITION_SNAPSHOTS_PATH, "w") as f:
+        json.dump(payload, f, indent=2)
+
+
+def _leg_key(pos: dict) -> str:
+    """Stable per-leg identity. opra_symbol for options; TICKER|STK for stock."""
+    opra = pos.get("opra_symbol")
+    if opra:
+        return str(opra)
+    tk = str(pos.get("ticker", "")).upper()
+    sec = str(pos.get("sec_type", "")).upper()
+    if sec == "OPT":
+        return f"{tk}|{pos.get('expiry','')}|{pos.get('right','')}|{pos.get('strike','')}"
+    return f"{tk}|STK"
+
+
+def _snapshot_legs() -> dict:
+    """Current leg map {key: {ticker,sec_type,right,strike,expiry,qty}} from the
+    IBKR-synced book."""
+    from app.services import state
+    legs: dict = {}
+    try:
+        data = state.get_active_positions()
+        for p in data.get("positions", []) or []:
+            try:
+                qty = float(p.get("qty") or 0)
+            except (ValueError, TypeError):
+                qty = 0.0
+            if qty == 0:
+                continue
+            k = _leg_key(p)
+            legs[k] = {
+                "ticker": str(p.get("ticker", "")).upper(),
+                "sec_type": str(p.get("sec_type", "")).upper(),
+                "right": p.get("right"),
+                "strike": p.get("strike"),
+                "expiry": p.get("expiry"),
+                "qty": qty,
+            }
+    except Exception as e:
+        logger.warning("snapshot_legs failed: %s", e)
+    return legs
+
+
+def _short_calls_puts(legs: dict) -> dict:
+    """Per-ticker count of SHORT option legs (qty<0) in a leg map."""
+    out: dict = {}
+    for leg in legs.values():
+        if leg["sec_type"] == "OPT" and leg["qty"] < 0:
+            out[leg["ticker"]] = out.get(leg["ticker"], 0) + 1
+    return out
+
+
+def capture_position_snapshot(reason: str = "scheduled") -> dict:
+    """Append today's leg snapshot (idempotent per calendar day — replaces an
+    existing same-day snapshot). Returns {captured, date, legs, new_short_legs}.
+    Also emits the OPEN diff vs the prior snapshot so callers (entry-capture)
+    can act on newly-opened short legs."""
+    store = _load_position_snapshots()
+    snaps = store.get("snapshots", [])
+    today = date.today().isoformat()
+    legs = _snapshot_legs()
+
+    prior = next((s for s in reversed(snaps) if s.get("date") != today), None)
+    opened, closed = _diff_legs((prior or {}).get("legs", {}), legs)
+
+    rec = {"date": today, "captured_at": _utcnow(), "reason": reason, "legs": legs}
+    snaps = [s for s in snaps if s.get("date") != today]  # replace same-day
+    snaps.append(rec)
+    snaps = snaps[-60:]  # keep ~2 months
+    _save_position_snapshots({"snapshots": snaps, "updated_at": _utcnow()})
+
+    # Sprint 16.2 — capture entry conditions for newly-OPENED short option legs.
+    # Skip when there's no prior snapshot: the first-ever snapshot has no baseline
+    # so every leg falsely reads as "opened" — capturing then would back-fill the
+    # legacy book with today's (wrong) IVR/DTE/delta. Genuine new opens are only
+    # detectable once a baseline exists.
+    captured_entries = 0
+    if prior is not None:
+        try:
+            new_short = [l for l in opened
+                         if l.get("sec_type") == "OPT" and (l.get("qty") or 0) < 0]
+            captured_entries = _capture_entry_conditions(new_short, today)
+        except Exception as e:
+            logger.warning("entry-condition capture failed: %s", e)
+
+    return {"captured": True, "date": today, "leg_count": len(legs),
+            "opened": opened, "closed": closed,
+            "entry_conditions_captured": captured_entries}
+
+
+def _diff_legs(prev: dict, curr: dict) -> tuple[list, list]:
+    """Return (opened[], closed[]) leg events between two leg maps. An OPEN is a
+    new key or a magnitude increase in the same direction; a CLOSE is a vanished
+    key or magnitude decrease."""
+    opened, closed = [], []
+    for k, leg in curr.items():
+        pq = (prev.get(k) or {}).get("qty", 0.0)
+        cq = leg["qty"]
+        if k not in prev or abs(cq) > abs(pq):
+            opened.append({**leg, "key": k, "delta_qty": cq - pq})
+    for k, leg in prev.items():
+        cq = (curr.get(k) or {}).get("qty", 0.0)
+        if k not in curr or abs(cq) < abs(leg["qty"]):
+            closed.append({**leg, "key": k, "delta_qty": cq - leg["qty"]})
+    return opened, closed
+
+
+def weekly_position_opens() -> dict:
+    """Pacing-relevant opens for the current week (Mon→now) from the snapshot
+    history. Sums per-ticker net SHORT-leg increases across consecutive snapshots
+    (so rolls net to zero, hedges excluded, open-then-close in the same week is
+    still counted). Returns {available, used, entries[], source}."""
+    from datetime import datetime, timezone, timedelta
+    store = _load_position_snapshots()
+    snaps = sorted(store.get("snapshots", []), key=lambda s: s.get("date", ""))
+    if len(snaps) < 2:
+        return {"available": False, "used": 0, "entries": [],
+                "reason": "need ≥2 snapshots to diff"}
+
+    now = datetime.now(timezone.utc)
+    monday = (now - timedelta(days=now.weekday())).date().isoformat()
+    # baseline = last snapshot before Monday (so Mon's first capture diffs against it)
+    week_snaps = [s for s in snaps if s.get("date", "") >= monday]
+    baseline = next((s for s in reversed(snaps) if s.get("date", "") < monday), None)
+    chain = ([baseline] if baseline else []) + week_snaps
+    if len(chain) < 2:
+        return {"available": False, "used": 0, "entries": [],
+                "reason": "no prior snapshot before this week yet"}
+
+    entries = []
+    for prev, cur in zip(chain, chain[1:]):
+        ps = _short_calls_puts(prev.get("legs", {}))
+        cs = _short_calls_puts(cur.get("legs", {}))
+        for tk in set(cs) | set(ps):
+            if tk in _HEDGE_TICKERS_PD:
+                continue
+            delta = cs.get(tk, 0) - ps.get(tk, 0)
+            if delta > 0:
+                entries.append({"ticker": tk, "new_short_legs": delta,
+                                "detected": cur.get("date")})
+    used = sum(e["new_short_legs"] for e in entries)
+    return {"available": True, "used": used, "entries": entries,
+            "source": "position_diff", "as_of": _utcnow()}
+
+
+@router.post("/positions/snapshot")
+def post_position_snapshot(reason: str = Query(default="manual")):
+    """Capture a position snapshot now (the scheduled briefing calls this daily)."""
+    return capture_position_snapshot(reason)
+
+
+@router.get("/positions/opens")
+def get_position_opens():
+    """Pacing-relevant opens this week, derived from position-diff (authoritative
+    manual+staged fill source)."""
+    return weekly_position_opens()
+
+
+# ── Sprint 16.2: entry-condition capture (open → carried to close) ────────────
+# When the position-diff detects a newly-opened short option leg, snapshot the
+# entry conditions the trade-outcomes loop needs (IVR / DTE / short-delta) into a
+# sidecar keyed by leg (opra) key. log_trade_outcome reads it back at CLOSE to
+# auto-populate *_at_entry, so the feedback loop accrues data without manual
+# entry. Transient runtime state (gitignore).
+
+ENTRY_CONDITIONS_PATH = os.environ.get(
+    "FORTRESS_ENTRY_CONDITIONS",
+    os.path.expanduser("~/fortress-v4-api/data/entry_conditions.json"),
+)
+
+
+def _load_entry_conditions() -> dict:
+    try:
+        with open(ENTRY_CONDITIONS_PATH) as f:
+            return json.load(f)
+    except Exception:
+        return {"open": {}, "consumed": []}
+
+
+def _save_entry_conditions(payload: dict) -> None:
+    os.makedirs(os.path.dirname(ENTRY_CONDITIONS_PATH), exist_ok=True)
+    with open(ENTRY_CONDITIONS_PATH, "w") as f:
+        json.dump(payload, f, indent=2)
+
+
+def _dte_to(expiry: str) -> int | None:
+    try:
+        return (date.fromisoformat(expiry) - date.today()).days
+    except Exception:
+        return None
+
+
+def _capture_entry_conditions(new_short_legs: list, opened_date: str) -> int:
+    """Snapshot IVR / current IV / DTE / short-delta for each newly-opened short
+    option leg, keyed by leg key. Skips a leg already captured. Returns count
+    captured. Best-effort — a leg that can't be priced still stores what it can."""
+    if not new_short_legs:
+        return 0
+    store = _load_entry_conditions()
+    open_map = store.setdefault("open", {})
+    captured = 0
+    ivr_cache: dict = {}
+    for leg in new_short_legs:
+        key = leg.get("key")
+        if not key or key in open_map:
+            continue
+        tk = leg.get("ticker")
+        strike = leg.get("strike")
+        expiry = leg.get("expiry")
+        right = "call" if str(leg.get("right", "")).upper().startswith("C") else "put"
+
+        # IVR + current IV (cache per ticker within this capture)
+        ivr = current_iv = None
+        if tk not in ivr_cache:
+            try:
+                ivr_cache[tk] = get_iv_rank(tk)
+            except Exception:
+                ivr_cache[tk] = {}
+        ivd = ivr_cache.get(tk) or {}
+        if isinstance(ivd, dict) and not ivd.get("error"):
+            ivr = ivd.get("iv_rank")
+            current_iv = ivd.get("current_iv")
+
+        dte = _dte_to(expiry) if expiry else None
+
+        # Short-delta via BS (spot + IV)
+        short_delta = None
+        try:
+            spot = _try_ibkr_spot(tk) or _spot(yf.Ticker(tk))
+            sigma = (current_iv / 100.0) if (current_iv and current_iv > 1) else (current_iv or None)
+            if spot and strike and dte and sigma and dte > 0:
+                d = _bs_delta(float(spot), float(strike), dte / 365.0, float(sigma), right)
+                short_delta = round(abs(d), 4)
+        except Exception:
+            pass
+
+        open_map[key] = {
+            "ticker": tk, "strike": strike, "expiry": expiry,
+            "right": "C" if right == "call" else "P",
+            "opened_date": opened_date,
+            "ivr_at_entry": round(float(ivr), 1) if ivr is not None else None,
+            "current_iv_at_entry": round(float(current_iv), 2) if current_iv is not None else None,
+            "dte_at_entry": dte,
+            "short_delta_at_entry": short_delta,
+            "captured_at": _utcnow(),
+        }
+        captured += 1
+    if captured:
+        store["updated_at"] = _utcnow()
+        _save_entry_conditions(store)
+    return captured
+
+
+def _lookup_entry_conditions(ticker: str) -> dict | None:
+    """Best-match unconsumed entry-condition record for a ticker (oldest open).
+    Marks it consumed so a later close on the same ticker picks a different one."""
+    ticker = str(ticker or "").upper()
+    store = _load_entry_conditions()
+    open_map = store.get("open", {})
+    cands = [(k, v) for k, v in open_map.items()
+             if str(v.get("ticker", "")).upper() == ticker]
+    if not cands:
+        return None
+    cands.sort(key=lambda kv: kv[1].get("opened_date") or "")
+    key, rec = cands[0]
+    open_map.pop(key, None)
+    store.setdefault("consumed", []).append({**rec, "key": key, "consumed_at": _utcnow()})
+    store["consumed"] = store["consumed"][-200:]
+    store["updated_at"] = _utcnow()
+    _save_entry_conditions(store)
+    return rec
+
+
+@router.get("/positions/entry-conditions")
+def get_entry_conditions():
+    """Inspect the open entry-condition snapshots (Sprint 16.2)."""
+    store = _load_entry_conditions()
+    return {"open": store.get("open", {}),
+            "open_count": len(store.get("open", {})),
+            "consumed_count": len(store.get("consumed", [])),
+            "updated_at": store.get("updated_at")}
+
+
 # ── Trade-outcomes feedback store (2026-06-16) ────────────────────────────────
 # Quantitative companion to the prose journal: one structured record per CLOSED
 # trade, capturing the ENTRY conditions the prose journal doesn't (IVR / DTE /
@@ -1333,6 +1762,20 @@ def log_trade_outcome(payload: dict):
         rec = {k: payload.get(k) for k in _OUTCOME_FIELDS if k in payload}
         rec["ticker"] = str(rec["ticker"]).upper()
         rec["logged_at"] = _utcnow()
+
+        # Sprint 16.2/16.3 — auto-fill entry conditions from the capture sidecar
+        # when the caller didn't supply them (so the loop accrues data hands-free).
+        entry_fields = ("ivr_at_entry", "dte_at_entry", "short_delta_at_entry")
+        if not all(rec.get(f) is not None for f in entry_fields):
+            ec = _lookup_entry_conditions(rec["ticker"])
+            if ec:
+                for f in entry_fields:
+                    if rec.get(f) is None and ec.get(f) is not None:
+                        rec[f] = ec[f]
+                rec["entry_conditions_source"] = "auto_captured"
+                if rec.get("opened") is None and ec.get("opened_date"):
+                    rec["opened"] = ec["opened_date"]
+
         store = _load_trade_outcomes()
         store.setdefault("records", []).append(rec)
         store["updated_at"] = _utcnow()

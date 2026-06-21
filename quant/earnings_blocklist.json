@@ -1,7 +1,7 @@
 {
   "_comment": "Earnings blackout calendar for Portfolio Strategy v3.2. Update before each earnings season.",
   "_rule": "No new entries (PCS, Jade Lizard, PMCC short call) within 10 days of earnings date.",
-  "_last_updated": "2026-06-01",
+  "_last_updated": "2026-06-21",
   "_instructions": "Set 'next_earnings' to the expected earnings date (YYYY-MM-DD). Set 'confirmed' to true once date is confirmed by the company. Update immediately after earnings pass.",
   "tickers": {
     "MSFT": {
@@ -10,10 +10,10 @@
       "notes": "Q4 FY2026 expected late July"
     },
     "AVGO": {
-      "next_earnings": "2026-06-03",
+      "next_earnings": "2026-09-03",
       "confirmed": false,
       "notes": "Q2 FY2026 expected early June",
-      "_updated_at": "2026-05-04T15:23:57.322646+00:00",
+      "_updated_at": "2026-06-21T10:45:14.698250+00:00",
       "_source": "yfinance_auto"
     },
     "NFLX": {
@@ -67,17 +67,17 @@
       "notes": "Q3 FY2026 expected late July"
     },
     "NVDA": {
-      "next_earnings": "2026-05-20",
+      "next_earnings": "2026-08-26",
       "confirmed": false,
       "notes": "Q2 FY2027 expected late August",
-      "_updated_at": "2026-05-04T15:23:57.322646+00:00",
+      "_updated_at": "2026-06-21T10:45:14.698250+00:00",
       "_source": "yfinance_auto"
     },
     "UNH": {
-      "next_earnings": "2026-07-28",
+      "next_earnings": "2026-07-16",
       "confirmed": false,
       "notes": "Q2 2026 expected mid-July",
-      "_updated_at": "2026-05-07T10:37:26.787288+00:00",
+      "_updated_at": "2026-06-21T10:45:14.698250+00:00",
       "_source": "yfinance_auto"
     },
     "SPX": {
@@ -91,10 +91,10 @@
       "notes": "ETF — no earnings"
     },
     "APP": {
-      "next_earnings": "2026-08-05",
+      "next_earnings": "2026-08-06",
       "confirmed": false,
       "notes": "",
-      "_updated_at": "2026-05-15T17:34:13.556211+00:00",
+      "_updated_at": "2026-06-21T10:45:14.698250+00:00",
       "_source": "yfinance_auto"
     },
     "GEV": {
@@ -131,7 +131,42 @@
       "notes": "",
       "_updated_at": "2026-05-15T17:34:13.556211+00:00",
       "_source": "yfinance_auto"
+    },
+    "CSX": {
+      "next_earnings": "2026-04-22",
+      "confirmed": false,
+      "notes": "",
+      "_updated_at": "2026-06-21T10:45:14.698250+00:00",
+      "_source": "yfinance_auto"
+    },
+    "ELV": {
+      "next_earnings": "2026-07-16",
+      "confirmed": false,
+      "notes": "",
+      "_updated_at": "2026-06-21T10:45:14.698250+00:00",
+      "_source": "yfinance_auto"
+    },
+    "GE": {
+      "next_earnings": "2026-07-16",
+      "confirmed": false,
+      "notes": "",
+      "_updated_at": "2026-06-21T10:45:14.698250+00:00",
+      "_source": "yfinance_auto"
+    },
+    "MAR": {
+      "next_earnings": "2026-08-04",
+      "confirmed": false,
+      "notes": "",
+      "_updated_at": "2026-06-21T10:45:14.698250+00:00",
+      "_source": "yfinance_auto"
+    },
+    "PNC": {
+      "next_earnings": "2026-07-15",
+      "confirmed": false,
+      "notes": "",
+      "_updated_at": "2026-06-21T10:45:14.698250+00:00",
+      "_source": "yfinance_auto"
     }
   },
-  "_last_auto_fetch": "2026-06-01T20:57:48.808964+00:00"
+  "_last_auto_fetch": "2026-06-21T10:45:14.698250+00:00"
 }

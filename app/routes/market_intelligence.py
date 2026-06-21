@@ -572,10 +572,15 @@ def _synthesize_regime(gex: dict | None, dp: dict | None, drift: dict | None,
                             "weight": -1, "note": f"Cumulative net drift ${cum:,.0f} — smart money is net short"})
             score -= 1
 
-    # Macro regime signal
+    # Macro regime signal (Sprint 16.6: now also emits a signals[] entry so the
+    # array sums to score — previously it adjusted score silently).
     if macro_regime == "bullish":
+        signals.append({"source": "Macro", "signal": "bullish_macro", "weight": +1,
+                        "note": "Macro regime is bullish"})
         score += 1
     elif macro_regime == "bearish":
+        signals.append({"source": "Macro", "signal": "bearish_macro", "weight": -1,
+                        "note": "Macro regime is bearish"})
         score -= 1
 
     # VIX term-structure signal (Sprint 15.3) — VIX vs VIX3M shape.
