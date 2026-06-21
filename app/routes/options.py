@@ -720,13 +720,17 @@ def get_strategy_metrics(
     # exact placeholder the strategy_metrics caveat warned about. Now:
     #   • IV + IVR ← get_iv_rank (IBKR-first; BS-inversion / HV-proxy fallback)
     #   • DTE      ← state.days_to_earnings (same source as briefing / manage)
-    # Regime sourcing is deliberately left at the neutral fallback here; wiring
-    # it (incl. VIX term) is Sprint 15.3.
+    #   • Regime   ← get_market_intelligence (Sprint 15.3): the synthesized
+    #     overall regime (GEX + dark-pool + net-drift + macro + VIX term) is
+    #     normalized to canonical bullish/bearish/neutral so regime_score can
+    #     match it. Falls back to neutral on any error.
     iv: float = 0.30        # last-resort fallback only
     ivr: float = 50.0
     days_to_earnings: int = 999
     regime_overall: str = "neutral"
     gex_regime: str = "neutral"
+    regime_source: str = "placeholder"
+    vix_term_state: str | None = None
     vol_source: str = "placeholder"
 
     try:
@@ -750,6 +754,35 @@ def get_strategy_metrics(
             days_to_earnings = _d
     except Exception as e:
         _log.debug("earnings distance unavailable for %s: %s", ticker, e)
+
+    # ── Real regime (Sprint 15.3) ────────────────────────────────────────────
+    # Synthesized regime from market-intelligence (now incl. VIX-term shape).
+    # Normalize the granular label ("Strongly Bullish" … "Strongly Bearish",
+    # "Neutral") down to canonical bullish/bearish/neutral that regime_score
+    # compares against. gex_regime comes straight off the gamma_regime field.
+    def _normalize_regime(label: str | None) -> str:
+        s = (label or "").lower()
+        if "bull" in s:
+            return "bullish"
+        if "bear" in s:
+            return "bearish"
+        return "neutral"
+
+    try:
+        from app.routes.market_intelligence import get_market_intelligence
+        intel = get_market_intelligence(ticker)
+        _regime = (intel or {}).get("regime", {}) or {}
+        _overall = _regime.get("overall")
+        if _overall:
+            regime_overall = _normalize_regime(_overall)
+            regime_source = "market_intelligence"
+        _gamma = _regime.get("gamma_regime")
+        if _gamma:
+            gex_regime = _gamma  # "positive" | "negative"
+        _vt = _regime.get("vix_term") or {}
+        vix_term_state = _vt.get("state")
+    except Exception as e:
+        _log.warning("regime synthesis unavailable for %s: %s — neutral fallback", ticker, e)
 
     if iv <= 0:
         iv = 0.30
@@ -1008,7 +1041,9 @@ def get_strategy_metrics(
         "vol_source":       vol_source,
         "days_to_earnings": days_to_earnings,
         "regime":           regime_overall,
+        "regime_source":    regime_source,
         "gex_regime":       gex_regime,
+        "vix_term_state":   vix_term_state,
         "mode":             mode,
         "strategies":       strategies,
     }

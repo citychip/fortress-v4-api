@@ -206,6 +206,11 @@ DEFAULTS: dict[str, Any] = {
         "vix_low":                  15.0,        # VIX < this = low vol regime
         "vix_high":                 25.0,        # VIX > this = high vol regime
         "vix_extreme":              35.0,        # VIX > this = extreme vol / no new entries
+        # VIX term-structure regime thresholds (Sprint 15.3) — VIX/VIX3M ratio.
+        # Mirrors options_analytics.get_vix_term: ratio < contango = calm (vol-
+        # selling favored); ratio > backwardation = stress/term inversion.
+        "vix_term_contango_ratio":      0.95,    # VIX/VIX3M below this = contango (calm)
+        "vix_term_backwardation_ratio": 1.00,    # VIX/VIX3M above this = backwardation (stress)
     },
 
     # ── ALERTS ───────────────────────────────────────────────────────────────

@@ -506,8 +506,16 @@ def _fetch_net_drift(sess: requests.Session, widget_id: str) -> dict | None:
         return None
 
 
-def _synthesize_regime(gex: dict | None, dp: dict | None, drift: dict | None, macro_regime: str) -> dict:
-    """Synthesize all signals into a unified market regime assessment."""
+def _synthesize_regime(gex: dict | None, dp: dict | None, drift: dict | None,
+                       macro_regime: str, vix_term: dict | None = None) -> dict:
+    """Synthesize all signals into a unified market regime assessment.
+
+    vix_term (Sprint 15.3): the get_vix_term() payload (VIX vs VIX3M). Its
+    contango/backwardation *shape* is a cleaner risk-on/off light than VIX
+    level alone — contango = calm (premium-selling favored, mildly supportive);
+    backwardation = term inversion / stress (strong risk-off, can flip the read
+    bearish on its own). Advisory input, never blocks.
+    """
     signals = []
     score   = 0  # positive = bullish, negative = bearish
 
@@ -570,6 +578,27 @@ def _synthesize_regime(gex: dict | None, dp: dict | None, drift: dict | None, ma
     elif macro_regime == "bearish":
         score -= 1
 
+    # VIX term-structure signal (Sprint 15.3) — VIX vs VIX3M shape.
+    # contango (calm) is a mild risk-on tailwind; backwardation (term inversion
+    # / stress) is a strong risk-off signal weighted -2 so it can flip an
+    # otherwise neutral/mildly-bullish read into bearish on its own.
+    if vix_term and not vix_term.get("error"):
+        vt_state = vix_term.get("state")
+        vt_ratio = vix_term.get("ratio")
+        vt_vix   = vix_term.get("vix")
+        vt_vix3m = vix_term.get("vix3m")
+        if vt_state == "contango":
+            signals.append({"source": "VIXTerm", "signal": "contango", "weight": +1,
+                            "note": f"VIX {vt_vix} < VIX3M {vt_vix3m} (ratio {vt_ratio}) — calm term structure, premium selling favored"})
+            score += 1
+        elif vt_state == "backwardation":
+            signals.append({"source": "VIXTerm", "signal": "backwardation", "weight": -2,
+                            "note": f"VIX {vt_vix} > VIX3M {vt_vix3m} (ratio {vt_ratio}) — term inversion / stress, tighten size & defer new short premium"})
+            score -= 2
+        else:  # flat
+            signals.append({"source": "VIXTerm", "signal": "flat", "weight": 0,
+                            "note": f"VIX {vt_vix} ≈ VIX3M {vt_vix3m} (ratio {vt_ratio}) — flat term structure, neutral"})
+
     # Divergence check: price above flip but bearish drift
     if gamma_regime == "positive" and (drift or {}).get("bias") == "bearish":
         signals.append({"source": "Divergence", "signal": "gex_drift_divergence", "weight": -1,
@@ -625,6 +654,13 @@ def _synthesize_regime(gex: dict | None, dp: dict | None, drift: dict | None, ma
         "gex_put_wall":  gex_put_wall,
         "dp_floor":      dp_floor,
         "dp_ceiling":    dp_ceiling,
+        "vix_term":      ({
+            "state":   vix_term.get("state"),
+            "ratio":   vix_term.get("ratio"),
+            "vix":     vix_term.get("vix"),
+            "vix3m":   vix_term.get("vix3m"),
+            "premium_selling_favorable": vix_term.get("premium_selling_favorable"),
+        } if (vix_term and not vix_term.get("error")) else None),
     }
 
 
@@ -940,8 +976,17 @@ def get_market_intelligence(ticker: str = "SPY", session_date: str | None = None
         except Exception:
             pass
 
+    # ── VIX term structure (Sprint 15.3) — VIX vs VIX3M shape as a regime input
+    # (index-level, ticker-independent; advisory). Soft-fail to None.
+    vix_term_data = None
+    try:
+        from ..routes.options_analytics import get_vix_term
+        vix_term_data = get_vix_term()
+    except Exception as e:
+        logger.warning("VIX term fetch error: %s", e)
+
     # ── Synthesize regime ─────────────────────────────────────────────────────
-    regime = _synthesize_regime(gex_data, dp_data, drift_data, macro_regime)
+    regime = _synthesize_regime(gex_data, dp_data, drift_data, macro_regime, vix_term_data)
 
     # ── Generate trade setups ─────────────────────────────────────────────────
     trade_setups = _generate_setups(gex_data, dp_data, regime)
