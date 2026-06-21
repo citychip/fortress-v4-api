@@ -1094,11 +1094,19 @@ def scenario_estimate(req: ScenarioRequest):
             })
             continue
 
+        # IV from the canonical source (Sprint 17 fix). The old path imported
+        # `app.routes.market` (wrong module → ImportError, always caught) AND read
+        # `current_iv` off the market-intel payload, which never emits it — so this
+        # silently fell to 0.30 every time (same double-bug class as 15.1). Use
+        # get_iv_rank (IBKR-first; BS-inversion / HV-proxy fallback), exactly like
+        # strategy_metrics.
         try:
-            from app.routes.market import get_market_intelligence  # type: ignore
-            intel = get_market_intelligence(ticker)
-            raw_iv = intel.get("current_iv") or 30.0
-            iv = raw_iv / 100.0 if raw_iv > 1 else raw_iv
+            from app.routes.options_analytics import get_iv_rank
+            ivd = get_iv_rank(ticker)
+            if isinstance(ivd, dict) and not ivd.get("error"):
+                ci = ivd.get("current_iv")
+                if ci and ci > 0:
+                    iv = ci / 100.0 if ci > 1 else ci
         except Exception:
             pass
         if iv <= 0:
