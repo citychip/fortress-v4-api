@@ -30,6 +30,9 @@ MAP=(
   "tests/test_options_routes_nan.py:$API/tests/test_options_routes_nan.py"
   "journal_analytics.py:$API/journal_analytics.py"
   "snapshot_iv.sh:$API/scripts/snapshot_iv.sh"
+  "iv_source.py:$API/quant/iv_source.py"
+  "workflow_05_iv_crush_report.py:$API/quant/workflow_05_iv_crush_report.py"
+  "workflow_01_premarket_scanner.py:$API/quant/workflow_01_premarket_scanner.py"
   "test_ibkr_oauth.py:$API/scripts/test_ibkr_oauth.py"
   "fortress_mcp_v452.py:$MCP/fortress_mcp.py"
   # Live MCP the desktop plugin actually runs (Windows path, NOT the repo copy).

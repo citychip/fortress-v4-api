@@ -88,3 +88,4 @@ data/entry_conditions.json
 position_snapshots.json
 entry_conditions.json
 *.pre-sprint0-bak
+*.pre-*-bak
