@@ -248,7 +248,12 @@ def parse_crush_report_markdown(content: str) -> list[dict]:
             if len(cols) < 8:
                 continue
             try:
-                # cols: ticker, price, ivr, current_iv, hv20, spread_pp, days_to_earnings, signal
+                # cols (current 9-col table): ticker, price, ivr, current_iv,
+                # hv20, spread_pp, days_to_earnings, conc_risk, signal.
+                # Signal is read as the LAST column so the parser is correct for
+                # both the 8-col (legacy) and 9-col (Conc Risk inserted) layouts
+                # — Sprint 18.3: cols[7] was the Conc Risk column, not Signal,
+                # so every candidate signal silently rendered '-'.
                 ticker = cols[0].strip()
                 price = float(re.sub(r"[^0-9.\-]", "", cols[1]))
                 ivr = float(re.sub(r"[^0-9.\-]", "", cols[2]))
@@ -257,7 +262,7 @@ def parse_crush_report_markdown(content: str) -> list[dict]:
                 spread_pp = float(re.sub(r"[^0-9.\-]", "", cols[5]))
                 days_str = re.sub(r"[^0-9\-]", "", cols[6])
                 days = int(days_str) if days_str else None
-                signal = cols[7].strip().upper().replace(" ", "_")
+                signal = cols[-1].strip().upper().replace(" ", "_")
                 rows.append({
                     "ticker": ticker,
                     "price": price,
