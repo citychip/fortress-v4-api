@@ -84,3 +84,7 @@ quant/pending_orders.json
 *.pre-sprint0-bak
 data/position_snapshots.json
 data/entry_conditions.json
+
+position_snapshots.json
+entry_conditions.json
+*.pre-sprint0-bak
