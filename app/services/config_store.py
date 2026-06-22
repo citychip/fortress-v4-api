@@ -213,6 +213,19 @@ DEFAULTS: dict[str, Any] = {
         "vix_term_backwardation_ratio": 1.00,    # VIX/VIX3M above this = backwardation (stress)
     },
 
+    # ── CATALYST GATE (Strategy §4 — binary-event timing) ─────────────────────
+    # Promoted from hardcoded constants (Sprint 17.3) so they are tunable in the
+    # System > Settings UI without a redeploy. Read live via cfg("catalyst.*").
+    "catalyst": {
+        # High-impact macro event (FOMC/CPI/PPI/NFP/PCE) within this many days →
+        # the macro-events route raises a DEFER advisory (advisory only, never blocks).
+        "defer_days":               2,
+        # After a material news spike on a ticker, suppress new premium-selling
+        # entries on it for this many days (operationalized by the per-ticker news
+        # scan, Sprint 17.4). 0 = disabled.
+        "news_spike_cooldown_days": 3,
+    },
+
     # ── ALERTS ───────────────────────────────────────────────────────────────
     "alerts": {
         "delta_watch_threshold":    0.30,        # delta > this → WATCH alert

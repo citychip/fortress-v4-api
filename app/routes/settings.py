@@ -172,6 +172,10 @@ SCHEMA: dict[str, list[dict]] = {
         {"key": "collar_call_delta_target", "label": "Collar short call delta", "type": "number", "min": 0.0, "max": 1.0, "step": 0.01},
         {"key": "protective_put_delta_target", "label": "Protective put delta", "type": "number", "min": 0.0, "max": 1.0, "step": 0.01},
     ],
+    "catalyst": [
+        {"key": "defer_days", "label": "Macro defer window", "type": "number", "unit": "days", "min": 0, "max": 14, "step": 1, "description": "High-impact macro event (FOMC/CPI/PPI/NFP/PCE) within this many days raises a DEFER advisory on new premium-selling entries. Advisory only — never blocks (Strategy §4 / §15.1)."},
+        {"key": "news_spike_cooldown_days", "label": "News-spike cooldown", "type": "number", "unit": "days", "min": 0, "max": 30, "step": 1, "description": "After a material news spike on a ticker, suppress new entries on it for this many days (per-ticker news scan, Sprint 17.4). 0 = disabled."},
+    ],
     "alerts": [
         {"key": "delta_watch_threshold", "label": "Delta WATCH threshold", "type": "number", "min": 0, "max": 1, "step": 0.01},
         {"key": "delta_act_threshold", "label": "Delta ACT threshold", "type": "number", "min": 0, "max": 1, "step": 0.01},
@@ -870,7 +874,7 @@ def config_restore(body: ConfigRestoreRequest):
 
     Returns 400 for invalid payloads; 200 with the restored config on success.
     """
-    KNOWN_SECTIONS = {"trader_profile", "strategy", "alerts", "security", "technical", "ui"}
+    KNOWN_SECTIONS = {"trader_profile", "strategy", "catalyst", "alerts", "security", "technical", "ui"}
 
     if not body.config:
         raise HTTPException(status_code=400, detail="Restore payload `config` must not be empty.")

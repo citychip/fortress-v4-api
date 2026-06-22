@@ -920,16 +920,26 @@ def _impact_of(label: str, given) -> str:
 
 
 @router.get("/options/macro-events")
-def get_macro_events(defer_days: int = Query(default=MACRO_DEFER_DAYS_DEFAULT, ge=0, le=14)):
+def get_macro_events(defer_days: int | None = Query(default=None, ge=0, le=14)):
     """
     Macro economic-event calendar for the catalyst gate (Strategy §4 binary-event
     timing). Reads the Claude-curated store, computes days_until per event and a
     portfolio-level DEFER advisory when a HIGH-impact event falls within
     defer_days. Advisory only — never blocks (Strategy §15.1).
 
+    defer_days resolution (Sprint 17.3): an explicit query param wins; otherwise
+    the live cfg("catalyst.defer_days") setting is used (tunable in System >
+    Settings), falling back to MACRO_DEFER_DAYS_DEFAULT if config is unavailable.
+
     Returns: events[] (label, date, days_until, impact, note), defer_advisory,
              defer_reason, nearest_high_impact, defer_days, updated_at, stale, source.
     """
+    if defer_days is None:
+        try:
+            from app.services.config_store import cfg
+            defer_days = int(cfg("catalyst.defer_days", MACRO_DEFER_DAYS_DEFAULT))
+        except Exception:
+            defer_days = MACRO_DEFER_DAYS_DEFAULT
     try:
         store = _load_macro_events()
         today = date.today()
@@ -1011,6 +1021,159 @@ def set_macro_events(payload: dict):
         return {"ok": True, "stored": len(clean), "updated_at": store["updated_at"]}
     except Exception as e:
         logger.error("Macro events save error: %s", e, exc_info=True)
+        return {"error": str(e), "ok": False}
+
+
+# ── Per-ticker news scan (Sprint 17.4) ────────────────────────────────────────
+# Operationalizes the Strategy §4 news-spike cooldown: after a MATERIAL headline
+# on a name, hold new premium-selling entries on it for a cooldown window. The
+# backend has no FMP credentials and QuantData news isn't wired server-side, so
+# Claude curates the last material headline per ticker (sourced from QuantData
+# qd_get_news_articles, FMP as fallback) and pushes it here via set_ticker_news —
+# the same Claude-curated store pattern as macro_events / ex_div. The backend
+# stores it and computes days_since_last + a cooldown flag (active when material
+# and days_since < cfg("catalyst.news_spike_cooldown_days")). Advisory only —
+# never blocks (Strategy §15.1). An indicator/chip for Candidates/Triage, NOT a
+# news reader.
+
+TICKER_NEWS_PATH = os.environ.get(
+    "FORTRESS_TICKER_NEWS",
+    os.path.expanduser("~/fortress-v4-api/data/ticker_news.json"),
+)
+NEWS_COOLDOWN_DAYS_DEFAULT = 3
+
+
+def _load_ticker_news() -> dict:
+    try:
+        with open(TICKER_NEWS_PATH) as f:
+            return json.load(f)
+    except Exception:
+        return {"tickers": {}, "updated_at": None}
+
+
+def _save_ticker_news(payload: dict) -> None:
+    os.makedirs(os.path.dirname(TICKER_NEWS_PATH), exist_ok=True)
+    with open(TICKER_NEWS_PATH, "w") as f:
+        json.dump(payload, f, indent=2)
+
+
+def _news_cooldown_days() -> int:
+    try:
+        from app.services.config_store import cfg
+        return int(cfg("catalyst.news_spike_cooldown_days", NEWS_COOLDOWN_DAYS_DEFAULT))
+    except Exception:
+        return NEWS_COOLDOWN_DAYS_DEFAULT
+
+
+def _news_record_for(ticker: str, rec: dict, cooldown_days: int, today: date) -> dict:
+    """Compute days_since + cooldown flag for one ticker's stored last headline."""
+    rec = rec or {}
+    d_str = rec.get("date")
+    material = bool(rec.get("material", True))
+    days_since = None
+    try:
+        d = date.fromisoformat(str(d_str))
+        days_since = (today - d).days
+    except Exception:
+        d_str = None
+    cooldown_active = bool(
+        material and days_since is not None and 0 <= days_since < cooldown_days
+    )
+    return {
+        "ticker": ticker.upper(),
+        "last_headline_date": d_str,
+        "days_since": days_since,
+        "material": material,
+        "headline": rec.get("headline"),
+        "cooldown_active": cooldown_active,
+        "cooldown_days": cooldown_days,
+    }
+
+
+@router.get("/market/news/{ticker}")
+def get_ticker_news(ticker: str):
+    """
+    Per-ticker news-scan indicator for the catalyst gate (Strategy §4 news-spike
+    cooldown). Reads the Claude-curated last-material-headline store and returns
+    days_since the last material headline plus a cooldown flag (active when the
+    headline is material and days_since < cfg("catalyst.news_spike_cooldown_days")).
+    Advisory only — never blocks. Indicator, not a news reader.
+
+    Returns: ticker, last_headline_date, days_since, material, headline,
+             cooldown_active, cooldown_days, updated_at, stale, source.
+    """
+    try:
+        store = _load_ticker_news()
+        cooldown_days = _news_cooldown_days()
+        rec = (store.get("tickers", {}) or {}).get(ticker.upper(), {})
+        out = _news_record_for(ticker, rec, cooldown_days, date.today())
+        out["updated_at"] = store.get("updated_at")
+        out["stale"] = store.get("updated_at") is None
+        out["source"] = "claude_curated"
+        out["as_of"] = _utcnow()
+        return out
+    except Exception as e:
+        logger.error("Ticker news error (%s): %s", ticker, e, exc_info=True)
+        return {"ticker": ticker.upper(), "error": str(e), "cooldown_active": False}
+
+
+@router.get("/market/news")
+def get_all_ticker_news():
+    """
+    All curated per-ticker news records with days_since + cooldown flags, in one
+    call — used by Candidates/Triage to badge rows without N round-trips.
+    """
+    try:
+        store = _load_ticker_news()
+        cooldown_days = _news_cooldown_days()
+        today = date.today()
+        recs = {
+            tk.upper(): _news_record_for(tk, rec, cooldown_days, today)
+            for tk, rec in (store.get("tickers", {}) or {}).items()
+        }
+        return {
+            "tickers": recs,
+            "cooldown_days": cooldown_days,
+            "updated_at": store.get("updated_at"),
+            "stale": store.get("updated_at") is None,
+            "source": "claude_curated",
+            "as_of": _utcnow(),
+        }
+    except Exception as e:
+        logger.error("All ticker news error: %s", e, exc_info=True)
+        return {"error": str(e), "tickers": {}}
+
+
+@router.post("/market/news")
+def set_ticker_news(payload: dict):
+    """
+    Replace the per-ticker news store. Body: {"tickers": {"MSFT": {"date":
+    "YYYY-MM-DD", "headline": "...", "material": true}, ...}}. Claude curates the
+    last MATERIAL headline per ticker from QuantData (qd_get_news_articles) or FMP
+    via the MCP set_ticker_news write tool. Rows without a valid date are dropped.
+    """
+    try:
+        tickers = payload.get("tickers", {}) if isinstance(payload, dict) else {}
+        clean = {}
+        for tk, rec in (tickers or {}).items():
+            if not isinstance(rec, dict):
+                continue
+            d_str = str(rec.get("date", "")).strip()
+            if not d_str:
+                continue
+            try:
+                date.fromisoformat(d_str)
+            except Exception:
+                continue
+            entry = {"date": d_str, "material": bool(rec.get("material", True))}
+            if rec.get("headline"):
+                entry["headline"] = str(rec["headline"])
+            clean[str(tk).upper()] = entry
+        store = {"tickers": clean, "updated_at": _utcnow()}
+        _save_ticker_news(store)
+        return {"ok": True, "stored": len(clean), "updated_at": store["updated_at"]}
+    except Exception as e:
+        logger.error("Ticker news save error: %s", e, exc_info=True)
         return {"error": str(e), "ok": False}
 
 
