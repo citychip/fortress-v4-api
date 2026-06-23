@@ -33,9 +33,10 @@ Every rule below has: **what** · **why (source)** · **parameter** (`cfg` key) 
 - **Parameter:** `strategy.vrp_good_spread_pp = 5`, `vrp_fair_spread_pp = 0`,
   `vrp_min_entry_pp = 3` (IV − HV20, percentage points). The candidate scanner already
   computes IV − HV20 and embeds the 5/0 thresholds in its signal.
-- **Status:** 🟢 advisory already live in the candidate **signal**; 🟡 thresholds now
-  codified in config (Sprint 19 wires `classify_signal` + a pretrade VRP advisory to read
-  `cfg`). 16-delta ≈ the 1SD expected-move boundary — use as a strike-selection proxy.
+- **Status:** ✅ **LIVE (2026-06-23, Sprint 19.3):** scanner `classify_signal` reads
+  `cfg("strategy.vrp_good/fair_spread_pp")`; `pre_trade_check.advisories.vrp` flags amber when
+  IV−HV < `vrp_min_entry_pp` (soft-fails to `unknown` when no fresh scan). 16-delta ≈ the 1SD
+  expected-move boundary — strike-selection proxy (expected-move bands = Sprint 19.5).
 
 ## 4. PMCC guardrails
 - **What (a):** never sell a PMCC short call with **strike < long-leg breakeven** (long
@@ -47,7 +48,9 @@ Every rule below has: **what** · **why (source)** · **parameter** (`cfg` key) 
   guaranteed-loss short strikes).
 - **Parameters:** `strategy.pmcc_short_above_breakeven = True` (advisory),
   `strategy.leap_roll_delta = 0.70`, `strategy.leap_roll_dte = 120`.
-- **Status:** 🟡 codified; Sprint 19 adds the pretrade breakeven check + the LEAP-roll alert.
+- **Status:** ✅ **breakeven guardrail LIVE (2026-06-23, 19.4a):** `/api/options/pmcc-breakeven`
+  (short strike must clear long breakeven, else GUARANTEED-LOSS). 🔴 LEAP-roll-delta alert (19.4b)
+  deferred — needs per-leg greeks not exposed in the aggregated position rows.
 
 ## 5. Tail hedge — keep selective; prefer a put spread; size off vega
 - **What:** keep hedging **catalyst-timed** (not continuous); consider a **put spread** or a
@@ -69,7 +72,9 @@ Every rule below has: **what** · **why (source)** · **parameter** (`cfg` key) 
   per-name/sector caps. MSFT/AAPL/GOOGL/AMZN/NVDA (+META/AVGO/TSLA) move together.
 - **Why:** effective concentration ≫ any single 20–27% name when the book is one cluster.
 - **Parameter:** `strategy.mag7_cluster` (list), `strategy.cluster_concentration_warn_pct = 60`.
-- **Status:** 🔴 **build (Sprint 19 B2)** — warn when the cluster sum exceeds the threshold.
+- **Status:** ✅ **LIVE (2026-06-23, Sprint 19.2)** in `get_briefing.concentration.cluster`
+  (members + summed % + warn flag). Live read: cluster **74.3%** of NLV vs 25% top single-name.
+  Parapet Briefing chip = small follow-up.
 
 ---
 

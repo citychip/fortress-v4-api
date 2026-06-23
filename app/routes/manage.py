@@ -440,8 +440,29 @@ def _market_advisories() -> dict:
     except Exception:
         exdiv_ok = False
 
+    # ── VRP (variance risk premium = IV − HV20) per ticker, from the IV-crush scan ─
+    # Sprint 19.3: a high IVR with thin/negative IV−HV means little real edge
+    # (Strategy v3.10 §3). Reuses the scanner's spread_pp (real since Sprint 18).
+    vrp_by_ticker: dict[str, float] = {}
+    vrp_min = 3.0
+    try:
+        from ..services.config_store import cfg
+        vrp_min = float(cfg("strategy.vrp_min_entry_pp", 3.0))
+    except Exception:
+        pass
+    try:
+        rep = state.get_iv_crush_report()
+        for r in rep.get("rows", []):
+            tk = str(r.get("ticker", "")).upper()
+            sp = r.get("spread_pp")
+            if tk and sp is not None:
+                vrp_by_ticker[tk] = float(sp)
+    except Exception:
+        pass
+
     return {"macro": macro_adv, "vix": vix_adv,
-            "exdiv_by_ticker": exdiv_by_ticker, "exdiv_ok": exdiv_ok}
+            "exdiv_by_ticker": exdiv_by_ticker, "exdiv_ok": exdiv_ok,
+            "vrp_by_ticker": vrp_by_ticker, "vrp_min": vrp_min}
 
 
 def _exdiv_advisory(ticker: str, market: dict) -> dict:
@@ -458,6 +479,24 @@ def _exdiv_advisory(ticker: str, market: dict) -> dict:
             "detail": f"No ex-div assignment risk on {ticker} short calls"}
 
 
+def _vrp_advisory(ticker: str, market: dict) -> dict:
+    """Variance-risk-premium (IV − HV20) edge advisory (Strategy v3.10 §3).
+    Thin/negative VRP means selling premium here has little real edge even when
+    IVR looks high. Advisory only — never blocks."""
+    vrp = market.get("vrp_by_ticker", {}).get(ticker.upper())
+    vrp_min = market.get("vrp_min", 3.0)
+    if vrp is None:
+        return {"name": "vrp", "level": "unknown",
+                "detail": "no IV−HV data for this ticker (run refresh_iv_data)"}
+    if vrp < vrp_min:
+        return {"name": "vrp", "level": "amber",
+                "detail": f"IV−HV20 {vrp:+.1f}pp < {vrp_min:.0f}pp floor — thin variance-risk premium; the IVR edge may be illusory",
+                "spread_pp": vrp, "min_pp": vrp_min}
+    return {"name": "vrp", "level": "ok",
+            "detail": f"IV−HV20 {vrp:+.1f}pp ≥ {vrp_min:.0f}pp — real premium-selling edge",
+            "spread_pp": vrp, "min_pp": vrp_min}
+
+
 def _pretrade_advisories(ticker: str, market: dict | None = None) -> dict:
     """Return {advisories:{name:..}, caution:bool, caution_flags:[]} for a ticker.
 
@@ -468,7 +507,7 @@ def _pretrade_advisories(ticker: str, market: dict | None = None) -> dict:
     ticker = (ticker or "").upper().strip()
     if market is None:
         market = _market_advisories()
-    items = [market["macro"], market["vix"], _exdiv_advisory(ticker, market)]
+    items = [market["macro"], market["vix"], _exdiv_advisory(ticker, market), _vrp_advisory(ticker, market)]
     return {
         "advisories": {a["name"]: a for a in items},
         "caution": any(a["level"] == "amber" for a in items),

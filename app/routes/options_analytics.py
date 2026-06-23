@@ -1177,6 +1177,41 @@ def set_ticker_news(payload: dict):
         return {"error": str(e), "ok": False}
 
 
+# ── PMCC breakeven guardrail (Sprint 19.4 / Strategy v3.10 §4a) ───────────────
+# Selling a PMCC short call with strike ≤ (long_strike + net_debit) locks a
+# GUARANTEED LOSS at expiry if both legs are assigned/exercised. Pure validator —
+# call it when choosing a PMCC short strike. Advisory; never places orders.
+@router.get("/options/pmcc-breakeven")
+def pmcc_breakeven_check(long_strike: float, net_debit: float, short_strike: float):
+    """
+    PMCC guardrail. breakeven = long_strike + net_debit (per share). The short
+    call must be sold ABOVE that breakeven or the position can't profit at expiry.
+
+    Returns: long_strike, net_debit, breakeven, short_strike, ok, verdict, detail.
+    """
+    try:
+        breakeven = round(float(long_strike) + float(net_debit), 2)
+        short = float(short_strike)
+        ok = short > breakeven
+        return {
+            "long_strike": float(long_strike),
+            "net_debit": float(net_debit),
+            "breakeven": breakeven,
+            "short_strike": short,
+            "ok": ok,
+            "verdict": "OK" if ok else "GUARANTEED-LOSS",
+            "detail": (
+                f"Short {short:g} is above the long breakeven {breakeven:g} — OK."
+                if ok else
+                f"Short {short:g} ≤ breakeven {breakeven:g}: selling here locks a guaranteed "
+                f"loss if assigned at expiry. Raise the short strike above {breakeven:g}."
+            ),
+            "as_of": _utcnow(),
+        }
+    except Exception as e:
+        return {"error": str(e), "ok": None}
+
+
 # ── Ex-dividend assignment-risk gate (Sprint 15.4, 2026-06-20) ────────────────
 # Early assignment on a SHORT CALL spikes when it's ITM near an ex-dividend date
 # (the counterparty exercises early to capture the dividend). The backend has no

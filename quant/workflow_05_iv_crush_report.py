@@ -175,25 +175,39 @@ def get_iv_rank(ticker: str, today: str, _unused: dict = None) -> dict:
         return {}
 
 
+def _vrp_thresholds() -> tuple[float, float]:
+    """VRP (IV−HV20) spread thresholds for the signal, from cfg (Sprint 19.3) with
+    fallback to the codified defaults if config isn't importable in this context."""
+    g, f = 5.0, 0.0
+    try:
+        from app.services.config_store import cfg
+        g = float(cfg("strategy.vrp_good_spread_pp", g))
+        f = float(cfg("strategy.vrp_fair_spread_pp", f))
+    except Exception:
+        pass
+    return g, f
+
+
 def classify_signal(ivr: float, current_iv: float, hv20: float, edays: str, conc: str) -> tuple[str, float]:
     """
-    Classify the IV/HV opportunity.
-    spread = current_iv - hv20  (both in percentage points)
+    Classify the IV/HV opportunity. spread = current_iv − hv20 (percentage points).
+    GOOD/FAIR spread cut-offs come from cfg("strategy.vrp_*") (Sprint 19.3).
     Returns (signal_label, spread).
     """
     spread = round(current_iv - hv20, 1)
-    
+    vrp_good, vrp_fair = _vrp_thresholds()
+
     # Hard gates override the signal
     if "🚫" in edays:
         return "🚫 BLOCKED (EARNINGS)", spread
     if "⚠️" in conc:
         return "⚠️ BLOCKED (CONCENTRATION)", spread
-        
-    if ivr >= 50 and spread > 10:
+
+    if ivr >= 50 and spread > vrp_good + 5:
         return "🔥 PRIME CRUSH", spread
-    elif ivr >= 25 and spread > 5:
+    elif ivr >= 25 and spread > vrp_good:
         return "✅ GOOD SPREAD", spread
-    elif ivr >= 25 and spread > 0:
+    elif ivr >= 25 and spread > vrp_fair:
         return "⚠️ FAIR SPREAD", spread
     elif ivr >= 25:
         return "⚠️ IV HIGH / HV HIGH", spread

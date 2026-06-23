@@ -493,6 +493,29 @@ def get_briefing():
     )[:5]
     msft_warning = conc_dict.get("MSFT", 0) >= 50
 
+    # Sprint 19.2 — correlated mega-cap cluster concentration. Per-name caps miss
+    # that MSFT/AAPL/GOOGL/AMZN/NVDA (+META/AVGO/TSLA) move together, so the book's
+    # *effective* concentration ≫ any single name. Sum the LONG exposure of the
+    # cluster (positive net_liq_pct) and warn past the configured threshold.
+    try:
+        from app.services.config_store import cfg
+        cluster_names = list(cfg("strategy.mag7_cluster", []) or [])
+        cluster_warn = float(cfg("strategy.cluster_concentration_warn_pct", 60.0))
+    except Exception:
+        cluster_names, cluster_warn = [], 60.0
+    cluster_members = {
+        t: round(float(conc_dict.get(t, 0.0)), 2)
+        for t in cluster_names if float(conc_dict.get(t, 0.0)) > 0
+    }
+    cluster_pct = round(sum(cluster_members.values()), 1)
+    cluster_block = {
+        "names": cluster_names,
+        "members": cluster_members,       # cluster names actually held long: {ticker: %NLV}
+        "pct": cluster_pct,               # summed long exposure of the cluster
+        "warn_pct": cluster_warn,
+        "warning": cluster_pct >= cluster_warn,
+    }
+
     # Sprint 16 — capture a daily position snapshot (idempotent per calendar day)
     # so the position-diff fill detector accrues history. Best-effort: never let a
     # snapshot failure break the briefing. The scheduled daily briefing means this
@@ -518,6 +541,7 @@ def get_briefing():
             "top": top_concentration,
             "all": conc_dict,
             "msft_warning": msft_warning,
+            "cluster": cluster_block,
         },
         "greeks": compute_portfolio_greeks_with_beta(positions),
         "actions": compute_actions(positions, alerts, candidates, calendar),
