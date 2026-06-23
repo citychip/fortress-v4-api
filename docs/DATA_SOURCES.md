@@ -1,5 +1,15 @@
 # Fortress — Strategy Data Attributes & Sources
-**v1.4 · 2026-06-19 · companion to Strategy v3.9 / Parapet v2.7**
+**v1.5 · 2026-06-22 · companion to Strategy v3.9 / Parapet v2.7**
+
+> **v1.5 — Candidate/premarket scanner IV made IBKR-first (Sprint 18.1/18.2).** The
+> IV-crush scanner (`workflow_05`) and premarket scanner (`workflow_01`) were the
+> last paths still reading yfinance's raw `impliedVolatility` column (placeholder
+> junk ~0% on the delayed feed) — missed by the v1.1/15.1 migration, so the §3
+> note "eliminated from ALL paths" was inaccurate. Both now source IV via the
+> shared **`quant/iv_source.py`** module (backend `/api/options/iv-rank` IBKR-first
+> → band-guarded yfinance fallback, 4–500% sane band; junk is rejected, never
+> emitted). Signal-parser drift fixed too (18.3). Verified live: real IVR across
+> 22 tickers, signals populate. Vet names via `get_iv_rank` if ever in doubt.
 
 > **v1.4 — Gateway-down integrity guard + source badge SHIPPED (2026-06-19):**
 > New backend route `GET /api/data-integrity` (`options_analytics.py`) live-probes the
@@ -65,7 +75,7 @@ Since Sprint 13 (#80), Parapet reads these live — no hardcoded copies.
 |---|---|---|---|---|
 | ATM IV (per ticker) | Premium richness | **IBKR CP Gateway field 7633/7283** (real-time) → BS-inversion of yfinance lastPrice as fallback. Payload: `iv_source` | `/api/options/iv-rank/{t}` | ✅ `iv_source: ibkr` verified live Jun 10 |
 | IV Rank | 25/50 entry gates | Backend: IV vs 52w HV range (`hv_proxy`) → own snapshot history after 60d (`iv_snapshots`), store: `data/iv_history.json` | same | ✅ proxy now, true rank by ~Sep 2026 |
-| HV20, IV–HV spread | Premium vs realized edge | Backend price history (yfinance) | `/api/candidates` | ✅ |
+| HV20, IV–HV spread | Premium vs realized edge | Backend price history (yfinance) | `/api/candidates` | ⚠ HV20 ✅, but **IV–HV spread BROKEN until Sprint 18.1** — the scanner's `current_iv` reads the raw yfinance IV column (~0%), so every spread is bogus-negative and all rows tag POOR SPREAD. Fix = scanner → `get_iv_rank` (IBKR-first) |
 | Vol skew (25d/10d), term structure | Tail-risk pricing, IV-crush timing (e.g. pre-PPI check) | **IBKR strike IV first** → BS-inversion fallback (raw Yahoo IV column eliminated). Payload: `source` | `/api/options/vol-skew/{t}` | ✅ `source: ibkr` verified live Jun 10 (0DTE dailies may fall back — correct) |
 | Earnings implied move vs avg historical, crush risk | Earnings blackout / crush plays | Backend (chain + earnings history) | `/api/market/earnings-volatility/{t}` | ✅ |
 | Bid-ask spread / liquidity grade | §4 quality filter (5% advisory / 10% block) | **IBKR live bid/ask first** → yfinance fallback. Payload: `source` | `/api/options/liquidity/{t}` | ✅ `source: ibkr` verified live Jun 10 — no more intraday flapping |
@@ -122,7 +132,7 @@ Since Sprint 13 (#80), Parapet reads these live — no hardcoded copies.
 | `get_ex_div` ex-div assignment gate | ✅ **NEW 2026-06-20 (Sprint 15.4):** Claude-curated store (`set_ex_div_events` from FMP) cross-referenced against live short calls; flags ITM/near-ITM with ex-div ≤ expiry. Advisory only; deep-OTM/non-dividend never flag. Store empty until curated (`stale:true`) |
 | **IBKR CP marketdata snapshot** (spot 31, bid/ask 84/86, IV 7633/7283 via `ibkr_marketdata.py`) | ✅ live primary for alert spot, liquidity, IV rank, skew (verified Jun 10). Computed IV fields need polling — handled. 0DTE dailies may not yield IV → falls back |
 | yfinance lastPrice + price history | ✅ good (delayed ~15m) — fallback + structural source (expiries, strikes, OI, history) |
-| yfinance IV column | ❌ never trusted — eliminated from ALL paths since v1.1 (sanity-banded or BS-inverted) |
+| yfinance IV column | ❌ never trusted — sanity-banded or BS-inverted in the **served routes** (`options_analytics._row_iv`, `options._clean_iv`, `get_iv_rank` IBKR-first). ⚠ **EXCEPTION (found 2026-06-22, Sprint 18.1):** the candidate IV-crush scanner `workflow_05_iv_crush_report.py` was MISSED by the v1.1 migration and still reads the raw column unguarded → reports ~0% IV for every ticker → all rows tag `POOR SPREAD` (repro: scanner MSFT `IVR 0/IV 0.4%` vs `get_iv_rank(MSFT)` `IVR 48.6/IV 29.5%` same session). Fix = repoint the scanner to `get_iv_rank` (IBKR-first), same swap as 15.1. Until then, vet names via `get_iv_rank`, not `/api/candidates`. The earlier "eliminated from ALL paths" claim was inaccurate — this was the surviving path |
 | yfinance bid/ask | fallback only since v1.1 (was: flapping liquidity grades) |
 | Conditional-alert spot evaluation | ✅ IBKR live via `chain.get_spot` (was: 15m delayed + 300s cache) |
 | QuantData: dark pool, order flow, max pain, OI | ✅ works (via Claude / DP-levels route) |

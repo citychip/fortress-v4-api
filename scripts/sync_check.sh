@@ -85,6 +85,24 @@ else
 fi
 
 echo ""
+echo "── Docs drift (OneDrive docs/ → repo docs/, recursive — incl. archive/) ──"
+# Docs are version-controlled in the repo (2026-06-22). Every .md under OneDrive
+# docs/ is diffed against $API/docs/ so the handoff/strategy/session docs can't
+# silently miss GitHub. New docs are auto-tracked (directory scan, no second list).
+DOCS_SRC="$SRC/docs"; DOCS_REPO="$API/docs"
+if [ ! -d "$DOCS_SRC" ]; then
+  echo "  ⚠ $DOCS_SRC not found"; drift=1
+else
+  while IFS= read -r f; do
+    rel="${f#"$DOCS_SRC"/}"; d="$DOCS_REPO/$rel"
+    if   [ ! -f "$d" ];                 then echo "  ⚠ MISSING IN REPO: docs/$rel"; drift=1
+    elif diff -q "$f" "$d" >/dev/null;  then echo "  ✓ in sync         : docs/$rel"
+    else                                     echo "  ✗ DIFFERS         : docs/$rel  → copy + commit"; drift=1
+    fi
+  done < <(find "$DOCS_SRC" -type f -name '*.md' | sort)
+fi
+
+echo ""
 echo "── Repo git status (ahead/behind origin + working tree) ──"
 for r in fortress-v4-api fortress-mcp fortress-v4-frontend fortress-parapet; do
   echo "=== $r ==="

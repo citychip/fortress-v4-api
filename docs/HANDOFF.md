@@ -1,5 +1,5 @@
 # Fortress — Session Handoff & Start-Here Guide
-**Last updated: 2026-06-20 · Read this top-to-bottom to start any Cowork session. Everything needed to be operational is here; deep detail is pointed to in the Documentation Index.**
+**Last updated: 2026-06-22 · Read this top-to-bottom to start any session. This is the lean START-HERE — current state, open priorities, and protocols only. Per-session narrative lives in `SESSION_LOG.md`; per-item backlog in `BACKLOG_SPRINT_PLAN.md`; deep detail via the Documentation Index. Run the OPEN checklist now; run the CLOSE protocol (bottom) at wrap.**
 
 ---
 
@@ -36,7 +36,7 @@
 
 ---
 
-## Session Startup Checklist (run these first)
+## 🔺 Session OPEN Checklist (run these first)
 1. `get_ibkr_status` — confirm `web_api` authenticated (Step 0 above).
 2. `get_briefing` — NLV, concentration, β-weighted delta vs target, pacing, regime.
 3. `get_conditional_alerts` — any triggered? (note the known false-fire on intraday wicks).
@@ -45,16 +45,16 @@
 
 ---
 
-## Current State (live read 2026-06-20 ~16:30 UTC — RTH; re-pull `get_briefing` next session)
+## Current State (live read 2026-06-22 ~14:00 UTC — RTH; re-pull `get_briefing` next session)
 
 | Metric | Value |
 |---|---|
-| Net Liq | ~$71,021 (€61,923) |
-| Available / Excess Liq | ~$35,582 / ~$38,679 (both above floors $17k/$25k) |
-| β-weighted Δ | **211** (portfolio Δ 411; target ~320 — conservative after de-risk + SPY hedge) |
-| VIX / Regime | 16.78 / **bearish** |
-| Realized P&L | No trades 06-20 (system/dev session only — see log). |
-| Pacing | 0/5 logged ⚠ (manual fills not counted — track manually) |
+| Net Liq | ~$70,547 (€61,680) |
+| Available / Excess Liq | ~$35,416 / ~$38,282 (both above floors $17k/$25k) |
+| β-weighted Δ | headline ~**420** but **OVERSTATED** — greeks under-hydrate the SPY hedge + short legs (`delta_contribution 0.0`); true net ≈ **~355** vs target ~320. Trust the post-open re-pull, not the headline. |
+| VIX / Regime | 16.69 / **bearish** (VIX term contango — premium-selling favoured) |
+| Realized P&L | No trades 06-22 (dev/docs session). |
+| Pacing | 0/5 (`source: position_diff`; manual fills tracked separately) |
 
 **Concentration:** MSFT **26.7%**, AAPL 19.9%, GOOGL 14.5%, AMZN 10.7%, NVDA 9.8%, SPY-hedge 2.8%. Others ≤1% (`msft_warning: false`).
 
@@ -65,26 +65,16 @@
 ---
 
 ## Open Priorities / Action Items
-1. ✅ **DONE — `get_contract_price` hardening shipped (2026-06-18, commit `8bee85b`):** IV re-poll on `ibkr_contract_quote` + `spread_pct`/§4 `status` on `get_contract_price` (via `_spread_grade`) so it doubles as an OTM liquidity check. Deployed (smoke-test green) and pushed to fortress-v4-api. No action.
-2. **META Jul31 545/525 PCS — CLOSE before Jul 29 earnings** (expires Jul 31, holds through the print). Conditional alert `320fc5ae` fires at DTE≤8 (~Jul 23). The daily post-open briefing task also flags it. Take profit at 50% or close.
-3. **AMD Jun26 380/375 PCS** — far OTM (AMD ~$535), let expire Jun 26 for +~$131, then log via `log_trade_outcome`.
-4. **MSFT de-risking** — trimmed to **26.5%** today (sold 1× Jan28 340C + bought back 1× Dec18 510C). Continue toward the 20% standard opportunistically on strength; no new MSFT LEAP legs. Still below 200-SMA. No tax friction (Dutch Box 3).
-5. **SPY hedge** — 3× Aug21 705P on (§2.D gap closed). Maintain while regime is bearish.
-6. ✅ **DONE (2026-06-19) — MSFT alert re-armed:** `8bd4926b` cleared from its stuck Jun-11 `triggered` state; threshold moved **385→375** (GEX put-support shelf, spot $379), message updated to a generic "next de-risk tranche toward 20%". Goes live Monday's open. (The old `>$412` staged-exit alert remains un-recreated — only needed if resuming a staged upside exit.)
-7. **OAuth Stage 2** — still pending IBKR. Re-test with `test_ibkr_oauth.py` (NOT `get_ibkr_status.oauth`). Live data unaffected (web_api).
+1. **META Jul31 545/525 PCS — CLOSE before Jul 29 earnings** (expires Jul 31, holds through the print). Alert `320fc5ae` fires DTE≤8 (~Jul 23); daily post-open briefing also flags it. Take profit at 50% or close.
+2. **AMD Jun26 380/375 PCS** — far OTM (AMD ~$555), let expire **Fri Jun 26** for +~$131, then `log_trade_outcome`.
+3. **MSFT de-risking** — ~26.5–26.8%; trim toward the 20% standard opportunistically on strength, no new MSFT LEAP legs. Below 200-SMA. Alert `8bd4926b` fires on a **<$375 daily close** → next tranche (confirm on close, not wick). No tax friction (Dutch Box 3).
+4. **SPY hedge** — 3× Aug21 705P on; maintain while bearish. ⚠ Known gap: the β-delta calc currently omits the hedge's (and short legs') delta when greeks under-hydrate — see the §6 note in `STRATEGY_ENHANCEMENTS_v3_10.md` (β-vega build) and the post-open delta sanity-check in `daily-post-open-briefing`.
+5. **OAuth Stage 2** — still pending IBKR; re-test with `test_ibkr_oauth.py` (NOT `get_ibkr_status.oauth`). Live data unaffected (web_api).
+6. **Sprint 19 (strategy enhancements)** — config codified; builds pending (β-vega, cluster concentration, VRP-gate wiring, PMCC guardrails). See `BACKLOG_SPRINT_PLAN.md` + `STRATEGY_ENHANCEMENTS_v3_10.md`.
 
-## Optimization backlog → **now tracked in `BACKLOG_SPRINT_PLAN.md`** (read it for the full plan + status)
-Progress as of **2026-06-20**:
-- ✅ **Sprint 0** — out-of-mount route/service files (`manage`/`options`/`market_intelligence`/`briefing`/`config_store`/`state`/`settings`) mirrored into OneDrive + `sync_check.sh` MAP + `deploy_data_sources.sh` ROUTE_FILES. Editing the four backend items no longer needs a manual fetch.
-- ✅ **15.1** — `strategy_metrics` on **real vol** (`get_iv_rank` + `state.days_to_earnings`; `vol_source` field). Verified live.
-- ✅ **15.2** — `check_liquidity` **OTM-tradeable grading** (delta-targeted short legs via `_spread_grade`; `short_leg`/`tradeable_spread_pct`/`grade_basis`). Verified live (AAPL short call 15.1% wide).
-- ✅ **15.4** — **ex-div assignment-risk gate** (`get_ex_div`/`set_ex_div_events`, Claude-curated store + live short-call cross-ref). Verified live.
-- ⬜ **15.3** — wire `get_vix_term` into the regime read (`market_intelligence.py`) + normalize granular regime labels so `strategy_metrics` regime_score gets real input. **Next up.**
-- ⬜ **Sprint 16** — consolidate macro-defer+VIX-term+ex-div into `pretrade_check`; auto-capture entry conditions (IVR/DTE/delta) at open; journal schema enrichment + seed history; pacing counter counts manual fills.
-- ⬜ **Sprint 17** — weekly scheduled tasks (macro refresh, journal_analytics); defer-advisory alert; catalyst settings promotion; per-ticker news scan; retire paywalled Massive options path; social sentiment.
-- ⬜ **UI follow-up** — Parapet chips for `check_liquidity` short_leg + ex-div assignment risk.
-
-✅ Earlier (2026-06-19): gateway-down integrity guard + Parapet source badges (`/api/data-integrity` + SourceBadge; `DATA_SOURCES.md` v1.4 / `PARAPET.md` v2.7).
+## Optimization backlog → **`BACKLOG_SPRINT_PLAN.md`** (full per-item plan + status)
+- **Done (deployed + verified live + pushed):** Sprints **0, 15, 16, 17, 18** — out-of-mount mirroring; real-vol `strategy_metrics`; OTM liquidity grading; ex-div + VIX-term + catalyst gates; advisory layer; position-diff pacing + entry-condition capture; catalyst settings UI + news-spike cooldown (MCP **v4.11.0**); **IBKR-first candidate/premarket scanners via shared `iv_source.py`** (Sprint 18) + signal-parser fix.
+- **Open:** **Sprint 19 — strategy enhancements** (β-vega, cluster concentration, VRP-gate wiring, PMCC guardrails, expected-move, payoff slider). Config keys codified in `config_store.strategy.*`; builds pending. Rules of record in `STRATEGY_ENHANCEMENTS_v3_10.md`.
 
 ## Active Conditional Alerts
 | ID | Ticker | Trigger | Status | Note |
@@ -101,7 +91,7 @@ Progress as of **2026-06-20**:
 - **OAuth Stage 2: ❌ pending IBKR** (Priority 7) — don't trust `get_ibkr_status.oauth`
 - MCP server live at `C:\Users\cityc.000\fortress_mcp\fortress_mcp.py` (dev copy: `fortress_mcp_v452.py`; repo: `~/fortress-mcp`). Write tools need `FORTRESS_MCP_ALLOW_WRITES=1`.
   - **Token now FILE-DRIVEN (2026-06-20):** `_resolve_api_token()` prefers `~/.fortress_api_token` over the env var. The plugin runs the MCP as a **Windows** process, so it reads **`C:\Users\cityc.000\.fortress_api_token`** (a Windows-side copy of the WSL secret). This immunizes against the stale token a per-session plugin `.mcp.json` was injecting (the 401 trap — the **6th** rotation place; runbook updated in `SYSTEM.md`). On rotation, write BOTH token files (WSL + Windows); the `.mcp.json`/desktop-config steps are no longer required. The live Windows MCP copy is drift-tracked in `sync_check.sh`.
-  - New MCP tools this session: `get_ex_div` / `set_ex_div_events` (ex-div gate). `check_liquidity` now returns `short_leg`/`tradeable_spread_pct`/`grade_basis`.
+  - **MCP now v4.10.0** (2026-06-21). Sprint 16 tools: `get_ibkr_fills` (inspection), `get_position_opens` (position-diff pacing source), `capture_position_snapshot`, `get_entry_conditions`. (Earlier: `get_ex_div`/`set_ex_div_events`; `check_liquidity` returns `short_leg`/`tradeable_spread_pct`/`grade_basis`.)
 - Parapet **v2.7 / Sprint 13** at `http://localhost:4000` (top-bar data-source badge live since 2026-06-19)
 - QuantData JWT: `~/.quantdata-mcp/config.json` (refresh procedure in `WORKFLOW.md`)
 
@@ -110,22 +100,24 @@ The OneDrive `2606Fortress` folder is the **dev/edit copy**; deploys copy files 
 - **Detect drift:** `bash /mnt/c/Users/cityc.000/OneDrive/_Stocks26/2606Fortress/sync_check.sh` — content-diffs every mapped OneDrive→repo file and prints per-repo git status. Run it before ending any session. (Canonical repo copy: `~/fortress-v4-api/scripts/sync_check.sh`; it now self-checks via its own MAP entry.)
 - **Parapet auto-tracked (2026-06-19):** `sync_check.sh` now derives the Parapet file list straight from `deploy_parapet.sh`'s `FILES=()` array — every frontend file the deploy copies is drift-checked automatically. To track a NEW Parapet file, add it to `deploy_parapet.sh`'s `FILES` and you're done (no second list).
 - **Convention:** any NEW *backend* script created in OneDrive must be added to the `MAP` in `sync_check.sh` **and** (if backend-related) to `deploy_data_sources.sh`'s copy block, so it can never silently miss GitHub.
-- **Runtime-state policy:** `iv_history.json`, `pending_orders.json`, and `*.pre-ibkr-bak` are transient — gitignore them. `conditional_alerts.json`, `macro_events.json`, `trade_outcomes.json` are config/data — commit them (the last re-appears as a diff as trades close; commit at session wrap).
+- **Runtime-state policy:** `iv_history.json`, `pending_orders.json`, `position_snapshots.json`, `entry_conditions.json` (last two NEW, Sprint 16), and `*.pre-ibkr-bak`/`*.pre-sprint0-bak` are transient — gitignore them. `conditional_alerts.json`, `macro_events.json`, `trade_outcomes.json` are config/data — commit them (the last re-appears as a diff as trades close; commit at session wrap).
 
 ## Documentation Index (where detail lives)
 | Doc | What's in it |
 |---|---|
-| `PORTFOLIO.md` (v4.1) | **Live positions, account, pending actions, stop-loss watch, strategy quick-ref, universe** — start here for state |
-| `01_Portfolio_Strategy_v3_9.md` | Full strategy spec: governance, active strategies, entry/exit/risk rules, post-earnings playbook |
-| `WORKFLOW.md` (v2.5) | Daily workflow, startup, entry/roll/stop, system URLs, thresholds, QuantData refresh, common issues |
+| `PORTFOLIO.md` (v4.1) | **Live positions, account, pending actions, stop-loss watch, strategy quick-ref** — start here for state |
+| `01_Portfolio_Strategy_v3_9.md` | Full strategy spec: governance, strategies, entry/exit/risk rules, post-earnings playbook |
+| `STRATEGY_ENHANCEMENTS_v3_10.md` | **Research-codified rules + parameters (2026-06-22):** VRP gate, 50% profit-take, PMCC guardrails, β-vega, cluster concentration — status per rule |
+| `IMPROVEMENT_RESEARCH_2026-06-22.md` | External best-practice scan + sources behind the v3.10 enhancements |
+| `BACKLOG_SPRINT_PLAN.md` | Sprint backlog — 0/15/16/17/18 done; **19 = strategy enhancements** |
+| `SESSION_LOG.md` | **Dated session history** (verbose narrative + entry template) — HANDOFF keeps only the latest |
+| `WORKFLOW.md` (v2.5) | Daily workflow, entry/roll/stop, URLs, thresholds, QuantData refresh, common issues |
 | `07_MCP_Workflow_and_Prompts_v1_9.md` | MCP prompt playbook — exact phrasings per phase |
-| `DATA_SOURCES.md` (v1.4) | Reliability ledger + source-of-truth per data attribute (incl. `/api/data-integrity` gateway guard) |
+| `DATA_SOURCES.md` (v1.5) | Reliability ledger + source-of-truth per data attribute |
 | `SYSTEM.md` | Architecture, services, IBKR auth, deploy commands, repos, key paths |
-| `PARAPET.md` | Frontend reference / component map / API layer |
-| `PARAPET_SPRINT.md` | Parapet sprint history (Sprints 1–13) |
-| `CATALYST_GATE_PROPOSAL.md` | Macro-event/news catalyst gate — backend→MCP→Parapet design, deploy + seed steps, follow-ups |
-| `JOURNAL_FEEDBACK_LOOP.md` | Trade-outcomes store + `journal_analytics.py` — expectancy/win-rate by IVR/DTE/delta; capture at each close |
-| `archive/` | Superseded proposals + `HANDOFF_full_2026-06-15.md` (full prior dated session log) |
+| `PARAPET.md` / `PARAPET_SPRINT.md` | Frontend reference / component map / sprint history |
+| `JOURNAL_FEEDBACK_LOOP.md` | Trade-outcomes store + `journal_analytics.py` — expectancy/win-rate by IVR/DTE/delta |
+| `archive/` | Superseded/shipped proposals (incl. `CATALYST_GATE_PROPOSAL.md`) + `HANDOFF_full_2026-06-15.md` |
 
 ## Key Commands (token in `SYSTEM.md` / WSL `~/.git-credentials`)
 ```bash
@@ -140,11 +132,16 @@ curl -s -X DELETE "http://localhost:8081/api/orders/pending/{ID}/force" -H "Auth
 curl -s -X POST   "http://localhost:8081/api/orders/expire-stale"       -H "Authorization: Bearer $TOKEN"
 ```
 
-## Recent Session Log
-Full dated history (Jun 8–10 deploys, sprints, decisions) is archived in **`archive/HANDOFF_full_2026-06-15.md`**.
-- **2026-06-20 (backlog → sprint execution; no portfolio trades):** Turned the 06-18 optimization backlog into **`BACKLOG_SPRINT_PLAN.md`** (Sprint 0 + 15/16/17) and executed the front of it. **Sprint 0:** wrote `sprint0_pull_routes.sh` to pull the four out-of-mount backend route/service files into OneDrive (curated the broad grep to 7 real owners; dropped `ibkr_web/__init__.py` false positive), wired them into `sync_check.sh` MAP + `deploy_data_sources.sh` ROUTE_FILES (self-contained backup→copy→compile→rollback). **15.1 — `strategy_metrics` real vol:** root-caused the placeholder bug (IV/IVR/DTE read off `get_market_intelligence`, imported from the wrong module `app.routes.market` AND the intel payload never emitted those keys → always IV30/IVR50/DTE999). Now IV/IVR ← `get_iv_rank`, DTE ← `state.days_to_earnings`, added `vol_source`. Verified live (AAPL `vol_source=bs_inversion`, ivr 66.8 == iv-rank). **15.2 — `check_liquidity` ATM-clustering:** attaches a BS delta per strike, grades the ~0.20Δ short legs via `_spread_grade`, bases the grade on the OTM tradeable zone (\|Δ\|≤0.35); new `short_leg`/`tradeable_spread_pct`/`grade_basis`, band 15%→20%. Verified live (AAPL short call $320 Δ0.18 = 15.1% **wide** — masked at 8.9% by the old ATM metric). **15.4 — ex-div assignment gate:** Claude-curated store (`get_ex_div`/`set_ex_div_events`, macro_events pattern) cross-referencing live short-call legs (ITM+ex-div≤expiry = high; deep-OTM/non-div never flag); added to NaN smoke-test; verified live (4 synthetic + seeded MSFT → correctly no risk on OTM book). **MCP connector token — fixed at root:** chased a persistent 401 to a **6th rotation place** the runbook missed — the per-session plugin `…\rpm\plugin_*\.mcp.json` was injecting the *old* `07f0…` token (desktop config was already correct). Rewrote `fortress_mcp.py` token resolution to **prefer `~/.fortress_api_token`** (file-driven; MCP runs as a Windows process so it reads `C:\Users\cityc.000\.fortress_api_token`), immunizing against stale `.mcp.json`; scrubbed the stale example token; `SYSTEM.md` runbook updated (rotation now writes both token files; `.mcp.json`/desktop-config steps retired). Added the live Windows MCP copy to `sync_check.sh`. **Pushed:** fortress-v4-api (`b5ca3d6` 15.1+Sprint0, `325e843` 15.2, `2d74d21` 15.4), fortress-mcp (`ec6732f` token loader, `acae863` check_liquidity tool doc, `410e350` ex-div tools, `7b9e3a6` gitignore pyc). Docs: BACKLOG_SPRINT_PLAN (new), HANDOFF, SYSTEM, WORKFLOW. **Remaining: 15.3** (VIX-term → regime read; the one open Sprint 15 item) + Parapet chips for short_leg/ex-div.
-- **2026-06-19 (cont. — backlog build, markets closed):** Shipped the **gateway-down integrity guard + Parapet source badge** (first item off the 06-18 optimization backlog). Backend: new `GET /api/data-integrity` in `options_analytics.py` — live IBKR snapshot probe (SPY) returning an honest `live`/`fallback`/`down` verdict that **bypasses the false-fresh `staleness` field** (the exact §Reliability trap); yfinance probe distinguishes "gateway down but degraded-usable" from "nothing responding". Frontend (`fortress-parapet`): `getDataIntegrity()` + `IntegrityData` in `api.ts` (falls back to `/api/ibkr/capability` pre-deploy); new `SourceBadge.tsx` always-visible top-of-page badge (green ● Live / amber ▲ Delayed / red ■ No data) with a `useIntegrity()` hook that also **tints the whole header bar** amber/red when degraded and shows a dashed **"↻ Restart gateway"** pill carrying the Step-0 recovery steps. Verified live post-deploy: `{"integrity":"live","source":"ibkr","spot":746.94}`; prod `tsc && vite build` green (777 modules). Then hardened the drift guard: `sync_check.sh` now **auto-tracks all Parapet `src/` files** by parsing `deploy_parapet.sh`'s `FILES=()` (no second list) + added a **self-check MAP entry** for `sync_check.sh` itself; consolidated the script to its canonical `scripts/sync_check.sh` (dropped a root-dir duplicate). Pushed: fortress-v4-api `54489de` (route) + `d5e468c` (sync_check), fortress-parapet `0456102` (badge). All four repos clean. Docs updated (HANDOFF, DATA_SOURCES v1.4, PARAPET v2.7, PARAPET_SPRINT, SYSTEM).
-- **2026-06-19 (Juneteenth, markets closed):** Startup checklist run live — backend green (web_api authed, OPRA live), NLV $71,074, β-Δ 213.7, MSFT 26.6%, regime bearish/VIX 16.8. **Re-armed the stale MSFT alert `8bd4926b`**: stuck `triggered` from a Jun-11 wick → cleared; threshold **385→375** (GEX put-support shelf, spot $379), message updated to a generic "next de-risk tranche toward 20%" (old strike-specific text was stale post-trim). **GitHub sync audit:** all four repos level with origin; core code (`ibkr_marketdata`, `options_analytics`, NaN test, MCP v4.5.2) all in sync. Found **two OneDrive-only files never committed** — `journal_analytics.py` + `snapshot_iv.sh` — copied into the repo and pushed (commit `ae294f2`). Removed two 0-byte junk files from fortress-v4-frontend. Built **`sync_check.sh`** (OneDrive↔GitHub drift guard) + added the two scripts to `deploy_data_sources.sh` + documented the sync convention above. Then did the `.gitignore` runtime-state cleanup + committed `sync_check.sh` (commits `5154366`, `a35e214`). **API-token security pass:** the hardcoded backend token (`07f0…`) was exposed in tracked files + git history. Scrubbed it from `SYSTEM.md`/archive/`setup-wsl.sh` (commits `eef8b8d` api, `c8d9555` parapet), moved all scripts to read `~/.fortress_api_token`, and **rotated the token** (new `b6684e…`; old is 401-dead). The rotation touched **5 places** — backend systemd, `~/.fortress_api_token`, packaged-app `claude_desktop_config.json` (at `…\Local\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\`, NOT a hand-editable UI — Customize→Connectors only sets tool perms), OneDrive config backup, and the **Parapet build**. Parapet fought back with a chain of traps (all → 401): stale `.env.local` overriding `.env`, systemd-quote scrape, `umask 077` → nginx 403, browser cache. All fixed + hardened in `deploy_parapet.sh`; full **token-rotation runbook with every gotcha is in `SYSTEM.md`**. Everything green: portfolio, GitHub sync, MCP connector, and Parapet all on the new token.
-- **2026-06-16:** Fixed the GEX/skew/liquidity NaN-in-JSON 500 bug in `options_analytics.py` (`get_gex`/`get_vol_skew`/`check_liquidity` — NaN `openInterest`/`bid`/`ask` from yfinance slipped past `<=0` guards via the `float(x or 0)` trap and crashed Starlette's `allow_nan=False` serializer). Added a `_f()` NaN/Inf-safe coercion + `math.isfinite` skip-guard; deployed via `deploy_data_sources.sh`; get_gex verified live on V and AAPL. Reviewed OptionsPlay DailyPlay (HOOD/RDDT/RCL) — all declined vs framework (HOOD excluded; PCS/bullish structures fail the bearish regime gate; near-ATM deltas vs the 0.15–0.20 PCS spec). Scanned Tier-1 financials/consumer (V/PNC/MAR) for a compliant CSP/IC — all grade-D liquidity, passed. Updated `DATA_SOURCES.md` v1.3. Built the **catalyst gate** (Strategy §4 binary-event timing → codified): backend `get_macro_events`/`set_macro_events` routes in `options_analytics.py` (Claude-curated store, `defer_advisory` when high-impact FOMC/CPI/PPI/NFP/PCE ≤2d, advisory only), MCP tools (v4.6.0), Parapet event-horizon feed + amber defer banner. Implements the old Sprint 14 `intel.events` item. ⚠ **Needs deploy** (data-sources + parapet + MCP relaunch) then **seed** via `set_macro_events()` from FRED/FMP. Full design: `CATALYST_GATE_PROPOSAL.md`. **Deployed + seeded same day** (FOMC Jun17/PCE Jun25/NFP Jul2/CPI Jul14/PPI Jul15/FOMC Jul29; defer_advisory firing on FOMC). Then a profitability/reliability batch: **`get_vix_term`** VIX-vs-VIX3M term-structure regime input (backend route + MCP, v4.7.0); **`journal_analytics.py`** expectancy/win-rate feedback loop (repo root — journal currently near-empty + lacks ivr/dte/delta-at-entry, so a schema enrichment is recommended to unlock bucketing); **NaN route smoke-test** (`tests/test_options_routes_nan.py`) wired into `deploy_data_sources.sh` with rollback; verified **FMP `dividends-calendar`** works on-tier and documented the ex-div assignment-risk check (no current risk — book's short calls are deep-OTM / non-dividend names). MCP now v4.7.0 — **needs another deploy + relaunch** for `get_vix_term`. (Resolved: deployed + relaunched; v4.7.0 live, `get_vix_term` verified — VIX 15.9/VIX3M 19.3 = contango, premium-selling favorable; deploy NaN smoke-test hardened to actually exercise the routes after 3 env fixes.) Then built the **trade-outcomes feedback loop**: backend `GET/POST /api/trade-outcomes` (structured closed-trade sidecar capturing ivr/dte/short-delta at entry), MCP `log_trade_outcome`/`get_trade_outcomes` (**v4.8.0**), `journal_analytics.py` repointed to the store (expectancy by IVR/DTE/delta buckets). Sidecar chosen because the backend journal route is outside the repo mount + the MCP `add_journal_entry` is schema-drifted from the stored entry (noted finding). ⚠ **Needs deploy + relaunch** for v4.8.0. Design: `JOURNAL_FEEDBACK_LOOP.md`. (Deployed + relaunched; v4.8.0 live, trade-outcomes store working.)
-- **2026-06-18 (post-FOMC):** Tech sold off (MSFT 394→375). **Closed the MSFT Jun18 380/370 BPS** (it went ITM through the 380 short strike) — realized −$241.49, logged as the first **trade-outcomes** record. **Added a SPY hedge** (3× Aug21 705P @ $7.196, ~−67 delta) to close the §2.D gap (hedge was $0). META Jul31 PCS on watch (delta −0.33, earnings inside expiry — close by ~Jul 23). Built **`get_contract_price`** (backend `GET /api/options/contract-price/{ticker}` in options_analytics.py + `ibkr_contract_quote` helper in ibkr_marketdata.py + MCP **v4.9.0**) — IBKR-first real-time bid/ask/last/IV for ANY single strike (fixes check_liquidity's near-spot-only limitation), yfinance fallback; added to the NaN smoke-test. Verified `qd_get_contract_price` works across SPY/MSFT/AMD/META/AAPL (last-traded OHLCV) as a Claude-side cross-check. **All shipped: deployed + MCP v4.9.0 relaunched + verified live on IBKR** (SPY 705P bid/ask 6.90/6.93, IV 19%). **MSFT de-risk executed** (340C/510C combo) → MSFT 26.5%, β-delta 212, logged. **Scheduled daily post-open briefing** created (`daily-post-open-briefing`, weekdays ~15:45 Amsterdam). **All four GitHub repos pushed** (fortress-v4-api incl. docs `0da9e11`, fortress-parapet `3de67af`, fortress-mcp `5e8e8aa`). Then shipped two follow-on optimizations (commit `8bee85b`): IV re-poll on `ibkr_contract_quote` + `spread_pct`/`status` on `get_contract_price` (OTM liquidity grade) — deployed, smoke-test green, pushed.
-- **2026-06-15:** Rotated MSFT (sold 1× Jan28 310C) → bought AAPL Jan28 240C; MSFT concentration 59% → 42%. Added AMD Jul31 450/430 + META Jul31 545/525 put credit spreads. Set META earnings-close alert. Confirmed OAuth Stage 2 still pending (corrected an earlier false "connected" reading). Codified the ⭐ data-sourcing procedure. Consolidated/cleaned docs (deleted dupes + superseded MCP versions, archived completed proposals, merged the cheatsheet into WORKFLOW, moved all reference docs under `docs/`).
+---
+
+## 🔻 Session CLOSE Protocol (run at every wrap — keeps the handoff lean)
+1. **Deploy + verify** anything changed: `bash deploy_data_sources.sh` (compile-check + NaN smoke-test + rollback) → MCP relaunch if MCP changed → `bash deploy_parapet.sh` if frontend changed → verify the change **live** via MCP before committing.
+2. **`bash sync_check.sh`** — must read all-green. Any `DIFFERS`/`MISSING` → copy OneDrive→repo first.
+3. **Commit + push** each touched repo (`fortress-v4-api` / `-mcp` / `-parapet`). gitignore runtime/backups (`*.pre-*-bak`, `position_snapshots.json`, `entry_conditions.json`, `__pycache__`); **commit** curated data (`conditional_alerts.json`, `macro_events.json`, `ticker_news.json`, `trade_outcomes.json`).
+4. **Update this file's top:** `Current State` table (date + NLV/Δ/regime/concentration), `Open Priorities`, `Active Conditional Alerts` — only if they changed.
+5. **Append ONE short entry to `SESSION_LOG.md`** using the template there (3–6 lines, not an essay). Do NOT grow the session log inside HANDOFF.
+6. Bump the **Last updated** date in the header.
+
+## Latest session
+**2026-06-22** — Sprint 17 shipped (catalyst settings, news-spike cooldown, MCP **v4.11.0**) + Sprint 18 (candidate/premarket scanners → IBKR-first via shared `iv_source.py`, IV sanity guards, signal-parser fix) — all deployed, verified live, pushed (`fortress-v4-api 4a76eb6`). **Sprint 19 strategy enhancements codified** (config keys + `STRATEGY_ENHANCEMENTS_v3_10.md` + `IMPROVEMENT_RESEARCH_2026-06-22.md`); builds pending. Docs reorganized (session log split out; this START-HERE slimmed). Full detail → `SESSION_LOG.md`.
+

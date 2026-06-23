@@ -1,6 +1,20 @@
 # Parapet Sprint Planning
 
-_Updated: 2026-06-19_
+_Updated: 2026-06-21_
+
+---
+
+## v2.8 — Sprint 16.1 advisory caution UI (deployed 2026-06-21)
+
+Surfaces the backend advisory layer (`pre_trade_check`/`pretrade_all` → `caution`/`caution_flags` + top-level `market_advisories`). All driven off the existing `getPretradeAll` call — **no new fetch**.
+
+| Change | Files |
+|---|---|
+| `Advisory`/`PretradeRow`/`PretradeAllData` types; `getPretradeAll` re-typed | lib/api.ts |
+| Market-wide amber banner (macro_defer / VIX-term backwardation, rendered only when amber) above the summary bar; per-row `⚠ EX-DIV` chip (shared `Badge`, `tone="yellow"`, tooltip) in the gate cell next to `GateBadge`; `cautionMap` + `marketAdv` state | pages/CandidatesPage.tsx |
+| Same market-wide banner (managing positions in a defer/backwardation environment); reuses `getPretradeAll().market_advisories` | pages/TriagePage.tsx |
+
+Design: advisory is **non-blocking** and visually distinct from the red/green hard-gate verdict (amber heads-up only). Verified: `deploy_parapet.sh` green — `tsc` clean, **778 modules**, nginx reloaded.
 
 ---
 

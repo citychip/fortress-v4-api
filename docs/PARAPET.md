@@ -1,5 +1,24 @@
 # Parapet — Frontend Reference
-**v2.7 · Updated 2026-06-19**
+**v2.9 · Updated 2026-06-21**
+
+> **v2.9 (2026-06-21):** **Standalone risk chips.** (1) Per-ticker **`⚠ EX-DIV`**
+> chip in the Positions `TickerSection` header (severity-colored red/amber), driven
+> by `getExDiv()` → `assignment_risks` mapped to the short-call ticker (worst
+> severity wins). (2) **`LIQ {grade}{spread%}`** chip in the Candidates gate cell,
+> driven by `getCheckLiquidity(ticker)` (`liquidity_grade` + `tradeable_status`
+> + `tradeable_spread_pct`), fetched **only for tradeable rows** since it hits the
+> IBKR chain. New `api.ts`: `ExDivData`/`ExDivRisk`, `LiquidityData`,
+> `getExDiv`, `getCheckLiquidity`.
+
+> **v2.8 (2026-06-21, Sprint 16.1):** **Advisory caution UI.** Surfaces the backend
+> advisory layer (`pre_trade_check`/`pretrade_all` → `caution`/`caution_flags` +
+> `market_advisories`, all from the existing `getPretradeAll` — no new fetch). Two
+> pieces: a **market-wide amber banner** (macro_defer / VIX-term backwardation),
+> rendered only when amber, at the top of **Candidates** and **Triage**; and a
+> per-row **`⚠ EX-DIV`** chip (shared `Badge`, `tone="yellow"`) in the Candidates
+> gate cell next to the hard-gate badge, with a tooltip. Kept visually distinct from
+> the red/green hard-gate verdict — advisory is non-blocking. New `api.ts` types:
+> `Advisory`, `PretradeRow`, `PretradeAllData`.
 
 > **v2.7 (2026-06-19):** New **data-source integrity badge** in the header on every
 > page (`SourceBadge.tsx`). A shared `useIntegrity()` hook polls `getDataIntegrity()`
