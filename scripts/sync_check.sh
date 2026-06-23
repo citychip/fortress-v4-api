@@ -40,6 +40,10 @@ MAP=(
   # connector launches. Added 2026-06-20 with the file-preferred token loader.
   "fortress_mcp_v452.py:/mnt/c/Users/cityc.000/fortress_mcp/fortress_mcp.py"
   "sync_check.sh:$API/scripts/sync_check.sh"
+  # Deploy scripts (2026-06-22) — version-controlled so deploy-logic changes reach
+  # GitHub. They're run from OneDrive; the deploy copies them into the repo too.
+  "deploy_data_sources.sh:$API/scripts/deploy_data_sources.sh"
+  "deploy_parapet.sh:$API/scripts/deploy_parapet.sh"
   # Sprint 0 (2026-06-19): out-of-mount backend route/service files pulled into
   # OneDrive so pretrade_check / regime / strategy_metrics / pacing are now
   # dev-editable + drift-tracked + deployable (see deploy_data_sources.sh ROUTE_FILES).
