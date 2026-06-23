@@ -211,6 +211,28 @@ DEFAULTS: dict[str, Any] = {
         # selling favored); ratio > backwardation = stress/term inversion.
         "vix_term_contango_ratio":      0.95,    # VIX/VIX3M below this = contango (calm)
         "vix_term_backwardation_ratio": 1.00,    # VIX/VIX3M above this = backwardation (stress)
+
+        # ── Premium-selling edge + PMCC guardrails (research-codified 2026-06-22,
+        #    Strategy v3.10; full rationale in STRATEGY_ENHANCEMENTS_v3_10.md) ──
+        # VRP (variance risk premium = IV − HV20) thresholds. Promoted from the
+        # IV-crush scanner's hardcoded classify_signal so they're tunable. ADVISORY
+        # — they shape the candidate signal label, not a hard entry gate.
+        "vrp_good_spread_pp":   5.0,     # IV−HV20 > this (+ IVR≥good) → GOOD_SPREAD
+        "vrp_fair_spread_pp":   0.0,     # IV−HV20 > this (+ IVR≥fair) → FAIR_SPREAD
+        "vrp_min_entry_pp":     3.0,     # advisory floor: below this the IVR edge is thin (sell only if VRP clears this)
+        # PMCC LEAP-roll triggers (Strategy §5 + research) — roll the long LEAP early.
+        "leap_roll_delta":      0.70,    # roll the LEAP when its delta falls to/below this
+        "leap_roll_dte":        120,     # …or when its DTE ≤ this (whichever first)
+        "pmcc_short_above_breakeven": True,  # advisory: flag PMCC short strikes below the long-leg breakeven (long strike + net debit) = guaranteed loss at expiry
+        # Defined-risk profit target — research (tastytrade 4k+ PCS) favours ~50%.
+        # NOT applied live: profit_target_pct above stays user-set (80). This only
+        # records the researched default for when you choose to adopt it.
+        "profit_target_pct_recommended": 50,
+        # Correlated mega-cap cluster (B2) — effective concentration beyond single names.
+        "mag7_cluster": ["MSFT", "AAPL", "GOOGL", "AMZN", "NVDA", "META", "AVGO", "TSLA"],
+        "cluster_concentration_warn_pct": 60.0,  # warn when the cluster's summed % NLV exceeds this
+        # β-weighted vega target (B1) — net short-vega risk dial vs SPY IV (Sprint 19).
+        "beta_vega_target":     0.0,     # 0 = informational only until B1 ships
     },
 
     # ── CATALYST GATE (Strategy §4 — binary-event timing) ─────────────────────
