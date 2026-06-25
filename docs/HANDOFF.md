@@ -1,5 +1,5 @@
 # Fortress — Session Handoff & Start-Here Guide
-**Last updated: 2026-06-22 · Read this top-to-bottom to start any session. This is the lean START-HERE — current state, open priorities, and protocols only. Per-session narrative lives in `SESSION_LOG.md`; per-item backlog in `BACKLOG_SPRINT_PLAN.md`; deep detail via the Documentation Index. Run the OPEN checklist now; run the CLOSE protocol (bottom) at wrap.**
+**Last updated: 2026-06-24 · Read this top-to-bottom to start any session. This is the lean START-HERE — current state, open priorities, and protocols only. Per-session narrative lives in `SESSION_LOG.md`; per-item backlog in `BACKLOG_SPRINT_PLAN.md`; deep detail via the Documentation Index. Run the OPEN checklist now; run the CLOSE protocol (bottom) at wrap.**
 
 ---
 
@@ -45,32 +45,33 @@
 
 ---
 
-## Current State (live read 2026-06-22 ~14:00 UTC — RTH; re-pull `get_briefing` next session)
+## Current State (live read 2026-06-24 ~14:51 UTC — RTH; re-pull `get_briefing` next session)
 
 | Metric | Value |
 |---|---|
-| Net Liq | ~$70,547 (€61,680) |
-| Available / Excess Liq | ~$35,416 / ~$38,282 (both above floors $17k/$25k) |
-| β-weighted Δ | headline ~**420** but **OVERSTATED** — greeks under-hydrate the SPY hedge + short legs (`delta_contribution 0.0`); true net ≈ **~355** vs target ~320. Trust the post-open re-pull, not the headline. |
-| VIX / Regime | 16.69 / **bearish** (VIX term contango — premium-selling favoured) |
-| Realized P&L | No trades 06-22 (dev/docs session). |
-| Pacing | 0/5 (`source: position_diff`; manual fills tracked separately) |
+| Net Liq | ~$69,600 (≈€61,000) |
+| Available / Excess Liq | ~$31.2k / ~$34.2k (above floors $17k/$25k) |
+| β-weighted Δ | still **OVERSTATED** when greeks under-hydrate (hedge + short legs read 0.0) — trust the post-open re-pull / the daily-briefing sanity-check, not the headline. (β-vega build = Sprint 19.1.) |
+| VIX / Regime | 18.7 / **Strongly Bullish +4** — SPY $738.5 reclaimed the flip zone (positive gamma); VIX-term **contango**. (Whipsawed from bearish/negative-gamma at the 06-24 open; tech bounced hard — AMZN +5%, GOOGL +13%.) |
+| Realized P&L | +$1,724 (closed 3× SPY 705P in the hedge swap, 06-24). |
+| Pacing | 3/5 (`source: position_diff`; 2 entries left this week) |
 
-**Concentration:** MSFT **26.7%**, AAPL 19.9%, GOOGL 14.5%, AMZN 10.7%, NVDA 9.8%, SPY-hedge 2.8%. Others ≤1% (`msft_warning: false`).
+**Concentration:** MSFT **25.1%**, AAPL 18.2%, GOOGL 11.8%, AMZN 10.4%, NVDA 8.7% · **cluster (Mag-7) 74.2% ⚠** (`concentration.cluster`, warn >60%) — the real exposure. `msft_warning: false`.
 
-**Open book (full detail in `PORTFOLIO.md` / `get_positions`):** MSFT (LEAPs 310C×1 + **340C×1** [sold 1 today], short 490C×2 / **510C×2** [bought back 1 today] / 465C-long) · AAPL LEAPs 290C+240C · GOOGL/AMZN/NVDA PMCCs · META Jul31 545/525 PCS · AMD Jun26 + Jul31 450/430 PCS · V Jul17 300/295 + Jul31 305/290 PCS · **SPY Aug21 705P ×3 (hedge, NEW)** · OST stock (ignore).
+**Open book (detail via `get_positions`):** MSFT LEAPs 310C+340C / short **420C×2** + 490C×2 / 465C-long · AAPL LEAPs 240C+290C / short 325C×2 · GOOGL LEAP 310C / short 395C · AMZN LEAP 200C (**naked — no short call; $9.7k at 0% income, write a call**) · NVDA LEAP 170C / short 250C / Jul17 180/175 PCS · ARM **Jul24 345/340 PCS ×4 (largest)** · V Jul17 300/295 + Jul31 305/290 PCS · META Jul31 545/525 PCS · AMD Jun26 380/375 (expires Fri) + Jul31 450/430 PCS · **SPY hedge: 5× Aug21 710/665 put spreads** ($22.5k max payout, ~−80 SPY-Δ — swapped from 3× 705P on 06-24) · OST stock (ignore).
 
-**Trade-outcomes store (NEW feedback loop):** 2 records — MSFT BPS −$241 (`closed_pre_assignment`) and MSFT de-risk −$1,385 (`concentration_trim`). Run `python3 journal_analytics.py` (reads `data/trade_outcomes.json`).
+**Trade-outcomes store:** 2 records (MSFT BPS −$241, MSFT de-risk −$1,385) — ⚠ the 06-24 705P close (+$1,724) is **not yet logged**. Run `python3 journal_analytics.py`.
 
 ---
 
 ## Open Priorities / Action Items
-1. **META Jul31 545/525 PCS — CLOSE before Jul 29 earnings** (expires Jul 31, holds through the print). Alert `320fc5ae` fires DTE≤8 (~Jul 23); daily post-open briefing also flags it. Take profit at 50% or close.
-2. **AMD Jun26 380/375 PCS** — far OTM (AMD ~$555), let expire **Fri Jun 26** for +~$131, then `log_trade_outcome`.
-3. **MSFT de-risking** — ~26.5–26.8%; trim toward the 20% standard opportunistically on strength, no new MSFT LEAP legs. Below 200-SMA. Alert `8bd4926b` fires on a **<$375 daily close** → next tranche (confirm on close, not wick). No tax friction (Dutch Box 3).
-4. **SPY hedge** — 3× Aug21 705P on; maintain while bearish. ⚠ Known gap: the β-delta calc currently omits the hedge's (and short legs') delta when greeks under-hydrate — see the §6 note in `STRATEGY_ENHANCEMENTS_v3_10.md` (β-vega build) and the post-open delta sanity-check in `daily-post-open-briefing`.
-5. **OAuth Stage 2** — still pending IBKR; re-test with `test_ibkr_oauth.py` (NOT `get_ibkr_status.oauth`). Live data unaffected (web_api).
-6. **Sprint 19 (strategy enhancements)** — config codified; builds pending (β-vega, cluster concentration, VRP-gate wiring, PMCC guardrails). See `BACKLOG_SPRINT_PLAN.md` + `STRATEGY_ENHANCEMENTS_v3_10.md`.
+1. **PCE tomorrow (Jun 25)** — catalyst defer gate ACTIVE; hold new premium-selling entries until the print clears.
+2. **MSFT <$375 close watch** — alert `8bd4926b` triggered 06-22 intraday; confirm on the **daily close** (not wick). If it closes <$375 → next de-risk tranche toward 20%. (One-time reminder set for 06-24 16:05 ET.)
+3. **AMD Jun26 380/375 PCS** — expires **Fri Jun 26** for +~$131; let lapse, then `log_trade_outcome`. (Reminder set Fri.)
+4. **Post-PCE OPTIMIZATION queue (from `get_capital_efficiency` 06-24):** (a) **AMZN** Jan'28 200C is a **naked LEAP, $9.7k at 0% income — write a call** (→ PMCC); (b) **roll under-OTM cluster short calls down** (NVDA 250C is 24% OTM ~$0; MSFT 490C×2; AAPL 325C/GOOGL 395C) — lifts income **and** trims the 74% cluster's upside delta; (c) **harvest 50%-profit PCS** (V/NVDA/AMD/META) — *not* blocked by the defer gate, do anytime.
+5. **SPY hedge** — swapped to **5× Aug21 710/665 put spreads** ($22.5k payout). Maintain. ⚠ greeks-under-hydration still inflates β-delta (β-vega = Sprint 19.1).
+6. **OAuth Stage 2** — still pending IBKR; re-test via `test_ibkr_oauth.py` (NOT `get_ibkr_status.oauth`). (Reminder set Mon Jun 29.)
+7. **Sprint 19** — 19.2/19.3 live, 19.4a (pmcc-breakeven) live. **Next build: 19.1 β-vega** (top); then 19.4b LEAP-roll, 19.5 expected-move, 19.6 payoff, Parapet cluster chip. See `BACKLOG_SPRINT_PLAN.md` + `STRATEGY_ENHANCEMENTS_v3_10.md`.
 
 ## Optimization backlog → **`BACKLOG_SPRINT_PLAN.md`** (full per-item plan + status)
 - **Done (deployed + verified live + pushed):** Sprints **0, 15, 16, 17, 18** — out-of-mount mirroring; real-vol `strategy_metrics`; OTM liquidity grading; ex-div + VIX-term + catalyst gates; advisory layer; position-diff pacing + entry-condition capture; catalyst settings UI + news-spike cooldown (MCP **v4.11.0**); **IBKR-first candidate/premarket scanners via shared `iv_source.py`** (Sprint 18) + signal-parser fix.
@@ -80,7 +81,7 @@
 | ID | Ticker | Trigger | Status | Note |
 |---|---|---|---|---|
 | `320fc5ae` | META | dte_lte 8 | armed | Close Jul31 PCS before Jul 29 earnings (~Jul 23) |
-| `8bd4926b` | MSFT | price_below 375 | armed | Re-armed 06-19 (was 385/stuck-triggered). Close < $375 → next de-risk tranche toward 20%. Confirm on daily close (fires on intraday spot). |
+| `8bd4926b` | MSFT | price_below 375 | **TRIGGERED** (06-22 intraday) | MSFT ~$374. ⚠ Confirm on the **daily close** before acting (fires on intraday spot). <$375 close → next de-risk tranche toward 20%. |
 | (missing) | MSFT | price_above 412 | — | Recreate only if resuming a staged upside exit |
 
 ---
@@ -143,5 +144,5 @@ curl -s -X POST   "http://localhost:8081/api/orders/expire-stale"       -H "Auth
 6. Bump the **Last updated** date in the header.
 
 ## Latest session
-**2026-06-22** — Sprint 17 shipped (catalyst settings, news-spike cooldown, MCP **v4.11.0**) + Sprint 18 (candidate/premarket scanners → IBKR-first via shared `iv_source.py`, IV sanity guards, signal-parser fix) — all deployed, verified live, pushed (`fortress-v4-api 4a76eb6`). **Sprint 19 strategy enhancements codified** (config keys + `STRATEGY_ENHANCEMENTS_v3_10.md` + `IMPROVEMENT_RESEARCH_2026-06-22.md`); builds pending. Docs reorganized (session log split out; this START-HERE slimmed). Full detail → `SESSION_LOG.md`.
+**2026-06-24** — Live trading session. Executed the **SPY hedge swap** (closed 3× 705P +$1,724, opened 5× Aug21 710/665 spreads, $22.5k payout). Regime whipsawed bearish→**Strongly Bullish +4** (tech bounced; SPY reclaimed flip zone). Declined OptionsPlay DASH/ARM (off-spec delta + concentration). Verified Sprint 19.2/19.3 live; surfaced the **optimization queue** (AMZN naked LEAP @ 0% income; roll under-OTM cluster calls; harvest 50% PCS). Set 3 reminders. **No code changes.** Next build = **19.1 β-vega**. Prior session (06-23): Sprint 19.2/19.3/19.4a shipped + verified + pushed. Full detail → `SESSION_LOG.md`.
 
