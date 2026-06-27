@@ -195,9 +195,23 @@ def compute_portfolio_greeks_with_beta(data: dict) -> dict:
                 weighted_delta = state.compute_beta_weighted_delta(data, betas)
                 greeks["beta_weighted_delta"] = round(weighted_delta, 1)
                 greeks["beta_sources"] = "yfinance"
+                # Sprint 20.6 / 19.1 — β-weighted vega (SPY-IV-equivalent $/vol-pt).
+                weighted_vega = state.compute_beta_weighted_vega(data, betas)
+                greeks["beta_weighted_vega"] = round(weighted_vega, 1)
+                greeks["beta_vega_target"] = cfg("strategy.beta_vega_target", 0.0)
+                # Surface the blind spot: a premium-selling book is normally net
+                # SHORT vega; a positive (net-long) β-vega on a concentrated
+                # long-LEAP book is the risk that previously flipped unflagged.
+                greeks["beta_vega_flag"] = (
+                    "net_long_vega" if weighted_vega > 0
+                    else "net_short_vega" if weighted_vega < 0
+                    else "flat"
+                )
             else:
                 greeks["beta_weighted_delta"] = None
                 greeks["beta_sources"] = "unavailable"
+                greeks["beta_weighted_vega"] = None
+                greeks["beta_vega_flag"] = None
     except Exception as e:
         import logging
         logging.getLogger("fortress.briefing").warning(f"Beta-weighted delta failed: {e}")

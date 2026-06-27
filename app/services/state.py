@@ -414,6 +414,49 @@ def compute_beta_weighted_delta(positions_data: dict, betas: dict[str, dict[str,
     return total_spy_dollar / spy_price
 
 
+def compute_beta_weighted_vega(positions_data: dict, betas: dict[str, dict[str, Any]] | None = None) -> float:
+    """SPY-IV-equivalent β-weighted portfolio vega (Sprint 20.6 / 19.1).
+
+    Raw portfolio vega sums each name's vega at its OWN implied vol, which hides
+    that high-beta names' IVs move more than SPY's in a vol event. We scale each
+    leg's dollar-vega by the name's beta to SPY as a (documented) proxy for its
+    IV-sensitivity to SPY IV:
+
+        position_vega_$ = qty × option_vega × multiplier      # $ per 1 vol-point
+        spy_iv_equiv_$  = position_vega_$ × stock_beta
+
+    Sum → β-weighted dollar vega: the portfolio's P&L per 1-point move in
+    SPY-equivalent IV. Negative = net short vega (the premium-selling default);
+    a positive flip on a concentrated long-LEAP book is the live blind spot this
+    surfaces. Stock legs carry no vega. If betas are absent, returns the raw
+    unweighted portfolio vega (no regression).
+    """
+    positions = positions_data.get("positions", []) or []
+
+    def _vega_sum(weight_by_beta: bool) -> float:
+        total = 0.0
+        for p in positions:
+            if str(p.get("sec_type", "OPT")).upper() == "STK":
+                continue
+            vega = p.get("current_vega")
+            if vega is None:
+                continue
+            qty = p.get("qty") or 0
+            try:
+                multiplier = int(p.get("multiplier") or 100)
+            except (ValueError, TypeError):
+                multiplier = 100
+            pos_vega = float(vega) * qty * multiplier
+            if weight_by_beta:
+                pos_vega *= _get_beta_for_ticker(str(p.get("ticker", "")).upper(), betas, fallback=1.0)
+            total += pos_vega
+        return total
+
+    if not betas:
+        return _vega_sum(weight_by_beta=False)
+    return _vega_sum(weight_by_beta=True)
+
+
 # --- Phase 3 IBKR sync support (May 4 2026) ---
 
 def _leg_strike(leg: dict) -> Optional[float]:
