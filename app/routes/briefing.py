@@ -518,6 +518,13 @@ def get_briefing():
         "pct": cluster_pct,               # summed long exposure of the cluster
         "warn_pct": cluster_warn,
         "warning": cluster_pct >= cluster_warn,
+        # Sprint 20.4 — CANONICAL cluster/concentration basis = market_value / NetLiq
+        # (the denominator the §7 caps + the 60% warn threshold are calibrated to,
+        # and what compute_concentration emits). Any other read (e.g. cluster MV /
+        # total-position MV, ~+2pts higher because it drops cash) is NOT the source
+        # of truth — consumers should cite this `pct`. Labeled so nothing recomputes
+        # it on a different basis.
+        "basis": "market_value_pct_of_netliq",
     }
 
     # Sprint 16 — capture a daily position snapshot (idempotent per calendar day)
