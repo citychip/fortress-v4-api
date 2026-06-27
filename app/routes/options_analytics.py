@@ -1587,17 +1587,42 @@ _HEDGE_TICKERS_PD = {"SPY"}
 
 
 def _load_position_snapshots() -> dict:
+    """Load the snapshot store. Distinguishes a genuinely-absent file (fresh
+    start) from a present-but-unreadable one (Sprint 20.2): the latter must NOT
+    be treated as empty, or the next capture would clobber real history. A
+    corrupt/transient read returns an `_load_error` flag so capture can refuse
+    to overwrite."""
+    if not os.path.exists(POSITION_SNAPSHOTS_PATH):
+        return {"snapshots": []}
     try:
         with open(POSITION_SNAPSHOTS_PATH) as f:
-            return json.load(f)
-    except Exception:
-        return {"snapshots": []}
+            data = json.load(f)
+        if isinstance(data, dict) and isinstance(data.get("snapshots"), list):
+            return data
+        return {"snapshots": [], "_load_error": "malformed store (no snapshots list)"}
+    except Exception as e:
+        logger.warning("position snapshot load failed (%s) — NOT treating as empty", e)
+        return {"snapshots": [], "_load_error": str(e)}
 
 
 def _save_position_snapshots(payload: dict) -> None:
+    """Atomic write (Sprint 20.2): write to a temp file + os.replace so a
+    concurrent reader/worker never sees a half-written file — the truncation
+    that previously corrupted the store and collapsed position-diff pacing."""
     os.makedirs(os.path.dirname(POSITION_SNAPSHOTS_PATH), exist_ok=True)
-    with open(POSITION_SNAPSHOTS_PATH, "w") as f:
-        json.dump(payload, f, indent=2)
+    tmp = f"{POSITION_SNAPSHOTS_PATH}.tmp.{os.getpid()}"
+    try:
+        with open(tmp, "w") as f:
+            json.dump(payload, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, POSITION_SNAPSHOTS_PATH)  # atomic on POSIX
+    finally:
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except Exception:
+            pass
 
 
 def _leg_key(pos: dict) -> str:
@@ -1655,6 +1680,21 @@ def capture_position_snapshot(reason: str = "scheduled") -> dict:
     Also emits the OPEN diff vs the prior snapshot so callers (entry-capture)
     can act on newly-opened short legs."""
     store = _load_position_snapshots()
+    # Sprint 20.2 non-destructive guard: if the store was present but unreadable
+    # (corrupt/transient), refuse to overwrite — clobbering it with a single
+    # fresh snapshot is exactly how position-diff pacing silently collapsed. The
+    # corrupt file is moved aside ONCE so the store can self-heal next capture
+    # (the data was already unrecoverable). Atomic writes make recurrence unlikely.
+    if store.get("_load_error"):
+        try:
+            if os.path.exists(POSITION_SNAPSHOTS_PATH):
+                os.replace(POSITION_SNAPSHOTS_PATH, POSITION_SNAPSHOTS_PATH + ".corrupt")
+                logger.warning("moved corrupt snapshot store aside (.corrupt); starting fresh")
+        except Exception:
+            pass
+        return {"captured": False, "reason": "store_unreadable",
+                "error": store.get("_load_error"), "leg_count": 0,
+                "opened": [], "closed": [], "entry_conditions_captured": 0}
     snaps = store.get("snapshots", [])
     today = date.today().isoformat()
     legs = _snapshot_legs()

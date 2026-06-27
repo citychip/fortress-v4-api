@@ -246,14 +246,17 @@ def compute_pacing(journal: dict) -> dict:
     # regression) when there aren't yet ≥2 snapshots to diff.
     pd_used = None
     pd_source = "journal_only"
+    pd_reason = None  # Sprint 20.2: why position-diff was not used (no longer silent)
     try:
         from app.routes.options_analytics import weekly_position_opens
         pd = weekly_position_opens()
         if pd.get("available"):
             pd_used = int(pd.get("used", 0))
             pd_source = "position_diff"
-    except Exception:
-        pass
+        else:
+            pd_reason = pd.get("reason", "position_diff unavailable")
+    except Exception as e:
+        pd_reason = f"position_diff error: {e}"
 
     used = pd_used if pd_used is not None else journal_used
     return {
@@ -261,10 +264,11 @@ def compute_pacing(journal: dict) -> dict:
         "used": used,
         "remaining": max(0, _max - used),
         "entries_this_week": opens_this_week,   # journal detail (named entries)
-        # Sprint 16.5 transparency
+        # Sprint 16.5 / 20.2 transparency
         "source": pd_source,
         "journal_used": journal_used,
         "position_diff_used": pd_used,
+        "position_diff_reason": pd_reason,
     }
 
 
