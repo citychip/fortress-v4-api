@@ -54,6 +54,8 @@ MAP=(
   "settings.py:$API/app/routes/settings.py"
   "config_store.py:$API/app/services/config_store.py"
   "state.py:$API/app/services/state.py"
+  # Sprint 20.1 (2026-06-27): journal route — prose-tolerant POST /api/journal.
+  "journal.py:$API/app/routes/journal.py"
 )
 
 echo "── File-content drift (OneDrive → repo) ──"
