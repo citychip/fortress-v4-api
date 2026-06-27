@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.services import state
 
@@ -23,12 +23,25 @@ router = APIRouter()
 # Pydantic models
 # ---------------------------------------------------------------------------
 
+# Canonical action vocabulary + tolerant aliases. The MCP add_journal_entry tool
+# historically sent lowercase verbs (e.g. 'observe', 'adjust') and the Parapet
+# note box sends no action at all — both used to 422 against the old uppercase
+# regex (Sprint 20.1). We now normalize instead of reject.
+_CANON_ACTIONS = {"OPEN", "CLOSE", "ROLL", "TRIM", "ADD", "NOTE", "ADJUST", "OBSERVE"}
+_ACTION_ALIASES = {"OBSERVE": "OBSERVE", "ADJUST": "ADJUST", "NOTES": "NOTE", "": "NOTE"}
+# Sentinel ticker for free-text / non-position journal notes (no symbol attached).
+_GENERAL_TICKER = "GENERAL"
+# Actions that are pure commentary — exempt from the outside-universe gate.
+_NOTE_ACTIONS = {"NOTE", "OBSERVE"}
+
+
 class JournalEntryCreate(BaseModel):
-    ticker: str = Field(..., min_length=1, max_length=10)
-    action: str = Field(..., pattern="^(OPEN|CLOSE|ROLL|TRIM|ADD|NOTE)$")
+    # extra='ignore' (Pydantic default) — unknown keys are dropped, never 422.
+    ticker: str = Field(_GENERAL_TICKER, max_length=10)
+    action: str = Field("NOTE")
     strategy: Optional[str] = Field(None, max_length=30)
-    description: str = Field(..., min_length=1, max_length=500,
-                              description="Human-readable trade description, e.g. 'Opened MSFT PMCC Jan28 310C / Dec26 480C'")
+    description: str = Field(..., min_length=1, max_length=2000,
+                              description="Human-readable description. Coalesced from note/entry/text for free-form UI posts.")
     realized_pnl: Optional[float] = Field(None, description="Realised P&L in USD (CLOSE/TRIM actions)")
     debit_credit: Optional[float] = Field(None, description="Net debit (negative) or credit (positive) in USD")
     outside_universe: bool = Field(False, description="True if ticker is not in ticker_universe.json")
@@ -36,7 +49,50 @@ class JournalEntryCreate(BaseModel):
         None, max_length=500,
         description="Required when outside_universe=True per Strategy §3.4.4"
     )
-    notes: Optional[str] = Field(None, max_length=1000)
+    notes: Optional[str] = Field(None, max_length=2000)
+    # ── Qualitative / prose fields (Sprint 20.1) — the feedback loop these feed ──
+    reasoning: Optional[str] = Field(None, max_length=4000,
+                                     description="Detailed reasoning referencing the strategy framework.")
+    framework_rules: Optional[list[str]] = Field(None,
+                                     description="Strategy section refs cited, e.g. ['§3.3','§6.2'].")
+    outcome: Optional[str] = Field(None, max_length=2000,
+                                   description="Outcome description for post-trade entries.")
+    tags: Optional[list[str]] = Field(None, description="Free-form tags, e.g. ['earnings','roll'].")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coalesce_aliases(cls, data):
+        """Accept the MCP body, the Parapet {note,entry} body, and the native
+        body interchangeably — derive the required fields before validation."""
+        if not isinstance(data, dict):
+            return data
+        d = dict(data)
+        free = d.get("note") or d.get("entry") or d.get("text") or d.get("content")
+        if not d.get("description"):
+            d["description"] = free or d.get("reasoning")
+        if not d.get("notes") and free:
+            d["notes"] = free
+        if not d.get("action"):
+            d["action"] = "NOTE"
+        if not d.get("ticker"):
+            d["ticker"] = _GENERAL_TICKER
+        return d
+
+    @field_validator("action", mode="before")
+    @classmethod
+    def _normalize_action(cls, v):
+        if v is None:
+            return "NOTE"
+        s = str(v).strip().upper()
+        s = _ACTION_ALIASES.get(s, s)
+        return s if s in _CANON_ACTIONS else "NOTE"
+
+    @field_validator("ticker", mode="before")
+    @classmethod
+    def _normalize_ticker(cls, v):
+        if not v:
+            return _GENERAL_TICKER
+        return str(v).strip().upper()[:10] or _GENERAL_TICKER
 
 
 # ---------------------------------------------------------------------------
@@ -116,29 +172,32 @@ def create_journal_entry(body: JournalEntryCreate):
             ),
         )
 
-    # Check if ticker is in universe (informational — we trust the client flag but also verify)
-    try:
-        universe_data = state.get_ticker_universe()
-        all_tickers = set()
-        for tier_tickers in universe_data.values():
-            if isinstance(tier_tickers, list):
-                for t in tier_tickers:
-                    if isinstance(t, str):
-                        all_tickers.add(t.upper())
-                    elif isinstance(t, dict) and t.get("ticker"):
-                        all_tickers.add(t["ticker"].upper())
-        ticker_upper = body.ticker.upper()
-        is_outside = ticker_upper not in all_tickers
-        if is_outside and not body.outside_universe and not body.outside_universe_justification:
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    f"Ticker '{ticker_upper}' is not in ticker_universe.json. "
-                    "Set outside_universe=true and provide outside_universe_justification per Strategy §3.4.4."
-                ),
-            )
-    except state.StateError:
-        pass  # Universe file missing — skip check
+    # Check if ticker is in universe (informational — we trust the client flag but also verify).
+    # Pure commentary (NOTE/OBSERVE) and the GENERAL sentinel carry no position, so they
+    # bypass the §3.4.4 universe gate — otherwise free-text journal notes would 422.
+    if body.action not in _NOTE_ACTIONS and body.ticker != _GENERAL_TICKER:
+        try:
+            universe_data = state.get_ticker_universe()
+            all_tickers = set()
+            for tier_tickers in universe_data.values():
+                if isinstance(tier_tickers, list):
+                    for t in tier_tickers:
+                        if isinstance(t, str):
+                            all_tickers.add(t.upper())
+                        elif isinstance(t, dict) and t.get("ticker"):
+                            all_tickers.add(t["ticker"].upper())
+            ticker_upper = body.ticker.upper()
+            is_outside = ticker_upper not in all_tickers
+            if is_outside and not body.outside_universe and not body.outside_universe_justification:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"Ticker '{ticker_upper}' is not in ticker_universe.json. "
+                        "Set outside_universe=true and provide outside_universe_justification per Strategy §3.4.4."
+                    ),
+                )
+        except state.StateError:
+            pass  # Universe file missing — skip check
 
     try:
         data = state.get_journal()
@@ -158,6 +217,12 @@ def create_journal_entry(body: JournalEntryCreate):
         "outside_universe": body.outside_universe,
         "outside_universe_justification": body.outside_universe_justification,
         "notes": body.notes,
+        # Prose / qualitative fields (Sprint 20.1) — persisted so the journal
+        # feedback loop and analytics actually accrue narrative context.
+        "reasoning": body.reasoning,
+        "framework_rules": body.framework_rules,
+        "outcome": body.outcome,
+        "tags": body.tags,
     }
     entries.append(new_entry)
     data["entries"] = entries

@@ -80,6 +80,12 @@ Since Sprint 13 (#80), Parapet reads these live — no hardcoded copies.
 | Earnings implied move vs avg historical, crush risk | Earnings blackout / crush plays | Backend (chain + earnings history) | `/api/market/earnings-volatility/{t}` | ✅ |
 | Bid-ask spread / liquidity grade | §4 quality filter (5% advisory / 10% block) | **IBKR live bid/ask first** → yfinance fallback. Payload: `source` | `/api/options/liquidity/{t}` | ✅ `source: ibkr` verified live Jun 10 — no more intraday flapping |
 
+## 3b. Chart trend & levels (TradingView MCP — NEW 2026-06-26)
+
+| Attribute | Strategy use | Origin | Tool | Reliability |
+|---|---|---|---|---|
+| 50/200 SMA, WMA4/62, LuxAlgo S-R, TN buy/sell/re-entry signals | Trim-into-resistance levels, PCS short-strike placement below support, trend confirmation | Live TradingView Desktop chart via CDP, **"Clean"** layout (TN Alerts v17 / Clean Decision Chart v3.2 / LuxAlgo "Support and Resistance Levels with Breaks") | `tradingview` MCP — `data_get_study_values` (also `chart_set_symbol`/`_timeframe`, `quote_get`, `data_get_pine_lines/labels`) | ✅ levels/SMAs reliable once settled. ⚠ **re-read once after a symbol switch** (first read returns TN Alerts only — all 3 studies on the 2nd call); **TN "Plot" can race mid-switch** (cross-check price via `quote_get`); **`quote_get` ignores its symbol arg** and returns the current *chart* symbol; **LuxAlgo pivots go stale on strongly-trending names** (use SMAs there). Replaces chart screenshots. |
+
 ## 4. Market structure & regime (entry timing gate)
 
 | Attribute | Strategy use | Origin | Route | Dashboard |

@@ -120,6 +120,9 @@ ROUTE_FILES=(
   "settings.py:$API/app/routes/settings.py"
   "config_store.py:$API/app/services/config_store.py"
   "state.py:$API/app/services/state.py"
+  # Sprint 20.1 (2026-06-27): journal route pulled into OneDrive so the
+  # POST /api/journal schema fix (prose-tolerant) is deploy + drift-tracked.
+  "journal.py:$API/app/routes/journal.py"
 )
 r0_paths=()
 for pair in "${ROUTE_FILES[@]}"; do
