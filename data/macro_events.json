@@ -1,65 +1,43 @@
 {
   "events": [
     {
-      "label": "PCE (May)",
-      "date": "2026-06-25",
-      "impact": "high",
-      "note": "BEA Personal Income & Outlays; Fed's preferred inflation gauge. Same day as GDP Q1 third estimate."
-    },
-    {
       "label": "NFP (Jun)",
       "date": "2026-07-02",
       "impact": "high",
-      "note": "Employment Situation / jobs report (released Thu due to Jul 4 holiday)."
+      "note": "Jobs report pulled to Thu ahead of July 4 holiday"
+    },
+    {
+      "label": "FOMC Minutes (Jun mtg)",
+      "date": "2026-07-08",
+      "impact": "medium",
+      "note": "Minutes from June meeting; not a decision"
     },
     {
       "label": "CPI (Jun)",
       "date": "2026-07-14",
-      "impact": "high",
-      "note": "BLS Consumer Price Index."
+      "impact": "high"
     },
     {
       "label": "PPI (Jun)",
       "date": "2026-07-15",
-      "impact": "medium",
-      "note": "BLS Producer Price Index."
+      "impact": "medium"
     },
     {
-      "label": "FOMC",
+      "label": "FOMC Decision",
       "date": "2026-07-29",
       "impact": "high",
-      "note": "Rate decision (Jul 28-29 meeting); no SEP/projections this meeting."
+      "note": "Rate decision; two-day meeting Jul 28-29"
     },
     {
-      "label": "GDP Advance (Q2)",
+      "label": "Core PCE (Jun)",
       "date": "2026-07-30",
-      "impact": "medium",
-      "note": "BEA advance Q2 GDP estimate."
-    },
-    {
-      "label": "PCE (Jun)",
-      "date": "2026-07-30",
-      "impact": "high",
-      "note": "BEA Personal Income & Outlays; same morning as GDP advance."
+      "impact": "high"
     },
     {
       "label": "NFP (Jul)",
       "date": "2026-08-07",
-      "impact": "high",
-      "note": "Employment Situation / jobs report."
-    },
-    {
-      "label": "CPI (Jul)",
-      "date": "2026-08-12",
-      "impact": "high",
-      "note": "BLS Consumer Price Index."
-    },
-    {
-      "label": "PPI (Jul)",
-      "date": "2026-08-13",
-      "impact": "medium",
-      "note": "BLS Producer Price Index."
+      "impact": "high"
     }
   ],
-  "updated_at": "2026-06-22T08:00:38.835653Z"
+  "updated_at": "2026-06-29T15:16:52.898718Z"
 }

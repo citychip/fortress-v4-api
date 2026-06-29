@@ -17,7 +17,30 @@
       "exit_reason": "concentration_trim",
       "notes": "Sold 1x Jan'28 340C LEAP + bought back 1x Dec'26 510C short (paired size-down) to trim MSFT concentration 38.1%->26.5% while below 200-SMA (Strategy \u00a77 accelerated de-risk). Net ~$8.7k credit freed. Realized loss because the 340C LEAP was underwater (cost ~120.6, sold ~95) as MSFT fell post-FOMC. Coverage ratio preserved (3 long:4 short). Dutch Box 3 = no tax friction.",
       "logged_at": "2026-06-18T16:25:02.785314Z"
+    },
+    {
+      "ticker": "SPY",
+      "strategy": "SPY_HEDGE",
+      "closed": "2026-06-24",
+      "realized_pnl": 1724.0,
+      "exit_reason": "rolled",
+      "notes": "SPY 705 put hedge closed for +$1,724 in the 06-24 hedge swap, rolled into the current 5x Aug21 710/665 put-spread hedge. Entry IVR/DTE/delta not captured at open.",
+      "logged_at": "2026-06-26T15:21:48.629077Z",
+      "ivr_at_entry": 70.0,
+      "dte_at_entry": 57,
+      "short_delta_at_entry": 0.0353,
+      "entry_conditions_source": "auto_captured",
+      "opened": "2026-06-25"
+    },
+    {
+      "ticker": "META",
+      "strategy": "PCS",
+      "closed": "2026-06-25",
+      "realized_pnl": -235.0,
+      "exit_reason": "stop_loss",
+      "notes": "Jul31 545/525 PCS closed 06-25 on stop-loss ACT (short-leg delta breach ~0.47 + price below 200-SMA) ahead of Jul 29 earnings, ~-$235. Entry IVR/DTE/delta not captured at open.",
+      "logged_at": "2026-06-26T15:21:50.775570Z"
     }
   ],
-  "updated_at": "2026-06-18T16:25:02.786935Z"
+  "updated_at": "2026-06-26T15:21:50.775757Z"
 }

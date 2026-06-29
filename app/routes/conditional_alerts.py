@@ -4,17 +4,26 @@ Conditional Alerts — Phase 7.
 Trigger types:
   price_above       — spot >= threshold (e.g. "MSFT hits $450")
   price_below       — spot <= threshold (e.g. "MSFT pulls back to $400 → entry")
+  close_above       — DAILY CLOSE >= threshold (EOD-confirmed; immune to wicks)
+  close_below       — DAILY CLOSE <= threshold (EOD-confirmed; immune to wicks)
   pnl_pct           — position unrealized P&L% >= threshold (e.g. 50% profit → close)
   dte_lte           — short leg DTE <= threshold (e.g. 21d → review roll)
   delta_gte         — short leg abs(delta) >= threshold (e.g. 0.35 → roll)
   conditional_entry — same as price_below but tagged as 🔵 entry signal
 
-GET  /api/conditional-alerts              — list all (optionally filter by ticker)
-POST /api/conditional-alerts              — create
-DELETE /api/conditional-alerts/{id}       — delete
-PATCH  /api/conditional-alerts/{id}       — snooze / unsnooze / update threshold
-POST /api/conditional-alerts/evaluate     — evaluate all active alerts, mark triggered
-GET  /api/action-queue/summary            — lightweight cached count for sidebar badge
+  NOTE (Sprint 20.3): close_above / close_below are evaluated ONLY by the EOD
+  close pass (POST /api/conditional-alerts/evaluate-close), against the official
+  daily close — never on intraday spot. The intraday /evaluate pass skips them.
+  This removes the manual "confirm on the daily close" step that price_* rules
+  required (they false-fire on intraday wicks).
+
+GET  /api/conditional-alerts                  — list all (optionally filter by ticker)
+POST /api/conditional-alerts                  — create
+DELETE /api/conditional-alerts/{id}           — delete
+PATCH  /api/conditional-alerts/{id}           — snooze / unsnooze / update threshold
+POST /api/conditional-alerts/evaluate         — intraday pass: spot/pnl/dte/delta (skips close_*)
+POST /api/conditional-alerts/evaluate-close   — EOD pass: close_above/close_below vs daily close
+GET  /api/action-queue/summary                — lightweight cached count for sidebar badge
 """
 from __future__ import annotations
 
@@ -34,6 +43,7 @@ _log = logging.getLogger("fortress.conditional_alerts")
 
 AlertType = Literal[
     "price_above", "price_below",
+    "close_above", "close_below",   # Sprint 20.3 — EOD-confirmed (daily close)
     "pnl_pct", "dte_lte", "delta_gte",
     "conditional_entry",
 ]
@@ -175,6 +185,12 @@ def evaluate_conditional_alerts():
         if alert.get("triggered") or alert.get("snoozed"):
             continue
 
+        # Sprint 20.3 — close-confirmed alerts are evaluated ONLY by the EOD
+        # close pass (evaluate_close_alerts), against the official daily close.
+        # Skip them here so intraday spot (wick-prone) can never fire them.
+        if alert.get("alert_type") in ("close_above", "close_below"):
+            continue
+
         ticker     = alert["ticker"]
         alert_type = alert["alert_type"]
         threshold  = alert["threshold"]
@@ -236,6 +252,97 @@ def evaluate_conditional_alerts():
     _save(data)
     _invalidate_cache()
     return {"triggered": newly_triggered, "count": len(newly_triggered)}
+
+
+# ── EOD close-confirmation pass (Sprint 20.3) ─────────────────────────────────
+
+def _daily_close(ticker: str):
+    """
+    Return (close_price, bar_date_iso) for the most recent SETTLED daily bar
+    from yfinance, or (None, None) on failure.
+
+    Used ONLY by the EOD close pass — deliberately NOT chain.get_spot(), which
+    is the live/intraday price (wick-prone). The official daily close is the
+    settled regular-session close; the EOD scheduler job runs after the cash
+    close so the latest bar is final.
+    """
+    try:
+        import yfinance as yf
+        hist = yf.Ticker(ticker).history(period="5d", auto_adjust=False)
+        if hist is None or hist.empty:
+            return None, None
+        close = float(hist["Close"].iloc[-1])
+        if close <= 0:
+            return None, None
+        bar_date = hist.index[-1].date().isoformat()
+        return close, bar_date
+    except Exception as e:
+        _log.warning("_daily_close(%s) failed: %s", ticker, e)
+        return None, None
+
+
+@router.post("/conditional-alerts/evaluate-close")
+def evaluate_close_alerts():
+    """
+    EOD pass — evaluate ONLY close_above / close_below alerts against the
+    official DAILY CLOSE (not intraday spot). Run once after the cash close by
+    the scheduler's close_alert_eval job; also callable on demand to confirm a
+    close rule. Records last_close / last_close_date on every close alert for
+    audit, and triggered_close / triggered_close_date when it fires.
+    Returns the list of newly triggered alerts.
+    """
+    data = _load()
+    alerts = data.get("alerts", [])
+    newly_triggered = []
+    close_cache: dict = {}   # ticker → (close, bar_date), fetched once per ticker
+
+    for alert in alerts:
+        if alert.get("alert_type") not in ("close_above", "close_below"):
+            continue
+        if alert.get("triggered") or alert.get("snoozed"):
+            continue
+
+        ticker     = alert["ticker"]
+        alert_type = alert["alert_type"]
+        threshold  = alert["threshold"]
+
+        if ticker not in close_cache:
+            close_cache[ticker] = _daily_close(ticker)
+        close, bar_date = close_cache[ticker]
+
+        if close is None:
+            _log.warning("evaluate-close: no daily close for %s — skipping %s",
+                         ticker, alert.get("id"))
+            continue
+
+        # Stamp the evaluated close on the alert for audit (even when it doesn't fire)
+        alert["last_close"] = round(close, 4)
+        alert["last_close_date"] = bar_date
+
+        fired = (
+            (alert_type == "close_above" and close >= threshold) or
+            (alert_type == "close_below" and close <= threshold)
+        )
+
+        if fired:
+            now_iso = datetime.now(timezone.utc).isoformat()
+            alert["triggered"]            = True
+            alert["triggered_at"]         = now_iso
+            alert["triggered_close"]      = round(close, 4)
+            alert["triggered_close_date"] = bar_date
+            newly_triggered.append(alert)
+            _log.info("Close alert triggered: %s %s %s @ close %.2f (%s) vs %.2f",
+                      alert.get("id"), ticker, alert_type, close, bar_date, threshold)
+
+    data["alerts"] = alerts
+    _save(data)
+    _invalidate_cache()
+    return {
+        "triggered":    newly_triggered,
+        "count":        len(newly_triggered),
+        "pass":         "eod_close",
+        "evaluated_at": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 # ── Action Queue Summary ──────────────────────────────────────────────────────

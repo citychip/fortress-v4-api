@@ -56,6 +56,10 @@ MAP=(
   "state.py:$API/app/services/state.py"
   # Sprint 20.1 (2026-06-27): journal route — prose-tolerant POST /api/journal.
   "journal.py:$API/app/routes/journal.py"
+  # Sprint 20.3 (2026-06-29): conditional-alerts route + scheduler runner —
+  # close_above/close_below EOD-confirmation alert type.
+  "route_conditional_alerts.py:$API/app/routes/conditional_alerts.py"
+  "sched_runner.py:$API/app/scheduler/runner.py"
 )
 
 echo "── File-content drift (OneDrive → repo) ──"

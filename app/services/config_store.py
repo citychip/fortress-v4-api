@@ -262,6 +262,12 @@ DEFAULTS: dict[str, Any] = {
         "vix_act_threshold":        35.0,        # VIX above this → halt new entries
         "ivr_low_warn_threshold":   20,          # IVR below this → premium too thin
         "theta_decay_warn_pct":     0.10,        # daily theta burn > this % of NLV → warn
+        # Close-confirmed conditional alerts (Sprint 20.3): close_above/close_below
+        # are evaluated by a single EOD pass against the official daily close (not
+        # intraday spot — that false-fires on wicks). These tune that pass.
+        "close_eval_enabled":       True,        # master switch for the EOD close pass
+        "close_eval_utc_hour":      21,          # EOD pass time (UTC). 21:15 UTC is post-
+        "close_eval_utc_minute":    15,          # close in EDT (17:15 ET) AND EST (16:15 ET)
     },
 
     # ── UI / DISPLAY ──────────────────────────────────────────────────────────

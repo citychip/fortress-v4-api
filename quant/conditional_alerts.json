@@ -15,22 +15,7 @@
       "snoozed_at": null,
       "created_at": "2026-06-10T18:56:04.846546+00:00",
       "updated_at": "2026-06-19T09:08:23.609407+00:00"
-    },
-    {
-      "id": "320fc5ae",
-      "ticker": "META",
-      "alert_type": "dte_lte",
-      "threshold": 8.0,
-      "message": "CLOSE META Jul31 545/525 PCS before Jul 29 earnings — spread expires Jul 31, holds through the print. Take profit or close to avoid gap risk.",
-      "urgency": "watch",
-      "position_id": "meta_jul31_545c",
-      "action_mode": "close",
-      "triggered": false,
-      "triggered_at": null,
-      "snoozed": false,
-      "snoozed_at": null,
-      "created_at": "2026-06-15T16:06:00.510688+00:00"
     }
   ],
-  "_last_updated": "2026-06-25T11:30:00.005659+00:00"
+  "_last_updated": "2026-06-29T15:40:00.002682+00:00"
 }

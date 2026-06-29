@@ -269,6 +269,28 @@ def build_scheduler() -> BackgroundScheduler:
         id="alert_eval_weekend", name="Alert Eval (weekend)", replace_existing=True,
     )
 
+    # 10 — Close-confirmed conditional alerts (Sprint 20.3): ONE daily EOD pass
+    #   against the official DAILY CLOSE. Deliberately separate from the intraday
+    #   alert_eval jobs above (which evaluate spot and false-fire on wicks) — the
+    #   close pass evaluates only close_above / close_below.
+    #   Default 21:15 UTC is post-close in BOTH EDT (17:15 ET) and EST (16:15 ET),
+    #   so — unlike the EDT-anchored jobs above — it needs no seasonal edit.
+    #   Time + enable are tunable via config (alerts.close_eval_*).
+    try:
+        from app.services.config_store import cfg
+        _close_enabled = bool(cfg("alerts.close_eval_enabled", True))
+        _close_hour    = int(cfg("alerts.close_eval_utc_hour", 21))
+        _close_minute  = int(cfg("alerts.close_eval_utc_minute", 15))
+    except Exception:
+        _close_enabled, _close_hour, _close_minute = True, 21, 15
+    if _close_enabled:
+        sched.add_job(
+            _evaluate_close_alerts,
+            CronTrigger(hour=_close_hour, minute=_close_minute,
+                        day_of_week="mon-fri", timezone="UTC"),
+            id="close_alert_eval", name="Close Alert Eval (EOD)", replace_existing=True,
+        )
+
     return sched
 
 
@@ -277,7 +299,11 @@ def build_scheduler() -> BackgroundScheduler:
 # ---------------------------------------------------------------------------
 
 def _evaluate_conditional_alerts() -> None:
-    """Evaluate all active conditional alerts against live data. In-process."""
+    """Evaluate all active conditional alerts against live data. In-process.
+
+    Intraday/spot pass — price/pnl/dte/delta. close_above/close_below are skipped
+    here (the route excludes them) and handled by _evaluate_close_alerts instead.
+    """
     log = _get_logger()
     try:
         from app.routes.conditional_alerts import evaluate_conditional_alerts
@@ -287,6 +313,25 @@ def _evaluate_conditional_alerts() -> None:
             log.info("[alert_eval] %d alert(s) triggered", fired)
     except Exception as exc:
         log.warning("[alert_eval] Evaluation error: %s", exc)
+
+
+def _evaluate_close_alerts() -> None:
+    """EOD pass — evaluate close_above/close_below vs the official daily close.
+
+    In-process; runs once after the cash close (Sprint 20.3). Kept separate from
+    the intraday spot eval so wicks can never fire a close-confirmed rule.
+    """
+    log = _get_logger()
+    try:
+        from app.routes.conditional_alerts import evaluate_close_alerts
+        result = evaluate_close_alerts()
+        fired = result.get("count", 0)
+        if fired:
+            log.info("[close_alert_eval] %d close alert(s) triggered", fired)
+        else:
+            log.info("[close_alert_eval] EOD close pass ran — no close alerts triggered")
+    except Exception as exc:
+        log.warning("[close_alert_eval] Evaluation error: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -324,6 +369,7 @@ def get_status() -> dict:
     # Synthetic entries for direct-function jobs (not in SCRIPTS registry)
     _direct_jobs = {
         "alert_eval": {"label": "Conditional Alert Evaluation", "status": "pending", "last_run": None},
+        "close_alert_eval": {"label": "Close Alert Eval (EOD)", "status": "pending", "last_run": None},
     }
     out = {}
     for key, info in {**_job_status, **_direct_jobs}.items():

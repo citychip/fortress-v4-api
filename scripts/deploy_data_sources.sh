@@ -123,6 +123,10 @@ ROUTE_FILES=(
   # Sprint 20.1 (2026-06-27): journal route pulled into OneDrive so the
   # POST /api/journal schema fix (prose-tolerant) is deploy + drift-tracked.
   "journal.py:$API/app/routes/journal.py"
+  # Sprint 20.3 (2026-06-29): conditional-alerts route + scheduler runner pulled
+  # into OneDrive for the close_above/close_below EOD-confirmation alert type.
+  "route_conditional_alerts.py:$API/app/routes/conditional_alerts.py"
+  "sched_runner.py:$API/app/scheduler/runner.py"
 )
 r0_paths=()
 for pair in "${ROUTE_FILES[@]}"; do
