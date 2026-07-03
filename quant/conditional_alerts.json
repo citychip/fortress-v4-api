@@ -32,7 +32,22 @@
       "created_at": "2026-06-30T14:06:18.880881+00:00",
       "last_close": 390.49,
       "last_close_date": "2026-07-02"
+    },
+    {
+      "id": "f9be085a",
+      "ticker": "MSFT",
+      "alert_type": "close_below",
+      "threshold": 382.0,
+      "message": "MSFT daily close < $382 — below the ~$382.58 weekly 200-SMA Thesis Stop. Structural break (monthly + daily already down; weekly was the last holdout). Accelerate the MSFT LEAP de-risk toward the 20% target. Confirm on the weekly (Fri) close first.",
+      "urgency": "critical",
+      "position_id": null,
+      "action_mode": "close",
+      "triggered": false,
+      "triggered_at": null,
+      "snoozed": false,
+      "snoozed_at": null,
+      "created_at": "2026-07-03T23:19:25.869357+00:00"
     }
   ],
-  "_last_updated": "2026-07-03T23:00:00.001104+00:00"
+  "_last_updated": "2026-07-03T23:19:25.869374+00:00"
 }
