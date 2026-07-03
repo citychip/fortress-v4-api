@@ -60,6 +60,8 @@ MAP=(
   # close_above/close_below EOD-confirmation alert type.
   "route_conditional_alerts.py:$API/app/routes/conditional_alerts.py"
   "sched_runner.py:$API/app/scheduler/runner.py"
+  # Sprint 22.5 (2026-07-03): chart route (1mo/4h intervals).
+  "chart_route.py:$API/app/routes/chart.py"
 )
 
 echo "── File-content drift (OneDrive → repo) ──"

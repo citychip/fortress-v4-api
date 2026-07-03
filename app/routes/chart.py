@@ -284,18 +284,53 @@ def _get_levels(ticker: str) -> dict:
 
 # ── OHLCV fetcher ─────────────────────────────────────────────────────────────
 
+# yfinance-native intervals we can pass straight through
+_YF_NATIVE_INTERVALS = {"1m", "2m", "5m", "15m", "30m", "60m", "90m",
+                        "1h", "1d", "5d", "1wk", "1mo", "3mo"}
+# intraday intervals — yfinance caps their lookback (~730d for 1h)
+_INTRADAY = {"1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h"}
+
+
 def _fetch_ohlcv(ticker: str, period: str = "3mo", interval: str = "1d") -> list[dict]:
     """
     Fetch OHLCV data from yfinance and return as a list of dicts
     compatible with TradingView Lightweight Charts CandlestickSeries.
+
+    Sprint 22.5 — multi-timeframe support:
+      • ``1mo`` (monthly) is a native yfinance interval — passed straight through.
+      • ``4h`` is NOT a native yfinance interval, so it is fetched as ``1h`` and
+        resampled to 4-hour bars (OHLC = first/max/min/last, volume summed).
+      • Intraday intervals have their lookback clamped so a long ``period`` (1y+)
+        doesn't blow past yfinance's ~730d intraday cap and return empty.
+    Unknown intervals fall back to daily rather than erroring.
     """
     try:
-        df = yf.download(ticker, period=period, interval=interval, progress=False, auto_adjust=True)
+        base_interval = interval
+        resample_rule = None
+        if interval in ("4h", "240m"):
+            base_interval, resample_rule = "1h", "4h"
+        elif interval not in _YF_NATIVE_INTERVALS:
+            base_interval = {"1hr": "1h", "60min": "60m"}.get(interval, "1d")
+
+        # yfinance rejects >~730d of intraday data — clamp the lookback.
+        if base_interval in _INTRADAY and period in ("1y", "2y", "5y", "10y", "ytd", "max"):
+            period = "180d"
+
+        df = yf.download(ticker, period=period, interval=base_interval,
+                         progress=False, auto_adjust=True)
         if df.empty:
             return []
         # Flatten MultiIndex columns: ('Open', 'MSFT') -> 'Open'
         if hasattr(df.columns, "levels"):
             df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
+
+        # Resample 1h → 4h when requested.
+        if resample_rule:
+            agg = {"Open": "first", "High": "max", "Low": "min", "Close": "last"}
+            if "Volume" in df.columns:
+                agg["Volume"] = "sum"
+            df = df.resample(resample_rule).agg(agg).dropna(subset=["Open", "High", "Low", "Close"])
+
         candles = []
         for ts, row in df.iterrows():
             time_val = int(ts.timestamp()) if hasattr(ts, "timestamp") else str(ts)[:10]
@@ -318,8 +353,8 @@ def _fetch_ohlcv(ticker: str, period: str = "3mo", interval: str = "1d") -> list
 @router.get("/chart/{ticker}")
 def get_chart_data(
     ticker: str,
-    period: str = Query(default="3mo", description="yfinance period: 1mo, 3mo, 6mo, 1y"),
-    interval: str = Query(default="1d", description="yfinance interval: 1d, 1h"),
+    period: str = Query(default="3mo", description="yfinance period: 1mo, 3mo, 6mo, 1y, 2y, 5y, max"),
+    interval: str = Query(default="1d", description="interval: 4h, 1h, 1d, 1wk, 1mo (Sprint 22.5 — 4h is resampled from 1h; intraday lookback is clamped)"),
 ):
     """
     Return OHLCV candles + Dark Pool floors + GEX walls for a ticker.
