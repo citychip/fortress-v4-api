@@ -43,6 +43,7 @@ FILES=(
   "src/pages/CandidatesPage.tsx"
   "src/pages/MarketPage.tsx"
   "src/pages/TechnicalPage.tsx"
+  "src/pages/EfficiencyPage.tsx"
   "src/pages/SystemPage.tsx"
 )
 

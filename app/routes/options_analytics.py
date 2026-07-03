@@ -974,8 +974,11 @@ def get_technical_gate(tickers: str = Query(default="")):
         except Exception:
             pass
 
-    rows = []
-    for tk in names:
+    # Sprint 25.3 — build each name's row concurrently. A cold load is
+    # names × 3 timeframes yfinance calls; running the names in parallel turns
+    # ~3N sequential fetches into ~3 wall-clock. The trend_state helpers are
+    # TTL-cached and their cache writes are atomic under the GIL, so this is safe.
+    def _build_row(tk: str) -> dict:
         w = weekly_trend_state(tk)
         if w.get("above_200w") is None:
             gstate = "unknown"
@@ -987,13 +990,20 @@ def get_technical_gate(tickers: str = Query(default="")):
             gstate = "hold"
         d = daily_trend_state(tk)
         m = monthly_trend_state(tk)
-        rows.append({**w, "state": gstate,
-                     "monthly": {"spot": m.get("spot"), "ema_10m": m.get("ema_10m"),
-                                 "ema_20m": m.get("ema_20m"), "trend": m.get("trend"),
-                                 "source": m.get("source")},
-                     "daily": {"spot": d.get("spot"), "sma_50d": d.get("sma_50d"),
-                               "sma_200d": d.get("sma_200d"), "trend": d.get("trend"),
-                               "key_level": d.get("key_level"), "source": d.get("source")}})
+        return {**w, "state": gstate,
+                "monthly": {"spot": m.get("spot"), "ema_10m": m.get("ema_10m"),
+                            "ema_20m": m.get("ema_20m"), "trend": m.get("trend"),
+                            "source": m.get("source")},
+                "daily": {"spot": d.get("spot"), "sma_50d": d.get("sma_50d"),
+                          "sma_200d": d.get("sma_200d"), "trend": d.get("trend"),
+                          "key_level": d.get("key_level"), "source": d.get("source")}}
+
+    if names:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(8, len(names))) as _ex:
+            rows = list(_ex.map(_build_row, names))   # map preserves input order
+    else:
+        rows = []
     return {"as_of": datetime.now(timezone.utc).isoformat(),
             "count": len(rows), "gate": rows}
 

@@ -290,6 +290,13 @@ _YF_NATIVE_INTERVALS = {"1m", "2m", "5m", "15m", "30m", "60m", "90m",
 # intraday intervals — yfinance caps their lookback (~730d for 1h)
 _INTRADAY = {"1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h"}
 
+# Sprint 25.2 — TTL cache for the yfinance candle fetch, keyed by
+# ticker|period|interval. The MTF-panel drill-down re-requests the same series on
+# every row expand; without this each click re-hits yfinance. Bars only change on
+# a new close, so a 20-min TTL is safe and cuts repeat latency to ~0.
+_OHLCV_CACHE: dict = {}
+_OHLCV_TTL_S = 20 * 60
+
 
 def _fetch_ohlcv(ticker: str, period: str = "3mo", interval: str = "1d") -> list[dict]:
     """
@@ -304,6 +311,11 @@ def _fetch_ohlcv(ticker: str, period: str = "3mo", interval: str = "1d") -> list
         doesn't blow past yfinance's ~730d intraday cap and return empty.
     Unknown intervals fall back to daily rather than erroring.
     """
+    import time as _time
+    _ck = f"{(ticker or '').upper()}|{period}|{interval}"
+    _hit = _OHLCV_CACHE.get(_ck)
+    if _hit and (_time.time() - _hit[0]) < _OHLCV_TTL_S:
+        return _hit[1]
     try:
         base_interval = interval
         resample_rule = None
@@ -342,6 +354,8 @@ def _fetch_ohlcv(ticker: str, period: str = "3mo", interval: str = "1d") -> list
                 "close":  round(float(row["Close"]), 2),
                 "volume": int(row["Volume"]) if "Volume" in row else 0,
             })
+        if candles:                      # never cache an empty/failed fetch
+            _OHLCV_CACHE[_ck] = (_time.time(), candles)
         return candles
     except Exception as exc:
         logger.warning("yfinance fetch failed for %s: %s", ticker, exc)
