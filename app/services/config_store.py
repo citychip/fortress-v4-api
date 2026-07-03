@@ -45,7 +45,12 @@ DEFAULTS: dict[str, Any] = {
     # ── TRADER PROFILE ───────────────────────────────────────────────────────
     "trader_profile": {
         "trader_type":          "income_seeker",   # income_seeker | speculator | volatility_trader | hedger | custom
-        "active_strategies":    ["PMCC", "JADE_LIZARD", "PCS", "SPY_HEDGE", "LEAPS"],
+        # Sprint 21.6 — aligned to the real book (hedged premium-seller): PMCC +
+        # defined-risk credit (PCS/CSP) + covered calls on the LEAP cores + the
+        # COLLAR overlay + the SPY hedge, kept LEAPS. Dropped JADE_LIZARD (not
+        # traded). Persona stays income_seeker per user (2026-07-03).
+        "active_strategies":    ["PMCC", "PCS", "CASH_SECURED_PUT", "COVERED_CALL",
+                                 "COLLAR", "DIAGONAL", "SPY_HEDGE", "LEAPS"],
         "risk_tolerance":       "moderate",        # conservative | moderate | aggressive
         "primary_objective":    "income",          # income | growth | protection | speculation
     },

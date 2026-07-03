@@ -555,19 +555,46 @@ def _concentration_advisory(ticker: str, market: dict) -> dict:
             "single_name_cap": cap, "cluster_cap": ccap, "in_cluster": in_cluster}
 
 
+def _trend_advisory(ticker: str) -> dict:
+    """Weekly-200-SMA 'Thesis Stop' entry advisory (Sprint 21.4, warn-mode).
+
+    Amber when spot is below the weekly 200-SMA — the structural downtrend where
+    premium-selling win-rate collapses (the 25% cohort). Insufficient weekly
+    history → soft-fails to `unknown` (never a breach). Ticker-specific; the
+    weekly read is TTL-cached in options_analytics."""
+    try:
+        from ..routes.options_analytics import weekly_trend_state
+        w = weekly_trend_state(ticker)
+    except Exception as e:
+        return {"name": "trend", "level": "unknown", "detail": f"weekly trend unavailable: {e}"}
+    if w.get("above_200w") is None:
+        return {"name": "trend", "level": "unknown",
+                "detail": w.get("error") or "insufficient weekly history"}
+    pct = w.get("pct_from_sma")
+    pct_s = f"{pct:+.0f}%" if pct is not None else "n/a"
+    if not w["above_200w"]:
+        return {"name": "trend", "level": "amber",
+                "detail": f"{ticker} ${w['spot']} below weekly 200-SMA ${w['sma_200w']} ({pct_s}) — Thesis Stop; premium-selling win-rate is poor below the weekly 200",
+                "spot": w["spot"], "sma_200w": w["sma_200w"], "above_200w": False, "pct_from_sma": pct}
+    return {"name": "trend", "level": "ok",
+            "detail": f"{ticker} ${w['spot']} above weekly 200-SMA ${w['sma_200w']} ({pct_s})",
+            "spot": w["spot"], "sma_200w": w["sma_200w"], "above_200w": True, "pct_from_sma": pct}
+
+
 def _pretrade_advisories(ticker: str, market: dict | None = None) -> dict:
     """Return {advisories:{name:..}, caution:bool, caution_flags:[]} for a ticker.
 
     level ∈ {ok, amber, unknown}. caution = any amber. Pass `market` (from
     _market_advisories) to reuse one fetch across many tickers; omit for a single
-    lookup. macro_defer/vix_term/concentration are market-wide; ex_div is
+    lookup. macro_defer/vix_term/concentration are market-wide; ex_div/trend are
     ticker-specific.
     """
     ticker = (ticker or "").upper().strip()
     if market is None:
         market = _market_advisories()
     items = [market["macro"], market["vix"], _exdiv_advisory(ticker, market),
-             _vrp_advisory(ticker, market), _concentration_advisory(ticker, market)]
+             _vrp_advisory(ticker, market), _concentration_advisory(ticker, market),
+             _trend_advisory(ticker)]
     return {
         "advisories": {a["name"]: a for a in items},
         "caution": any(a["level"] == "amber" for a in items),

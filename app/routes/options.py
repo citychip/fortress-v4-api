@@ -866,9 +866,19 @@ def get_strategy_metrics(
     except Exception as e:
         _log.debug("concentration unavailable for %s: %s", ticker, e)
 
-    # Weekly-trend input for the adaptive engine is wired but None until the
-    # Sprint 22.1 weekly-200-SMA ingest lands (the trend nudge no-ops on None).
+    # Weekly-trend "Thesis Stop" (Sprint 22.1 ingest → 21.4 gate + 21.1b nudge).
+    # above_200w None = unknown history → weekly_below_200 stays None (no gate,
+    # no nudge). Soft-fail so a yfinance hiccup never blocks strategy_metrics.
     weekly_below_200: bool | None = None
+    trend_state_obj: dict | None = None
+    try:
+        from app.routes.options_analytics import weekly_trend_state
+        _wt = weekly_trend_state(ticker)
+        trend_state_obj = _wt
+        if _wt.get("above_200w") is not None:
+            weekly_below_200 = (not _wt["above_200w"])
+    except Exception as e:
+        _log.debug("weekly trend unavailable for %s: %s", ticker, e)
 
     if iv <= 0:
         iv = 0.30
@@ -1139,6 +1149,30 @@ def get_strategy_metrics(
         "earnings_safe":    days_to_earnings > 10,
     })
 
+    # ── Sprint 21.4 trend gate (warn-mode) ─────────────────────────────────────
+    #    Selling premium on a name below its WEEKLY 200-SMA ("Thesis Stop") is the
+    #    documented losing setup (the 25% win-rate cohort). When spot < wk-200 we
+    #    penalize a bullish premium-sell's regime_score (−2, so it de-ranks) and
+    #    mark it ineligible in _passes_gates — but never remove it (warn, not
+    #    block), per the 2026-07-02 decision. Trend unknown (None) → no effect.
+    from app.services.config_store import cfg as _cfg
+    trend_gate = {
+        "enabled":          bool(_cfg("strategy.trend_gate_enabled", True)),
+        "mode":             _cfg("strategy.trend_gate_mode", "warn"),
+        "weekly_below_200": weekly_below_200,
+        "sma_200w":         (trend_state_obj or {}).get("sma_200w"),
+        "spot":             (trend_state_obj or {}).get("spot"),
+        "sma_len":          (trend_state_obj or {}).get("sma_len"),
+        "source":           (trend_state_obj or {}).get("source"),
+    }
+    _trend_active = trend_gate["enabled"] and bool(weekly_below_200)
+    if _trend_active:
+        for s in strategies:
+            if s.get("bias") == "bullish":
+                s["regime_score"] = max(0, s["regime_score"] - 2)
+                s["trend_penalized"] = True
+                s.setdefault("flags", []).append("below_wk200")
+
     # ── Sprint 21.1b sanity guard: never present a $0-credit "income" structure ─
     #    A zero credit means the short strike came out mid-air (the pre-21.1a bug)
     #    or premium is genuinely absent — either way it must never be recommended.
@@ -1160,14 +1194,15 @@ def get_strategy_metrics(
         s["annualized_yield"] = round((s.get("estimated_credit") or 0) / cap * (365.0 / hold), 4)
 
     def _passes_gates(s) -> tuple[bool, str | None]:
-        # Hard gates wired today: earnings window + non-zero credit. The trend gate
-        # (21.4, warn-mode) and concentration gate (21.5) attach here once the
-        # Sprint 22.1 weekly-SMA ingest lands — they will set eligible=False +
-        # a caution without removing the strategy.
+        # Gates wired today: non-zero credit, earnings window, and the Sprint 21.4
+        # weekly-trend gate (a bullish premium-sell below the weekly 200-SMA is
+        # ineligible — warn-mode: de-ranked + flagged, never hard-removed).
         if not s.get("credit_ok"):
             return False, "zero_credit"
         if not s.get("earnings_safe"):
             return False, "earnings_window"
+        if _trend_active and s.get("bias") == "bullish":
+            return False, "below_wk200"
         return True, None
 
     strategies.sort(
@@ -1197,6 +1232,7 @@ def get_strategy_metrics(
         "regime":           regime_overall,
         "regime_source":    regime_source,
         "regime_gate":      regime_gate_obj,
+        "trend_gate":       trend_gate,
         "gex_regime":       gex_regime,
         "vix_term_state":   vix_term_state,
         "mode":             mode,

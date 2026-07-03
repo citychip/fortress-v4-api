@@ -433,7 +433,9 @@ TRADER_PRESETS = {
         "icon": "🏰",
         "trader_profile": {
             "trader_type": "income_seeker",
-            "active_strategies": ["PMCC", "JADE_LIZARD", "PCS", "SPY_HEDGE", "LEAPS"],
+            # Sprint 21.6 — aligned to the real hedged-premium-seller book.
+            "active_strategies": ["PMCC", "PCS", "CASH_SECURED_PUT", "COVERED_CALL",
+                                  "COLLAR", "DIAGONAL", "SPY_HEDGE", "LEAPS"],
             "risk_tolerance": "moderate",
             "primary_objective": "income",
         },

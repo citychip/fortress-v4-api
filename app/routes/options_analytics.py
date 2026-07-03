@@ -791,6 +791,97 @@ def _atm_iv(t: yf.Ticker, spot: float) -> tuple[float | None, float | None, floa
     return None, None, None
 
 
+# ── Weekly-trend "Thesis Stop" ingest (Sprint 22.1) ───────────────────────────
+# Weekly 200-SMA per name — the structural trend filter that feeds the Sprint 21.4
+# entry gate (selling premium below the weekly 200-SMA is the losing setup) and the
+# Sprint 21.1b adaptive short-call-delta trend nudge. yfinance weekly bars,
+# TTL-cached because the 200-week SMA moves slowly — a 6h cache keeps the hot
+# pre-trade / strategy-metrics path from re-hitting yfinance on every call.
+_WK_TREND_CACHE: dict = {}
+_WK_TREND_TTL_S = 6 * 3600
+
+
+def weekly_trend_state(ticker: str) -> dict:
+    """Weekly-200-SMA trend read for a ticker.
+
+    Returns {ticker, spot, sma_200w, above_200w, pct_from_sma, bars, sma_len,
+    source, error?}. `above_200w` is None when weekly history is insufficient —
+    callers MUST treat None as 'unknown' (never as a breach), so a data gap can't
+    silently gate an entry."""
+    import time as _time
+    ticker = (ticker or "").upper().strip()
+    now = _time.time()
+    cached = _WK_TREND_CACHE.get(ticker)
+    if cached and (now - cached[0]) < _WK_TREND_TTL_S:
+        return cached[1]
+
+    out = {"ticker": ticker, "spot": None, "sma_200w": None, "above_200w": None,
+           "pct_from_sma": None, "bars": 0, "sma_len": 200, "source": "yfinance_1wk"}
+    try:
+        closes = yf.Ticker(ticker).history(period="5y", interval="1wk")["Close"].dropna()
+        n = int(len(closes))
+        out["bars"] = n
+        if n >= 1:
+            out["spot"] = round(float(closes.iloc[-1]), 2)
+        if n >= 30:
+            length = min(200, n)
+            sma = float(closes.tail(length).mean())
+            out["sma_200w"] = round(sma, 2)
+            out["sma_len"] = length
+            out["above_200w"] = bool(out["spot"] >= sma)
+            if sma:
+                out["pct_from_sma"] = round((out["spot"] - sma) / sma * 100, 2)
+        else:
+            out["error"] = "insufficient weekly history (<30 bars)"
+    except Exception as e:
+        out["error"] = str(e)
+    _WK_TREND_CACHE[ticker] = (now, out)
+    return out
+
+
+@router.get("/technical/gate")
+def get_technical_gate(tickers: str = Query(default="")):
+    """Sprint 22.1 — per-name weekly-200-SMA 'Thesis Stop' technical gate.
+
+    For SPY + each requested ticker (default: SPY + open-position tickers), returns
+    the weekly trend read plus a hold/watch/act state:
+      • act   — spot below the weekly 200-SMA (structural downtrend; the losing
+                premium-sell setup that Sprint 21.4 gates)
+      • watch — within 3% above the 200-SMA (marginal)
+      • hold  — comfortably above
+      • unknown — insufficient weekly history (never treated as a breach)
+    Headless-safe (yfinance); each name is TTL-cached. The `source` label carries
+    the data-source per the availability rule."""
+    req = [t.strip().upper() for t in (tickers or "").split(",") if t.strip()]
+    if req:
+        names = req
+    else:
+        names = ["SPY"]
+        try:
+            from app.services import state
+            for p in (state.get_active_positions() or {}).get("positions", []):
+                tk = str(p.get("ticker", "")).upper()
+                if tk and tk not in names and (str(p.get("sec_type", "OPT")).upper() == "OPT"):
+                    names.append(tk)
+        except Exception:
+            pass
+
+    rows = []
+    for tk in names:
+        w = weekly_trend_state(tk)
+        if w.get("above_200w") is None:
+            gstate = "unknown"
+        elif not w["above_200w"]:
+            gstate = "act"
+        elif (w.get("pct_from_sma") if w.get("pct_from_sma") is not None else 99) < 3.0:
+            gstate = "watch"
+        else:
+            gstate = "hold"
+        rows.append({**w, "state": gstate})
+    return {"as_of": datetime.now(timezone.utc).isoformat(),
+            "count": len(rows), "gate": rows}
+
+
 @router.get("/options/iv-rank/{ticker}")
 def get_iv_rank(ticker: str):
     """
