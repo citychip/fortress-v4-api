@@ -195,6 +195,37 @@ Four high-value items touch routes that lived **outside the OneDrive repo mount*
 
 ---
 
+## Sprint 25 — Reliability, visibility & de-concentration (post-Sprint-22 review, 2026-07-04)
+**Source: full-stack review after Sprints 21–22 shipped. Three themes, in priority order: (A) make the data backbone trustworthy so the guards stop firing, (B) surface the recovery KPIs that already exist in data but not on screen, (C) turn the concentration *warnings* into an actual glide. Items that already have IDs are ELEVATED here, not duplicated — see the cross-refs.**
+
+### 25.A — Backend reliability (highest leverage)
+| # | Item | File(s) | Effort | Dep |
+|---|---|---|---|---|
+| 25.1 | 🔴 **Gateway reliability / OAuth Stage 2 — the #1 fix.** Almost every recent session fell to `bs_yfinance` with `session_not_established`, which degrades *every* downstream number (roll/stop prices, greeks, liquidity). The Sprint-20/22 guards (SourceBadge, sync-age pill, staleness warnings) treat the symptom. Fix the cause: either finish **OAuth Stage 2** (pending for weeks — see System Status / old Priority 7) or add a **gateway watchdog** (detect 401/`session_not_established` → auto `docker restart cp-gateway` + re-auth, with a cooldown). Removes the recurring 18.8h-stale / delayed-feed traps. | cp-gateway / iBeam + a watchdog task | M–L | — |
+| 25.2 | **Cache `get_chart_data` 1mo/4h.** `_fetch_ohlcv` isn't TTL-cached (unlike the weekly/daily/monthly trend states), so heavy MTF-panel drill-down re-hits yfinance. Add a 15–30 min TTL cache keyed by ticker+period+interval. | `chart_route.py` | S | 22.5 |
+| 25.3 | **Parallelize the technical gate.** `get_technical_gate` for the book = ~7 names × 3 timeframes = ~21 sequential yfinance calls on a cold load. Wrap the per-name weekly/daily/monthly fetches in a `ThreadPoolExecutor` (the `iv_source` scanner pattern) to cut first-load latency. | `options_analytics.py` | S | 22.1/22.4a |
+| 25.4 | **Finish 21.3 — briefing reads the canonical `regime_gate`.** `get_briefing.macro_regime` still reads a separate source from the `regime_gate` shipped in 21.3, so they can still diverge. Point the briefing at the gate. (Completes the 21.3 follow-up.) | `briefing.py` + `market_intelligence.py` | S | 21.3 |
+| 25.5 | **`refresh_iv_data` async.** The MCP tool times out (~20s scan > tool timeout) though the scan completes server-side. Make it fire-and-return + poll (or raise the tool timeout). Cosmetic but recurring. | `workflow_05` + MCP | S | — |
+
+### 25.B — Visibility (surface KPIs already in data)
+| # | Item | File(s) | Effort | Dep |
+|---|---|---|---|---|
+| 25.6 | **Cluster-glide widget** — ELEVATE **23.6**. The recovery plan's headline metric (Mag-7 96% → 60% target) is buried in briefing text; give it a gauge + glide line on Parapet. Now doubly justified (the Technical panel + 21.5 gate both reference it). | `fortress-parapet` | S | 19.2 |
+| 25.7 | **Capital-efficiency heatmap** — ELEVATE **23.1**. `get_capital_efficiency` already computes income ÷ capital-at-risk; GOOGL/AMZN LEAPs sit ~0.15–0.25×. Surface it to spotlight which dead-weight LEAPs to monetize (feeds 23.3). | `fortress-parapet` | S–M | — |
+| 25.8 | **MTF-panel polish (22.4c).** (a) Broaden `TechnicalPage` disposition to surface **act-level stops** (`ACT`, not just `ACT_IMMEDIATELY`) and **warning rolls** as `Reduce` / `Roll (warn)` — GOOGL currently hides an act-stop behind a plain `Hold`. (b) Split wording: `Manage short leg` when the underlying is healthy but the stop fired vs `De-risk` when the thesis is weak. (c) Optional: real candlestick drill-down (Lightweight Charts) with the 200-wk line + GEX walls, now that 1mo/4h candles exist. | `fortress-parapet` | S (a,b) / M (c) | 22.4b |
+
+### 25.C — De-concentration (turn warnings into a glide)
+| # | Item | File(s) | Effort | Dep |
+|---|---|---|---|---|
+| 25.9 | **Operationalize the non-tech income sleeve** — ELEVATE **23.4** + **23.3**. The structural risk is 96% correlated mega-cap tech, β-Δ ~+211 long into a bearish-tagged regime, hedge ~$2.1k vs the $20k floor. 21.5 *warns* on new concentration but nothing accelerates the existing glide. Add the screened non-tech names (JPM/JNJ) to the income universe and stand up the systematic ~0.30Δ LEAP call-writing playbook so income diversifies *away* from the cluster. | `config_store`/universe + `options.py` + Strategy doc | M | 21.1 ✅ |
+| 25.10 | **Wire the MSFT `close_below 382` alert.** MSFT is now confirmed weak on all three timeframes (monthly + daily down, weekly barely holding the $382.58 Thesis Stop). The plan's de-risk trigger is a *weekly close* below it; the **close-confirmed alert type (20.3) now exists**, so replace the eyeball-watch with a `close_below` conditional alert. | conditional alert (`add_conditional_alert`) | S | 20.3 |
+| 25.11 | **LEAP-roll delta alert** — ELEVATE **19.4b** (deferred for per-leg greeks). Directly relevant: the MSFT LEAP is the active de-risk target and there's no automated roll-the-LEAP signal. Needs per-leg greeks in the position rows first. | `options_analytics.py` + alerts | M | per-leg greeks |
+| 25.12 | **Vega-flip alert** — ELEVATE **24.4**. The β-vega stat exists but nothing alerts when it flips `net_short → net_long` — the exact unflagged risk it was built to catch. | scheduled task | S | 19.1/20.6 |
+
+**Recommended next three (from the review):** **25.1** (gateway reliability — kills the recurring data-integrity pain), **25.6 + 25.7** (make the recovery KPIs visible), **25.10** (automate the one live MSFT de-risk trigger). 25.2/25.3 are cheap backend wins to fold in alongside.
+
+---
+
 ## Sequencing rationale
 - **Sprint 0 first** — without the out-of-mount files, 15.1 / 15.3 / 16.1 / 16.5 can't deploy. One small copy unblocks the two most valuable sprints.
 - **Sprint 15 before 16** — `pretrade_check` consolidation (16.1) depends on VIX-term (15.3) and ex-div (15.4) existing as inputs first.
