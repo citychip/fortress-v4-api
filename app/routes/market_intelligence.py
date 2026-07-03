@@ -648,10 +648,28 @@ def _synthesize_regime(gex: dict | None, dp: dict | None, drift: dict | None,
     except Exception:
         pass
 
+    # ── Single canonical regime gate (Sprint 21.3) ───────────────────────────
+    # One labeled object that both get_briefing and get_strategy_metrics can read,
+    # so the per-name / macro / GEX reads can't silently diverge. `label` is the
+    # canonical bullish/neutral/bearish (derived from the same score that drives
+    # `overall`); `inputs[]` exposes every contributing signal + its score so the
+    # gate is fully auditable.
+    gate_label = "bullish" if score > 0 else "bearish" if score < 0 else "neutral"
+    regime_gate = {
+        "label":  gate_label,
+        "source": "synthesized",
+        "score":  score,
+        "inputs": [
+            {"source": s.get("source"), "label": s.get("signal"), "score": s.get("weight", 0)}
+            for s in signals
+        ],
+    }
+
     return {
         "overall":       overall,
         "score":         score,
         "signals":       signals,
+        "regime_gate":   regime_gate,
         "current_price": current_price,
         "gamma_regime":  gamma_regime,
         "flip_zone":     flip_zone,

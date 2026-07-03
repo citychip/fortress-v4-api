@@ -795,6 +795,7 @@ def get_strategy_metrics(
     regime_source: str = "placeholder"
     vix_term_state: str | None = None
     vol_source: str = "placeholder"
+    regime_gate_obj: dict | None = None   # Sprint 21.3 canonical gate (label+inputs)
 
     try:
         from app.routes.options_analytics import get_iv_rank
@@ -835,10 +836,16 @@ def get_strategy_metrics(
         from app.routes.market_intelligence import get_market_intelligence
         intel = get_market_intelligence(ticker)
         _regime = (intel or {}).get("regime", {}) or {}
-        _overall = _regime.get("overall")
+        # Sprint 21.3: prefer the single canonical regime_gate.label so this
+        # endpoint and get_briefing read the same gate; fall back to the granular
+        # `overall` (normalized) if the gate isn't present.
+        _gate = _regime.get("regime_gate") or {}
+        _overall = _gate.get("label") or _regime.get("overall")
         if _overall:
             regime_overall = _normalize_regime(_overall)
-            regime_source = "market_intelligence"
+            regime_source = "regime_gate" if _gate.get("label") else "market_intelligence"
+        if _gate:
+            regime_gate_obj = _gate
         _gamma = _regime.get("gamma_regime")
         if _gamma:
             gex_regime = _gamma  # "positive" | "negative"
@@ -1189,6 +1196,7 @@ def get_strategy_metrics(
         "days_to_earnings": days_to_earnings,
         "regime":           regime_overall,
         "regime_source":    regime_source,
+        "regime_gate":      regime_gate_obj,
         "gex_regime":       gex_regime,
         "vix_term_state":   vix_term_state,
         "mode":             mode,

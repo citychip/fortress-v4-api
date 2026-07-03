@@ -460,9 +460,35 @@ def _market_advisories() -> dict:
     except Exception:
         pass
 
+    # ── Concentration (Sprint 21.5) — single-name + Mag-7 cluster, warn-mode ──
+    # Canonical MV/NLV basis (Sprint 20.4). Computed ONCE here so the per-ticker
+    # advisory is a cheap dict lookup in the batch endpoint.
+    conc_map: dict[str, float] = {}
+    cluster_pct: float | None = None
+    single_cap, cluster_cap, conc_mode = 20.0, 60.0, "warn"
+    cluster_names: list[str] = []
+    try:
+        from ..services.config_store import cfg
+        single_cap = float(cfg("strategy.single_name_cap_pct", 20.0))
+        cluster_cap = float(cfg("strategy.cluster_cap_pct", 60.0))
+        conc_mode = cfg("strategy.concentration_gate_mode", "warn") or "warn"
+        cluster_names = [str(t).upper() for t in (cfg("strategy.mag7_cluster", []) or [])]
+    except Exception:
+        pass
+    try:
+        _pd = state.get_active_positions()
+        conc_map = {str(k).upper(): float(v) for k, v in (state.compute_concentration(_pd) or {}).items()}
+        if cluster_names:
+            cluster_pct = round(sum(conc_map.get(n, 0.0) for n in cluster_names), 1)
+    except Exception:
+        pass
+
     return {"macro": macro_adv, "vix": vix_adv,
             "exdiv_by_ticker": exdiv_by_ticker, "exdiv_ok": exdiv_ok,
-            "vrp_by_ticker": vrp_by_ticker, "vrp_min": vrp_min}
+            "vrp_by_ticker": vrp_by_ticker, "vrp_min": vrp_min,
+            "conc_map": conc_map, "cluster_pct": cluster_pct,
+            "single_name_cap": single_cap, "cluster_cap": cluster_cap,
+            "conc_mode": conc_mode, "cluster_names": cluster_names}
 
 
 def _exdiv_advisory(ticker: str, market: dict) -> dict:
@@ -497,17 +523,51 @@ def _vrp_advisory(ticker: str, market: dict) -> dict:
             "spread_pp": vrp, "min_pp": vrp_min}
 
 
+def _concentration_advisory(ticker: str, market: dict) -> dict:
+    """Single-name + Mag-7 cluster concentration advisory (Sprint 21.5).
+
+    Warn-mode by default (never blocks unless `strategy.concentration_gate_mode`
+    is set to 'block'). Uses the canonical MV/NLV basis (Sprint 20.4). Flags amber
+    when the name is already at/over the single-name cap, or when the name is a
+    cluster member and the Mag-7 cluster is already at/over its cap — in both cases
+    a new entry only worsens an over-concentrated book (the recovery-plan risk the
+    briefing reports but the pre-trade gate didn't catch)."""
+    cap = market.get("single_name_cap", 20.0)
+    ccap = market.get("cluster_cap", 60.0)
+    name_pct = market.get("conc_map", {}).get(ticker.upper(), 0.0)
+    cluster_pct = market.get("cluster_pct")
+    in_cluster = ticker.upper() in market.get("cluster_names", [])
+    reasons = []
+    if name_pct >= cap:
+        reasons.append(f"{ticker} {name_pct:.0f}% ≥ {cap:.0f}% single-name cap")
+    if in_cluster and cluster_pct is not None and cluster_pct >= ccap:
+        reasons.append(f"Mag-7 cluster {cluster_pct:.0f}% ≥ {ccap:.0f}% cap")
+    if reasons:
+        return {"name": "concentration", "level": "amber",
+                "detail": "; ".join(reasons) + " — a new position adds to an over-concentrated book",
+                "name_pct": round(name_pct, 1), "cluster_pct": cluster_pct,
+                "single_name_cap": cap, "cluster_cap": ccap,
+                "in_cluster": in_cluster, "mode": market.get("conc_mode", "warn")}
+    return {"name": "concentration", "level": "ok",
+            "detail": (f"{ticker} {name_pct:.0f}% (cap {cap:.0f}%)"
+                       + (f", cluster {cluster_pct:.0f}% (cap {ccap:.0f}%)" if cluster_pct is not None else "")),
+            "name_pct": round(name_pct, 1), "cluster_pct": cluster_pct,
+            "single_name_cap": cap, "cluster_cap": ccap, "in_cluster": in_cluster}
+
+
 def _pretrade_advisories(ticker: str, market: dict | None = None) -> dict:
     """Return {advisories:{name:..}, caution:bool, caution_flags:[]} for a ticker.
 
     level ∈ {ok, amber, unknown}. caution = any amber. Pass `market` (from
     _market_advisories) to reuse one fetch across many tickers; omit for a single
-    lookup. macro_defer/vix_term are market-wide; ex_div is ticker-specific.
+    lookup. macro_defer/vix_term/concentration are market-wide; ex_div is
+    ticker-specific.
     """
     ticker = (ticker or "").upper().strip()
     if market is None:
         market = _market_advisories()
-    items = [market["macro"], market["vix"], _exdiv_advisory(ticker, market), _vrp_advisory(ticker, market)]
+    items = [market["macro"], market["vix"], _exdiv_advisory(ticker, market),
+             _vrp_advisory(ticker, market), _concentration_advisory(ticker, market)]
     return {
         "advisories": {a["name"]: a for a in items},
         "caution": any(a["level"] == "amber" for a in items),
