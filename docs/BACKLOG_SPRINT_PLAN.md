@@ -106,11 +106,115 @@ Four high-value items touch routes that lived **outside the OneDrive repo mount*
 
 **Done this session without code (2026-06-27):** hardened the `daily-post-open-briefing` scheduled task (force `trigger_ibkr_sync` first + staleness>2h guard; refreshed stale watch items; added hedge-coverage + cluster-glide + β-vega-flag steps); built the **`fortress-recovery-dashboard`** live Cowork artifact (NLV/liq, cluster glide, β-Δ/greeks, hedge coverage, alerts, rolls, stops — refreshes from Fortress each open). Neither needed a backend change.
 
+---
+
+# Sprints 21–24 — Enhancement Proposal v1 (added 2026-07-02)
+**Source: `Fortress_Enhancement_Proposal_v1.md` (session 2026-07-02) + `Fortress_MultiTimeframe_Procedure_v1_DRAFT.md`. Driven by live findings: the `strategy_metrics` covered-call/PMCC engine emits $0-credit far-OTM short strikes (root cause of 0.15–0.6× LEAP capital efficiency); `recommended=True` fires on 4–5 strategies at once; regime labels conflict (per-name bullish vs macro bearish vs SPY GEX negative); 25% win rate from selling premium on names below their 200-SMA; persona set to "directional/no-hedge" vs the live hedged-income book.**
+
+### Already shipped — verify, do NOT re-plan
+| Proposal item | Covered by | Status |
+|---|---|---|
+| Auto-capture entry IVR/DTE/delta | 16.2 / 16.3 | ✅ going forward (legacy trades uncaptured, acceptable) |
+| β-weighted vega stat | 19.1 / 20.6 | ✅ live (vega-flip **alert** = new item 24.4) |
+| Mag-7 cluster metric | 19.2 | ✅ live (glide-tracker UI = new item 23.6) |
+| Concentration basis (MV/NLV) | 20.4 | ✅ canonical (hard-gate enforcement = new item 21.5) |
+| Manage-at-50% decision | 19.7 | ⏸ kept 80%; revisit when entry-capture accrues (item 23.5) |
+
+---
+
+## Sprint 21 — "Monetize & gate" (strategy-metrics correctness) — HIGHEST LEVERAGE
+**Goal:** the pre-trade strategy engine tells the truth and gates on trend + concentration. These are the fixes that most directly change P&L and win rate.
+
+| # | Item | File(s) | Effort | Dep |
+|---|---|---|---|---|
+| 21.1 | ✅ **CODE-COMPLETE 2026-07-03 (needs deploy + live-verify)** — **21.1a** fixed the inverted call bisection in `target_strike_by_delta` (direction-aware bounds + 40→60 iters); offline harness confirms MSFT PMCC short **$780→$425**, GOOGL **$715→$395**, SPY **$1485→$770**, all non-zero credit; puts unchanged. **21.1b** added module-level `pick_short_call_delta(ivr, regime, weekly_below_200, days_to_earnings, conc_pct)` (base 0.30, clamp [0.20,0.40], IVR/trend/catalyst/concentration nudges + rationale) wired into PMCC + Diagonal short legs; concentration input via `state.compute_concentration` (soft-fail); `weekly_below_200` wired but None until 22.1. $0-credit sanity guard → `credit_ok`/`flags:["zero_credit"]`. Config keys added to `config_store.strategy.*` (`short_call_base/min/max_delta`, `delta_*_weight`, plus the 21.4/21.5 gate keys). Tests: `tests/test_sprint21_offline.py` (exit 0). | `options.py` + `config_store` | M | — |
+| 21.2 | ✅ **CODE-COMPLETE 2026-07-03 (needs deploy + live-verify)** — added `annualized_yield` per strategy; rank by `(regime_score desc, annualized_yield desc)`; **exactly one** `recommended=True` that passes gates (credit_ok + earnings_safe today; trend/concentration gates attach when 22.1 lands); others carry `eligible`/`gate_reason`; new top-level `recommended_id`. Offline test confirms exactly one recommended per name. ⚠ Behavioral note: in a neutral regime the singular pick now often surfaces the Iron Condor (highest score×yield) — expected, but review against intent when live. | `options.py` | S | — |
+| 21.3 | ✅ **CODE-COMPLETE 2026-07-03 (needs deploy + live-verify)** — `_synthesize_regime` now emits a single canonical `regime_gate {label, source, score, inputs[]}` (label = bullish/neutral/bearish from the score sum; inputs[] = every signal's source+label+score). `get_strategy_metrics` prefers `regime_gate.label` (sets `regime_source="regime_gate"`) and surfaces the gate object in its payload. Offline test `tests/test_sprint21_gates_offline.py` (exit 0). ⏳ **Follow-up:** wire `get_briefing.macro_regime` to read the same gate (currently a separate iv_report read) so the two can't diverge — left additive to avoid destabilizing the briefing macro path this pass. | `market_intelligence.py` + `options.py` | M | — |
+| 21.4 | ✅ **CODE-COMPLETE 2026-07-03 (needs deploy + live-verify)** — trend-filter entry gate, warn-mode. Consumes 22.1's `weekly_trend_state`. In `strategy_metrics`: `trend_gate` payload field + when spot < weekly-200-SMA a bullish premium-sell gets `regime_score −2` + `trend_penalized`/`flags:["below_wk200"]` and `_passes_gates` returns `eligible=False, gate_reason="below_wk200"` (never removed). Also activates the 21.1b adaptive-delta trend nudge. In `manage._pretrade_advisories`: new `_trend_advisory` → amber below the weekly 200. Unknown history → no effect (soft-fail). Offline test extends `test_sprint21_offline.py` (21.4 section). | `options.py` + `manage.py` (+ 22.1) | M | 22.1 ✅ |
+| 21.5 | ✅ **CODE-COMPLETE 2026-07-03 (needs deploy + live-verify)** — added a **warn-mode** `concentration` advisory to `manage._pretrade_advisories` (covers both `pre_trade_check` and `pretrade_all`/candidates). `_market_advisories` computes single-name % + Mag-7 cluster % once (canonical MV/NLV basis, Sprint 20.4); `_concentration_advisory` raises amber when the name is ≥ `single_name_cap_pct` (20) or a cluster member and the cluster is ≥ `cluster_cap_pct` (60). Never touches the 5 hard gates (PROCEED/BLOCKED intact) — config `concentration_gate_mode` can flip to block later. Offline test (exit 0). | `manage.py` | S–M | — |
+| 21.6 | 🟡 **PARTIAL (21.6-lite) — CODE-COMPLETE 2026-07-03 (needs deploy).** Per user decision (2026-07-03): **kept persona `income_seeker`** (the change-list's `strategic_speculator` premise didn't match live). Aligned `active_strategies` to the real hedged-premium-seller book — `[PMCC, PCS, CASH_SECURED_PUT, COVERED_CALL, COLLAR, DIAGONAL, SPY_HEDGE, LEAPS]` (dropped JADE_LIZARD) in both `config_store` DEFAULTS + the `income_seeker` preset in `settings.py`. Hedge already on (`SPY_HEDGE` in set + `show_spy_hedge=True`). ⚠ **Runtime note:** DEFAULTS/preset edits only affect fresh/reset configs — if a persisted `active_strategies` override exists, apply via Settings UI or `update_settings_section`. **Not done:** schema-level 20% cap enforcement (deferred — the 21.5 warn-advisory covers the behavior). | `config_store` + `settings.py` | S | — |
+
+**Acceptance:** `strategy_metrics` returns a covered-call/PMCC with a **non-zero credit** at its **adaptive delta** on all 6 core names, with a `delta_rationale` explaining any deviation from 0.30 · exactly one strategy per name carries `recommended=True` · regime payload exposes a single `regime_gate` + inputs · a name below its weekly 200-SMA is flagged ineligible/caution · a candidate breaching 20%/60% is blocked/warned · settings persona reads "hedged premium-seller".
+
+### 21.1 — Adaptive short-call delta engine (design)
+`pick_short_call_delta(ticker) → {target_delta, strike, credit, delta_rationale[]}`
+
+- **Base anchor:** `strategy.short_call_base_delta` = **0.30**. Clamp final to `[short_call_delta_min 0.20, short_call_delta_max 0.40]`.
+- **Signed nudges** (sum, then clamp; each logs a rationale line):
+  - **IVR / VRP:** high IVR (rich premium) → nudge **lower** delta (reach target income further OTM, keep upside). Low IVR → nudge **higher**. (e.g. ±0.05 across IVR 30↔80.)
+  - **Weekly trend / regime:** name in a healthy weekly uptrend (above 200-wk) → **lower** (protect upside). Broken / below weekly 200-wk (e.g. MSFT) → **higher** (more premium + more downside cushion, since the short call gains as it falls).
+  - **Technical resistance anchor:** snap the strike to sit **at/above** the nearest overhead level (WMA62 / 52-wk high / GEX call wall) rather than a pure delta — cap where price is likely to stall, not mid-air.
+  - **Catalyst proximity:** inside an earnings/high-impact window → **lower** delta (reduce gap risk) or defer per the catalyst gate.
+  - **Concentration:** if the name is over-cap (>20%), bias **higher** — a closer short call also trims net delta (doubles as de-risk).
+- **Output:** the chosen delta, the resolved strike + credit, and `delta_rationale[]` (why it moved off 0.30) so every pick is explainable in the briefing.
+- **Config keys:** `short_call_base_delta`, `short_call_delta_min`, `short_call_delta_max`, and per-factor weights (`delta_ivr_weight`, `delta_trend_weight`, `delta_catalyst_weight`, `delta_concentration_weight`).
+
+---
+
+## Sprint 22 — "Multi-timeframe technical layer" (data + procedure + UI)
+**Goal:** weekly/daily (and monthly/4h interactively) technicals are first-class inputs, with the data-source-availability rule made visible.
+
+| # | Item | File(s) | Effort | Dep |
+|---|---|---|---|---|
+| 22.1 | 🟡 **CORE CODE-COMPLETE 2026-07-03 (needs deploy + MCP relaunch).** Built `options_analytics.weekly_trend_state(ticker)` — yfinance weekly-200-SMA read (`spot/sma_200w/above_200w/pct_from_sma/bars`, 6h TTL cache, soft-fail None on thin history) + route `GET /api/technical/gate` (`get_technical_gate`, SPY + open-position tickers, hold/watch/act/unknown) + MCP tool `get_technical_gate`. This is the ingest that unblocked 21.4 + the 21.1b trend nudge. ⏳ **Follow-up:** wire the per-name line into the `daily-post-open-briefing` SKILL output + add the daily-1d trend/key-level (weekly done; daily is the small remainder). Headless-safe, source-labeled. | `options_analytics.py` + MCP + `daily-post-open-briefing` task | M | — |
+| 22.2 | **TradingView interactive integration** (Claude-side, documented in the Procedure): launch-with-debug command, dynamic watchlist, TN-signal read (Thesis Stop / WMA62 / Re-entry), graceful fallback to `get_chart_data`. Monthly + 4h are TV-only. | Procedure doc + Claude-side | S | — |
+| 22.3 | **Data-source status banner (Parapet).** web_api vs `bs_yfinance` fallback, TradingView attached (y/n), last-sync age. Makes the availability rule visible; optionally gates write actions when on fallback (§Open). | `fortress-parapet` | M | — |
+| 22.4 | **Multi-timeframe technical panel (Parapet).** Monthly/Weekly/Daily/4h with the 200-wk Thesis Stop line per name; ingest `get_chart_data` + TradingView. | `fortress-parapet` | M–L | 22.1 |
+| 22.5 | **Backend interval extension (optional).** `get_chart_data` currently supports `1d`/`1wk` only; add `1mo` (and `4h` if feasible) so Monthly/intraday don't depend solely on TradingView. | `options_analytics.py`/chart route | M | — |
+
+**Acceptance:** the automated briefing prints a weekly+daily technical line per watchlist name with an explicit source/fallback label · Parapet shows a live data-source banner · a multi-timeframe panel renders the Thesis Stop per name.
+
+---
+
+## Sprint 23 — "Capital efficiency & structures" (strategy optimization)
+**Goal:** convert dead-weight LEAP capital into defended income; surface efficiency; diversify.
+
+| # | Item | File(s) | Effort | Dep |
+|---|---|---|---|---|
+| 23.1 | **Capital-efficiency heatmap (Parapet).** Surface `get_capital_efficiency` per position (income ÷ capital-at-risk) to spotlight under-monetized LEAPs (GOOGL 0.25×, AMZN 0.15×). Data already exists. | `fortress-parapet` | S–M | — |
+| 23.2 | **Collar / overlay builder.** One-click structure to sell a ~0.30Δ call + buy a protective put against a held LEAP (self-funding downside defense for the concentrated names). Backend structure + Parapet. | `options_analytics.py` + `fortress-parapet` | M | 21.1 |
+| 23.3 | **Systematic LEAP call-writing playbook.** Monthly ~0.30Δ / 30–45 DTE covered calls on the LEAP cores (depends on 21.1 producing real strikes); codify in Strategy v3.10 + surface as candidates. | Strategy doc + `options.py` | S | 21.1 |
+| 23.4 | **Diversify the premium sleeve.** Whitelist non-tech / index underlyings for CSP/PCS (`add_universe_ticker`) so income isn't 100% Mag-7 correlated. | `config_store`/universe | S | — |
+| 23.5 | **Manage-at-50% revisit (data decision).** Re-run `journal_analytics` bucketing once ≥ representative closes accrue; compare 50% vs 80% profit-take for the defined-risk sleeve. (Supersedes the 19.7 hold.) | journal + settings | S | 16.2 accrual |
+| 23.6 | **Cluster-glide tracker (Parapet).** Current cluster % vs the 60% target with the glide path (91→60). | `fortress-parapet` | S | 19.2 |
+| 23.7 | **Dynamic watchlist.** Reflect "open positions + user additions" as the watchlist in the UI + universe logic. | `fortress-parapet` + universe | S | — |
+
+**Acceptance:** efficiency heatmap ranks positions and flags <0.5× · collar builder produces a priced call+put overlay on a held LEAP · a LEAP call-writing candidate appears with a non-zero credit · cluster-glide widget shows current vs 60%.
+
+---
+
+## Sprint 24 — Docs & governance
+**Goal:** documentation catches up to the new logic and rules.
+
+| # | Item | File(s) | Effort | Dep |
+|---|---|---|---|---|
+| 24.1 | **Strategy v3.9 → v3.10.** Fold in the multi-timeframe layer, the trend-filter entry gate, the collar overlay, manage-at-50% option, and the hedged-premium-seller persona. | `docs/01_Portfolio_Strategy` + `STRATEGY_ENHANCEMENTS_v3_10.md` | M | Sprint 21 decisions |
+| 24.2 | **Briefing SKILL update.** Add the Technical Gate step, explicit fallback labeling, and optimization KPIs (capital-efficiency flag, cluster-glide, hedge coverage) to the standard output. | `daily-post-open-briefing` SKILL | S | 22.1 |
+| 24.3 | **Adopt the two session rules** (already in the Procedure): dynamic watchlist; data-source availability (tell first in live sessions, label fallback in scheduled). Reference from Strategy + SKILL. | Procedure + Strategy | S | ✅ in Procedure |
+| 24.4 | **Vega-flip alert.** Scheduled task / alert when `beta_vega_flag` flips `net_short → net_long` (the unflagged risk the β-vega stat surfaces but doesn't alert on). | scheduled task | S | 19.1/20.6 |
+
+---
+
 ## Sequencing rationale
 - **Sprint 0 first** — without the out-of-mount files, 15.1 / 15.3 / 16.1 / 16.5 can't deploy. One small copy unblocks the two most valuable sprints.
 - **Sprint 15 before 16** — `pretrade_check` consolidation (16.1) depends on VIX-term (15.3) and ex-div (15.4) existing as inputs first.
 - **16.2 → 16.3 → 16.4** is a strict chain (capture → schema → backfill).
 - **Sprint 17** is all independent and deferrable; pull any item forward if a quiet session allows.
+- **Sprint 21 before 22/23** — 21.1 (strike-selection fix) is the keystone: it unblocks the LEAP call-writing (23.3) and collar (23.2) work, and 21.4 (trend gate) consumes the weekly SMA that 22.1 ingests. Do **21.1 → 21.2 → 21.6** first (correctness + safety), then 21.4/21.5 (gates), then the UI/structure sprints.
+- **22.1 before 21.4** — the trend gate needs the weekly-SMA ingest from the Technical Gate.
+- **Sprint 24 trails** its corresponding code sprints (docs after behavior).
+
+## Open decisions
+**Resolved 2026-07-02:**
+- ✅ 21.1: **adaptive** short-call delta (base 0.30, band 0.20–0.40, 30–45 DTE), engine reasons from IVR/trend/resistance/catalyst/concentration and logs a rationale — see 21.1 design.
+- ✅ 21.4: trend gate = **warning** (not a hard block).
+- ✅ 22.3: stale/fallback data = **warn clearly**, do not gate write actions.
+
+**Resolved 2026-07-02 (cont.):**
+- ✅ 23.2: **full collar** on the concentrated LEAPs (GOOGL/AMZN) — sell an adaptive-Δ call to fund a protective put.
+
+**Resolved 2026-07-02 (cont.):**
+- ✅ 23.4: non-tech whitelist screened (Fortress IVR + TradingView weekly trend-gate) across all four sectors. **Add now:** **JPM** (financials, IVR 72, above all weekly MAs) + **JNJ** (healthcare, IVR 90, clean weekly uptrend). **Whitelisted but trend-gated** (add on a weekly-200-SMA reclaim): XOM (energy, marginal), CVX / COST / WMT (currently below their weekly 200-SMA). **Excluded:** UNH (bearish, IVR 23, earnings 14d). LLY optional (rich premium but earnings 34d + high IV). Live demonstration of the 21.4 trend gate: 4 of 8 candidates failed it despite bullish Fortress regime + high IVR.
 
 ## Effort key
-S = <½ session · M = ~1 session · (none are L). Total: ~6–8 working sessions across the three sprints.
+S = <½ session · M = ~1 session · L = ≳2 sessions (only 22.4 is M–L). Sprints 15–20 shipped. Sprints 21–24 add ~7–9 working sessions; Sprint 21 alone (~2 sessions) captures most of the profit/reliability upside.

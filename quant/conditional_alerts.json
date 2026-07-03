@@ -15,7 +15,24 @@
       "snoozed_at": null,
       "created_at": "2026-06-10T18:56:04.846546+00:00",
       "updated_at": "2026-06-19T09:08:23.609407+00:00"
+    },
+    {
+      "id": "baa3bc98",
+      "ticker": "MSFT",
+      "alert_type": "close_above",
+      "threshold": 395.0,
+      "message": "MSFT daily close ≥ $395 — bounced into the 395-410 LEAP-trim zone (50SMA $409 / WMA62 $403 resistance retest). Trim a Jan'28 LEAP toward the 20% concentration target.",
+      "urgency": "watch",
+      "position_id": null,
+      "action_mode": "close",
+      "triggered": false,
+      "triggered_at": null,
+      "snoozed": false,
+      "snoozed_at": null,
+      "created_at": "2026-06-30T14:06:18.880881+00:00",
+      "last_close": 390.49,
+      "last_close_date": "2026-07-02"
     }
   ],
-  "_last_updated": "2026-06-29T15:40:00.002682+00:00"
+  "_last_updated": "2026-07-03T18:35:00.003521+00:00"
 }
