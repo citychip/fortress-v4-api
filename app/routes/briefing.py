@@ -491,6 +491,17 @@ def get_briefing():
         vix_state = "normal"
     macro["vix_state"] = vix_state
 
+    # Sprint 25.4 — attach the canonical synthesized regime_gate (GEX + macro +
+    # VIX-term + drift) so the briefing and strategy_metrics read the SAME regime
+    # instead of diverging (this macro overlay vs the synthesized gate). Soft-fail
+    # + server-cached (~5 min), so it never breaks or materially slows the briefing.
+    try:
+        from app.routes.market_intelligence import get_market_intelligence
+        _intel = get_market_intelligence("SPY")
+        macro["regime_gate"] = ((_intel or {}).get("regime", {}) or {}).get("regime_gate")
+    except Exception:
+        macro["regime_gate"] = None
+
     # Data staleness per Build Spec §5.5.2
     staleness = state.staleness_hours("active_positions.json")
     if staleness is None:

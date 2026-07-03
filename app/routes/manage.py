@@ -353,6 +353,66 @@ def roll_all():
     }
 
 
+@router.get("/manage/leap_roll_all")
+def leap_roll_all():
+    """
+    Sprint 25.11 (backlog 19.4b) — LEAP-roll signals.
+
+    The aggregated short-leg roll scan (roll_all) intentionally SKIPS LEAPs. This
+    scans the PER-LEG book for long-dated long CALL legs (the LEAP cores) and flags
+    any whose long delta has decayed to ≤ `strategy.leap_roll_delta` (0.70) or whose
+    DTE has fallen to ≤ `strategy.leap_roll_dte` (120) — the §5 / v3.10 §4b trigger
+    to roll the LEAP into a fresh 12–18-month contract before decay/assignment risk
+    bites. Uses the per-leg greeks the aggregated rows don't expose.
+    """
+    from ..services.config_store import cfg
+    roll_delta = float(cfg("strategy.leap_roll_delta", 0.70))
+    roll_dte = int(cfg("strategy.leap_roll_dte", 120))
+    leap_min_dte = 90  # a long call with DTE > this is treated as a LEAP core
+
+    try:
+        data = state.get_active_positions()
+    except state.StateError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    out = []
+    for p in (data.get("positions") or []):
+        if (str(p.get("sec_type") or "OPT").upper() != "OPT"):
+            continue
+        if str(p.get("leg_direction", "")).lower() != "long":
+            continue
+        if str(p.get("right", "")).upper() != "C":
+            continue
+        dte = _dte_days(p.get("expiry")) or 0
+        if dte <= leap_min_dte:
+            continue  # short-dated long calls aren't LEAP cores
+        delta = p.get("current_delta")
+        reasons = []
+        if delta is not None and float(delta) <= roll_delta:
+            reasons.append(f"long delta {float(delta):.2f} ≤ {roll_delta:.2f}")
+        if dte <= roll_dte:
+            reasons.append(f"DTE {dte} ≤ {roll_dte}")
+        if reasons:
+            out.append({
+                "ticker": (p.get("ticker") or "").upper(),
+                "strike": p.get("strike"),
+                "expiry": p.get("expiry"),
+                "dte": dte,
+                "current_delta": delta,
+                "roll_needed": True,
+                "urgency": "URGENT" if (delta is not None and float(delta) <= roll_delta - 0.05) or dte <= 60 else "WARNING",
+                "reasons": reasons,
+            })
+    out.sort(key=lambda r: (0 if r["urgency"] == "URGENT" else 1, r.get("dte") or 9999))
+    return {
+        "as_of": datetime.now(timezone.utc).isoformat(),
+        "leap_roll_delta": roll_delta,
+        "leap_roll_dte": roll_dte,
+        "count": len(out),
+        "positions": out,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Aggregated position list — for UI pickers
 # ---------------------------------------------------------------------------
