@@ -2274,6 +2274,25 @@ def get_data_integrity(
     probe = (probe_ticker or _INTEGRITY_PROBE_TICKER).upper()
     checked_at = _utcnow()
 
+    # Positions last-sync age (Sprint 22.3) — surfaces the "18.8h-stale" trap in
+    # the badge independent of the live probe: the gateway can read 'live' while
+    # the positions book is hours old if the sync job hasn't run. Newest
+    # _ibkr_sync_time across the leg book (soft-fail to None).
+    synced_at = None
+    sync_age_hours = None
+    try:
+        from app.services import state as _istate
+        _pdata = _istate.get_active_positions() or {}
+        _stamps = [p.get("_ibkr_sync_time") for p in _pdata.get("positions", []) if p.get("_ibkr_sync_time")]
+        _cand = max(_stamps) if _stamps else (_pdata.get("_ibkr_sync_time") or _pdata.get("synced_at"))
+        if _cand:
+            from datetime import datetime as _dt
+            _ts = _dt.fromisoformat(str(_cand).replace("Z", "+00:00"))
+            synced_at = str(_cand)
+            sync_age_hours = round((datetime.now(timezone.utc) - _ts).total_seconds() / 3600.0, 1)
+    except Exception:
+        pass
+
     # 1. Live gateway probe — the honest signal (bypasses staleness entirely).
     try:
         ib_spot = _try_ibkr_spot(probe)
@@ -2288,6 +2307,8 @@ def get_data_integrity(
             "probe_ticker": probe,
             "spot": round(float(ib_spot), 2),
             "checked_at": checked_at,
+            "synced_at": synced_at,
+            "sync_age_hours": sync_age_hours,
             "message": "IBKR CP Gateway live — real-time data flowing.",
         }
 
@@ -2305,6 +2326,8 @@ def get_data_integrity(
             "probe_ticker": probe,
             "spot": round(float(yf_spot), 2),
             "checked_at": checked_at,
+            "synced_at": synced_at,
+            "sync_age_hours": sync_age_hours,
             "message": ("IBKR gateway DOWN — serving ~15-min-delayed yfinance "
                         "data. Do not trade on these numbers; restart cp-gateway."),
         }
