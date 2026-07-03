@@ -24,7 +24,9 @@
     "PNC",
     "CSX",
     "MAR",
-    "NVDA"
+    "NVDA",
+    "JPM",
+    "JNJ"
   ],
   "tier2": [],
   "macro": [
@@ -55,5 +57,5 @@
       "note": "Strategy §3.3 — ignored entirely. Display in book, never recommend."
     }
   ],
-  "_last_updated": "2026-06-09"
+  "_last_updated": "2026-07-04"
 }
