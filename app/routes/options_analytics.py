@@ -891,6 +891,59 @@ def daily_trend_state(ticker: str) -> dict:
     return out
 
 
+_MONTHLY_TREND_CACHE: dict = {}
+_MONTHLY_TREND_TTL_S = 12 * 3600  # monthly moves slowest of the three
+
+
+def monthly_trend_state(ticker: str) -> dict:
+    """Monthly trend read (Sprint 22.4a) — the 'is the LEAP secular thesis intact?'
+    question, answered headless so the multi-timeframe matrix isn't blank when
+    TradingView is detached.
+
+    Uses spot vs the 10- and 20-month EMAs (the standard monthly trend pair —
+    cleaner to compute server-side than higher-high/higher-low structure and a good
+    proxy for it). Returns {ticker, spot, ema_10m, ema_20m, above_10m, above_20m,
+    trend (up|down|mixed|unknown), bars, source, error?}. Soft-fails to None fields
+    on thin history (recent IPOs) — never a false 'broken thesis'."""
+    import time as _time
+    ticker = (ticker or "").upper().strip()
+    now = _time.time()
+    cached = _MONTHLY_TREND_CACHE.get(ticker)
+    if cached and (now - cached[0]) < _MONTHLY_TREND_TTL_S:
+        return cached[1]
+
+    out = {"ticker": ticker, "spot": None, "ema_10m": None, "ema_20m": None,
+           "above_10m": None, "above_20m": None, "trend": "unknown",
+           "bars": 0, "source": "yfinance_1mo"}
+    try:
+        closes = yf.Ticker(ticker).history(period="10y", interval="1mo")["Close"].dropna()
+        n = int(len(closes))
+        out["bars"] = n
+        if n >= 1:
+            out["spot"] = round(float(closes.iloc[-1]), 2)
+        if n >= 10:
+            out["ema_10m"] = round(float(closes.ewm(span=10, adjust=False).mean().iloc[-1]), 2)
+            out["above_10m"] = bool(out["spot"] >= out["ema_10m"])
+        if n >= 20:
+            out["ema_20m"] = round(float(closes.ewm(span=20, adjust=False).mean().iloc[-1]), 2)
+            out["above_20m"] = bool(out["spot"] >= out["ema_20m"])
+        # Classify on whatever EMAs are available (partial history → use the ones
+        # we have, so 10–19 bars still gives an up/down read off the 10m EMA).
+        signals = [s for s in (out["above_10m"], out["above_20m"]) if s is not None]
+        if not signals:
+            out["trend"] = "unknown"
+        elif all(signals):
+            out["trend"] = "up"
+        elif not any(signals):
+            out["trend"] = "down"
+        else:
+            out["trend"] = "mixed"
+    except Exception as e:
+        out["error"] = str(e)
+    _MONTHLY_TREND_CACHE[ticker] = (now, out)
+    return out
+
+
 @router.get("/technical/gate")
 def get_technical_gate(tickers: str = Query(default="")):
     """Sprint 22.1 — per-name weekly-200-SMA 'Thesis Stop' technical gate.
@@ -902,6 +955,9 @@ def get_technical_gate(tickers: str = Query(default="")):
       • watch — within 3% above the 200-SMA (marginal)
       • hold  — comfortably above
       • unknown — insufficient weekly history (never treated as a breach)
+    Each row also carries a `monthly{}` block (Sprint 22.4a — 10/20-month EMA trend,
+    the LEAP secular-thesis read) and a `daily{}` block (50/200-day SMA trend + key
+    level), so the row is a full Monthly/Weekly/Daily multi-timeframe read.
     Headless-safe (yfinance); each name is TTL-cached. The `source` label carries
     the data-source per the availability rule."""
     req = [t.strip().upper() for t in (tickers or "").split(",") if t.strip()]
@@ -930,7 +986,11 @@ def get_technical_gate(tickers: str = Query(default="")):
         else:
             gstate = "hold"
         d = daily_trend_state(tk)
+        m = monthly_trend_state(tk)
         rows.append({**w, "state": gstate,
+                     "monthly": {"spot": m.get("spot"), "ema_10m": m.get("ema_10m"),
+                                 "ema_20m": m.get("ema_20m"), "trend": m.get("trend"),
+                                 "source": m.get("source")},
                      "daily": {"spot": d.get("spot"), "sma_50d": d.get("sma_50d"),
                                "sma_200d": d.get("sma_200d"), "trend": d.get("trend"),
                                "key_level": d.get("key_level"), "source": d.get("source")}})
