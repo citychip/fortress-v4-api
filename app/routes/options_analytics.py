@@ -839,6 +839,58 @@ def weekly_trend_state(ticker: str) -> dict:
     return out
 
 
+_DAILY_TREND_CACHE: dict = {}
+_DAILY_TREND_TTL_S = 3600  # 1h — the daily read moves faster than the weekly
+
+
+def daily_trend_state(ticker: str) -> dict:
+    """Daily trend read (Sprint 22.1b) — spot vs the daily 50-/200-SMA + the
+    nearest 'key level' price is testing.
+
+    Returns {ticker, spot, sma_50d, sma_200d, above_50d, above_200d, trend
+    (up|down|mixed|unknown), key_level{name,price,dist_pct}, source, error?}.
+    Soft-fails to None fields on thin history."""
+    import time as _time
+    ticker = (ticker or "").upper().strip()
+    now = _time.time()
+    cached = _DAILY_TREND_CACHE.get(ticker)
+    if cached and (now - cached[0]) < _DAILY_TREND_TTL_S:
+        return cached[1]
+
+    out = {"ticker": ticker, "spot": None, "sma_50d": None, "sma_200d": None,
+           "above_50d": None, "above_200d": None, "trend": "unknown",
+           "key_level": None, "source": "yfinance_1d"}
+    try:
+        closes = yf.Ticker(ticker).history(period="1y", interval="1d")["Close"].dropna()
+        n = int(len(closes))
+        if n >= 1:
+            out["spot"] = round(float(closes.iloc[-1]), 2)
+        if n >= 50:
+            out["sma_50d"] = round(float(closes.tail(50).mean()), 2)
+            out["above_50d"] = bool(out["spot"] >= out["sma_50d"])
+        if n >= 200:
+            out["sma_200d"] = round(float(closes.tail(200).mean()), 2)
+            out["above_200d"] = bool(out["spot"] >= out["sma_200d"])
+        a50, a200 = out["above_50d"], out["above_200d"]
+        if a50 is None and a200 is None:
+            out["trend"] = "unknown"
+        elif a50 and a200:
+            out["trend"] = "up"
+        elif a50 is False and a200 is False:
+            out["trend"] = "down"
+        else:
+            out["trend"] = "mixed"
+        levels = [(nm, v) for nm, v in (("50d", out["sma_50d"]), ("200d", out["sma_200d"])) if v]
+        if out["spot"] and levels:
+            nm, v = min(levels, key=lambda kv: abs(kv[1] - out["spot"]))
+            out["key_level"] = {"name": nm, "price": v,
+                                "dist_pct": round((out["spot"] - v) / v * 100, 2)}
+    except Exception as e:
+        out["error"] = str(e)
+    _DAILY_TREND_CACHE[ticker] = (now, out)
+    return out
+
+
 @router.get("/technical/gate")
 def get_technical_gate(tickers: str = Query(default="")):
     """Sprint 22.1 — per-name weekly-200-SMA 'Thesis Stop' technical gate.
@@ -877,7 +929,11 @@ def get_technical_gate(tickers: str = Query(default="")):
             gstate = "watch"
         else:
             gstate = "hold"
-        rows.append({**w, "state": gstate})
+        d = daily_trend_state(tk)
+        rows.append({**w, "state": gstate,
+                     "daily": {"spot": d.get("spot"), "sma_50d": d.get("sma_50d"),
+                               "sma_200d": d.get("sma_200d"), "trend": d.get("trend"),
+                               "key_level": d.get("key_level"), "source": d.get("source")}})
     return {"as_of": datetime.now(timezone.utc).isoformat(),
             "count": len(rows), "gate": rows}
 
