@@ -1,22 +1,6 @@
 {
   "alerts": [
     {
-      "id": "8bd4926b",
-      "ticker": "MSFT",
-      "alert_type": "price_below",
-      "threshold": 375.0,
-      "message": "MSFT daily close < $375 (GEX put-support shelf broken) — execute next de-risk tranche: trim one MSFT leg toward the 20% concentration target. Confirm on the actual daily close (alert fires on intraday spot — ignore wicks).",
-      "urgency": "critical",
-      "position_id": null,
-      "action_mode": "close",
-      "triggered": true,
-      "triggered_at": "2026-06-22T14:35:00.004245+00:00",
-      "snoozed": false,
-      "snoozed_at": null,
-      "created_at": "2026-06-10T18:56:04.846546+00:00",
-      "updated_at": "2026-06-19T09:08:23.609407+00:00"
-    },
-    {
       "id": "baa3bc98",
       "ticker": "MSFT",
       "alert_type": "close_above",
@@ -47,7 +31,22 @@
       "snoozed": false,
       "snoozed_at": null,
       "created_at": "2026-07-03T23:19:25.869357+00:00"
+    },
+    {
+      "id": "de612a78",
+      "ticker": "MSFT",
+      "alert_type": "close_below",
+      "threshold": 375.0,
+      "message": "MSFT daily close < $375 — GEX put-support shelf broken, below the $382 weekly Thesis Stop. Execute the next de-risk tranche: trim a MSFT leg toward the 20% concentration target. Deeper break than the 382 alert — size the tranche up.",
+      "urgency": "critical",
+      "position_id": null,
+      "action_mode": "close",
+      "triggered": false,
+      "triggered_at": null,
+      "snoozed": false,
+      "snoozed_at": null,
+      "created_at": "2026-07-03T23:22:21.430965+00:00"
     }
   ],
-  "_last_updated": "2026-07-03T23:19:25.869374+00:00"
+  "_last_updated": "2026-07-03T23:22:21.430979+00:00"
 }
