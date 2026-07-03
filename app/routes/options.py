@@ -688,6 +688,69 @@ def get_roll_candidates(
 
 # ── Strategy Metrics ───────────────────────────────────────────────────────────
 
+def pick_short_call_delta(
+    ivr: float | None,
+    regime: str | None,
+    weekly_below_200: bool | None,
+    days_to_earnings: int | None,
+    conc_pct: float | None,
+) -> tuple[float, list[str]]:
+    """Sprint 21.1b — adaptive short-call delta for the PMCC / Diagonal / covered-
+    call income leg (replaces the hard-coded 0.20).
+
+    Base anchor 0.30, clamped to [min, max]; signed nudges (each logs a rationale
+    line so every pick is explainable in the briefing):
+      • IVR / VRP — rich premium (high IVR) → sell further OTM (LOWER Δ, keep
+        upside); thin premium (low IVR) → HIGHER Δ to reach target income.
+      • Weekly trend — a name below its weekly 200-SMA → HIGHER Δ (closer strike =
+        more premium + more downside cushion, since the short call gains as it
+        falls). ``weekly_below_200`` is None until the Sprint 22.1 weekly-SMA ingest
+        lands; when None the trend nudge is skipped, so the engine is fully
+        functional today on the IVR / catalyst / concentration factors.
+      • Catalyst — inside a ≤10d earnings window → LOWER Δ to cut gap risk.
+      • Concentration — an over-cap name (> single_name_cap_pct) → HIGHER Δ; a
+        closer short call trims net delta so it doubles as de-risk.
+
+    Returns ``(target_delta, rationale[])``.
+    """
+    from app.services.config_store import cfg
+
+    base = cfg("strategy.short_call_base_delta", 0.30)
+    lo   = cfg("strategy.short_call_delta_min", 0.20)
+    hi   = cfg("strategy.short_call_delta_max", 0.40)
+    cap  = cfg("strategy.single_name_cap_pct", 20.0)
+
+    d: float = float(base)
+    why: list[str] = []
+
+    if ivr is not None:
+        if ivr >= 70:
+            d -= 0.05 * cfg("strategy.delta_ivr_weight", 1.0)
+            why.append(f"IVR {ivr:.0f} high → −Δ (further OTM)")
+        elif ivr <= 35:
+            d += 0.05 * cfg("strategy.delta_ivr_weight", 1.0)
+            why.append(f"IVR {ivr:.0f} low → +Δ")
+
+    if weekly_below_200:
+        d += 0.05 * cfg("strategy.delta_trend_weight", 1.0)
+        why.append("below wk-200 → +Δ (premium + cushion)")
+
+    if days_to_earnings is not None and days_to_earnings <= 10:
+        d -= 0.05 * cfg("strategy.delta_catalyst_weight", 1.0)
+        why.append(f"earnings ≤10d ({days_to_earnings}) → −Δ (gap risk)")
+
+    if conc_pct and conc_pct > cap:
+        d += 0.03 * cfg("strategy.delta_concentration_weight", 1.0)
+        why.append(f"conc {conc_pct:.0f}% > {cap:.0f}% → +Δ (de-risk)")
+
+    clamped = max(lo, min(hi, d))
+    if abs(clamped - d) > 1e-9:
+        why.append(f"clamped to [{lo:.2f},{hi:.2f}]")
+    if not why:
+        why.append(f"base {base:.2f} (no nudges)")
+    return round(clamped, 2), why
+
+
 @router.get("/options/strategy_metrics")
 def get_strategy_metrics(
     ticker: str,
@@ -784,6 +847,22 @@ def get_strategy_metrics(
     except Exception as e:
         _log.warning("regime synthesis unavailable for %s: %s — neutral fallback", ticker, e)
 
+    # ── Single-name concentration (Sprint 21.1b adaptive-delta input; also the
+    #    21.5 gate input) — canonical MV/NLV basis, best-effort, soft-fail to None
+    #    so a missing positions file never breaks strategy_metrics.
+    conc_pct: float | None = None
+    try:
+        from app.services import state as _cstate
+        _conc = _cstate.compute_concentration(_cstate.get_active_positions())
+        if isinstance(_conc, dict):
+            conc_pct = _conc.get(ticker)
+    except Exception as e:
+        _log.debug("concentration unavailable for %s: %s", ticker, e)
+
+    # Weekly-trend input for the adaptive engine is wired but None until the
+    # Sprint 22.1 weekly-200-SMA ingest lands (the trend nudge no-ops on None).
+    weekly_below_200: bool | None = None
+
     if iv <= 0:
         iv = 0.30
 
@@ -817,27 +896,44 @@ def get_strategy_metrics(
         return 1 - pop_short_put(S, K, t_years, sigma)
 
     def target_strike_by_delta(delta_target: float, right: str = "C") -> float:
-        """Approximate strike where abs(delta) ≈ delta_target using log-normal inversion."""
+        """Approximate strike where abs(delta) ≈ delta_target via DIRECTION-AWARE
+        bisection.
+
+        Sprint 21.1a fix — the previous branch was inverted for CALLS. For a call
+        |delta| *falls* as strike rises, but the old code did
+        ``if abs(d) < delta_target: lo = mid`` which pushed the search to HIGHER
+        strikes when delta was already too low → it converged to the upper bound
+        (spot*2.0). That is exactly what produced the MSFT $780C / GOOGL $715C /
+        SPY $1485C strikes with ``estimated_credit == 0``. Puts happened to be
+        correct (|delta| *rises* with strike), which is why PCS/CSP returned sane
+        ~0.20Δ strikes and only the call-based PMCC/Diagonal broke.
+
+        Now each right moves the correct bound; iterations bumped 40→60 for tighter
+        convergence on the wider search band.
+        """
         t = target_dte / 365.0
         if t <= 0 or iv <= 0:
             return spot
-        # For call: delta = N(d1), so d1 = N_inv(delta_target)
-        # For put: delta = N(d1) - 1, so d1 = N_inv(delta_target + 1)
-        from app.services.bs_fallback import _norm_cdf
-        # Simple bisection — fast enough for a small search
         lo, hi = spot * 0.5, spot * 2.0
-        for _ in range(40):
+        mid = spot
+        for _ in range(60):
             mid = (lo + hi) / 2
             d1 = (_math.log(spot / mid) + (_RISK_FREE + 0.5 * iv**2) * t) / (iv * _math.sqrt(t))
+            d = norm_cdf(d1) if right.upper() == "C" else norm_cdf(d1) - 1.0
+            ad = abs(d)
             if right.upper() == "C":
-                d = norm_cdf(d1)
+                # |delta| falls as strike rises
+                if ad > delta_target:
+                    lo = mid   # too much delta → strike must go HIGHER
+                else:
+                    hi = mid   # too little delta → strike must go LOWER
             else:
-                d = norm_cdf(d1) - 1.0
-            if abs(d) < delta_target:
-                lo = mid  # need to move strike closer (lower for call, higher for put)
-            else:
-                hi = mid
-            if abs(abs(d) - delta_target) < 0.001:
+                # |delta| rises as strike rises
+                if ad > delta_target:
+                    hi = mid   # too much delta → strike must go LOWER
+                else:
+                    lo = mid   # too little delta → strike must go HIGHER
+            if abs(ad - delta_target) < 0.001:
                 break
         return round(mid / 5) * 5  # round to nearest 5
 
@@ -928,7 +1024,12 @@ def get_strategy_metrics(
     })
 
     # ── 3. PMCC (Poor Man's Covered Call) ─────────────────────────────────
-    short_call_strike   = target_strike_by_delta(0.20, "C")
+    # Sprint 21.1b: adaptive short-call delta (was hard-coded 0.20) — reasons from
+    # IVR / weekly trend / catalyst / concentration and logs a rationale.
+    pmcc_short_delta, pmcc_delta_rationale = pick_short_call_delta(
+        ivr, regime_overall, weekly_below_200, days_to_earnings, conc_pct,
+    )
+    short_call_strike   = target_strike_by_delta(pmcc_short_delta, "C")
     leap_strike         = round(spot * 0.75 / 5) * 5   # deep ITM ~delta 0.75
     short_call_price    = bs_price_call(spot, short_call_strike, t, iv)
     leap_price          = bs_price_call(spot, leap_strike, t_long, iv)
@@ -947,6 +1048,8 @@ def get_strategy_metrics(
         "short_strike":     short_call_strike,
         "long_strike":      leap_strike,
         "estimated_credit": round(pmcc_monthly_credit, 2),
+        "target_delta":     pmcc_short_delta,
+        "delta_rationale":  pmcc_delta_rationale,
         "pop":              round(pmcc_pop, 3),
         "max_loss":         round(max(pmcc_max_loss, 0), 2),
         "capital_required": round(pmcc_capital, 2),
@@ -994,7 +1097,7 @@ def get_strategy_metrics(
     })
 
     # ── 5. Diagonal (call diagonal / calendar spread variant) ─────────────
-    diag_short_strike = short_call_strike  # same delta 0.20 call at 45d
+    diag_short_strike = short_call_strike  # Sprint 21.1b: adaptive short-call Δ (shared with PMCC)
     diag_long_strike  = round(spot * 0.95 / 5) * 5  # slight OTM long call at 90d
     diag_short_price  = bs_price_call(spot, diag_short_strike, t, iv)
     diag_long_price   = bs_price_call(spot, diag_long_strike,  90 / 365.0, iv)
@@ -1013,6 +1116,8 @@ def get_strategy_metrics(
         "short_strike":     diag_short_strike,
         "long_strike":      diag_long_strike,
         "estimated_credit": round(diag_short_price * 100, 2),
+        "target_delta":     pmcc_short_delta,
+        "delta_rationale":  pmcc_delta_rationale,
         "net_debit_credit": round(diag_net, 2),
         "pop":              round(diag_pop, 3),
         "max_loss":         round(diag_max_loss, 2),
@@ -1027,11 +1132,53 @@ def get_strategy_metrics(
         "earnings_safe":    days_to_earnings > 10,
     })
 
-    # ── Rank + flag recommended ────────────────────────────────────────────
-    strategies.sort(key=lambda s: s["regime_score"], reverse=True)
-    best_score = strategies[0]["regime_score"] if strategies else 0
+    # ── Sprint 21.1b sanity guard: never present a $0-credit "income" structure ─
+    #    A zero credit means the short strike came out mid-air (the pre-21.1a bug)
+    #    or premium is genuinely absent — either way it must never be recommended.
     for s in strategies:
-        s["recommended"] = (s["regime_score"] == best_score and s["earnings_safe"])
+        cr = s.get("estimated_credit") or 0
+        s["credit_ok"] = cr > 0
+        if cr <= 0:
+            s.setdefault("flags", []).append("zero_credit")
+
+    # ── Sprint 21.2: annualized yield + SINGULAR recommended ───────────────────
+    #    Previously every strategy tied at best regime_score was recommended=True
+    #    (PCS/CSP/PMCC/Diagonal all at once). Now: add annualized_yield, rank by
+    #    (regime_score desc, annualized_yield desc), and flag exactly ONE best that
+    #    also passes the available gates. The rest are `eligible` (pass gates) or
+    #    carry a `gate_reason`.
+    for s in strategies:
+        cap = max(s.get("capital_required") or 0, 1)
+        hold = max(target_dte, 1)
+        s["annualized_yield"] = round((s.get("estimated_credit") or 0) / cap * (365.0 / hold), 4)
+
+    def _passes_gates(s) -> tuple[bool, str | None]:
+        # Hard gates wired today: earnings window + non-zero credit. The trend gate
+        # (21.4, warn-mode) and concentration gate (21.5) attach here once the
+        # Sprint 22.1 weekly-SMA ingest lands — they will set eligible=False +
+        # a caution without removing the strategy.
+        if not s.get("credit_ok"):
+            return False, "zero_credit"
+        if not s.get("earnings_safe"):
+            return False, "earnings_window"
+        return True, None
+
+    strategies.sort(
+        key=lambda s: (s["regime_score"], s.get("annualized_yield", 0.0)),
+        reverse=True,
+    )
+    _recommended_set = False
+    for s in strategies:
+        ok, reason = _passes_gates(s)
+        s["eligible"] = ok
+        if reason:
+            s["gate_reason"] = reason
+        if ok and not _recommended_set:
+            s["recommended"] = True
+            _recommended_set = True
+        else:
+            s["recommended"] = False
+    recommended_id = next((s["id"] for s in strategies if s.get("recommended")), None)
 
     return {
         "ticker":           ticker,
@@ -1045,6 +1192,7 @@ def get_strategy_metrics(
         "gex_regime":       gex_regime,
         "vix_term_state":   vix_term_state,
         "mode":             mode,
+        "recommended_id":   recommended_id,
         "strategies":       strategies,
     }
 

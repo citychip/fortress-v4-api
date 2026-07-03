@@ -136,6 +136,30 @@ DEFAULTS: dict[str, Any] = {
         "delta_bias_long_threshold":  5000.0,    # portfolio delta > this → "long"
         "delta_bias_short_threshold": -5000.0,   # portfolio delta < this → "short"
 
+        # ── Adaptive short-call delta engine (Sprint 21.1b) ──────────────────
+        # Used by options.pick_short_call_delta for the PMCC / Diagonal / covered-
+        # call income leg (supersedes the hard-coded 0.20 and the unread
+        # target_delta_low/high above — kept for the roll logic / deprecation).
+        "short_call_base_delta":        0.30,    # anchor at 30–45 DTE
+        "short_call_delta_min":         0.20,    # clamp floor
+        "short_call_delta_max":         0.40,    # clamp ceiling
+        "delta_ivr_weight":             1.0,     # per-factor nudge weights (×0.05/0.03)
+        "delta_trend_weight":           1.0,
+        "delta_catalyst_weight":        1.0,
+        "delta_concentration_weight":   1.0,
+
+        # ── Entry gates (Sprint 21.4 trend / 21.5 concentration) ─────────────
+        # Config wired now; the trend gate activates when the Sprint 22.1 weekly-
+        # 200-SMA ingest lands. Both are warn-mode (never hard-block) per the
+        # 2026-07-02 decision.
+        "single_name_cap_pct":          20.0,    # caution when a name exceeds this % NLV
+        "cluster_cap_pct":              60.0,    # caution when the Mag-7 cluster exceeds this
+        "concentration_gate_mode":      "warn",  # warn | block
+        "trend_gate_enabled":           True,
+        "trend_gate_mode":              "warn",  # warn | block
+        "trend_gate_sma_tf":            "1wk",
+        "trend_gate_sma_len":           200,
+
         # DTE targets (Strategy §5)
         "target_dte_low":           30,          # roll target DTE lower bound
         "target_dte_high":          45,          # roll target DTE upper bound
