@@ -76,6 +76,29 @@ Every rule below has: **what** · **why (source)** · **parameter** (`cfg` key) 
   (members + summed % + warn flag). Live read: cluster **74.3%** of NLV vs 25% top single-name.
   Parapet Briefing chip = small follow-up.
 
+## 8. Capital efficiency — systematic LEAP call-writing + income diversification (Sprint 25.9)
+- **What (a) — monetize dead LEAP capital:** write **monthly ~0.30Δ, 30–45 DTE covered calls**
+  on the naked / under-written long-LEAP cores, turning idle capital into income. Target the
+  positions the capital-efficiency page flags **⚠ MONETIZE** (long/LEAP capital earning **< 0.50×**):
+  currently **GOOGL (0.25×)** and **AMZN (0.15×)** — ~$38k of capital earning ~$8k/yr. Use the
+  Sprint 21.1b **adaptive short-call-delta** engine to pick the strike (it already snaps to ~0.30Δ,
+  nudged by IVR / trend / resistance / concentration), and honor the §4 PMCC guardrails
+  (short strike above the long-leg breakeven; close before earnings).
+- **What (b) — diversify the income sleeve OUT of the Mag-7 cluster:** the book is ~96% correlated
+  mega-cap tech (see §7). Route **new premium-selling into non-tech names** so income isn't one
+  cluster. Screened + added to the universe (Sprint 25.9 / backlog 23.4): **JPM** (financials,
+  IVR 72, above all weekly MAs) + **JNJ** (healthcare, IVR 90, clean weekly uptrend). Trend-gated
+  adds on a weekly-200 reclaim: XOM / CVX / COST / WMT.
+- **Why:** the −$21.3k drawdown is 100% long mega-cap tech LEAPs; the income engine is green.
+  Recover **via the engine** — monetize the dead LEAP capital and spread the income to
+  uncorrelated names — not by adding more beta. Directly serves the cluster-glide (91% → ≤60%).
+- **Parameters:** reuses `strategy.short_call_base_delta` (0.30) + the adaptive weights (21.1b);
+  universe `tier1` now includes JPM/JNJ. Efficiency benchmark `0.12` (12%/yr); MONETIZE flag < 0.50×.
+- **Status:** 🟡 **codified + universe seeded (2026-07-03).** JPM/JNJ live in the universe; the
+  capital-efficiency page (25.7) surfaces the MONETIZE targets. 🔴 **remaining:** auto-surface the
+  covered-call candidate per under-written LEAP in the candidate scanner (the full 23.3 build) —
+  the strikes come free from the 21.1b engine; it just needs wiring into `get_candidates`.
+
 ---
 
 ## Status legend
