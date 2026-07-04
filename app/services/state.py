@@ -260,7 +260,12 @@ def parse_crush_report_markdown(content: str) -> list[dict]:
                 current_iv = float(re.sub(r"[^0-9.\-]", "", cols[3]))
                 hv20 = float(re.sub(r"[^0-9.\-]", "", cols[4]))
                 spread_pp = float(re.sub(r"[^0-9.\-]", "", cols[5]))
-                days_str = re.sub(r"[^0-9\-]", "", cols[6])
+                # Sprint 25.13 — strip to DIGITS ONLY (drop the minus). A ticker
+                # with no earnings date shows "-" in this column; the old regex
+                # kept the "-", then int("-") raised ValueError and the except
+                # dropped the WHOLE row — silently hiding every no-earnings-date
+                # name (JPM/JNJ/MU/CSX) from the candidate board.
+                days_str = re.sub(r"[^0-9]", "", cols[6])
                 days = int(days_str) if days_str else None
                 signal = cols[-1].strip().upper().replace(" ", "_")
                 rows.append({
