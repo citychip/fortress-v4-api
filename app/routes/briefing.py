@@ -491,14 +491,27 @@ def get_briefing():
         vix_state = "normal"
     macro["vix_state"] = vix_state
 
-    # Sprint 25.4 — attach the canonical synthesized regime_gate (GEX + macro +
-    # VIX-term + drift) so the briefing and strategy_metrics read the SAME regime
-    # instead of diverging (this macro overlay vs the synthesized gate). Soft-fail
-    # + server-cached (~5 min), so it never breaks or materially slows the briefing.
+    # Sprint 25.4 (+ timeout guard) — attach the canonical synthesized regime_gate
+    # (GEX + macro + VIX-term + drift) so the briefing and strategy_metrics read the
+    # SAME regime. It's server-cached ~5min, but a COLD cache does a QuantData fetch
+    # that can occasionally stall past the MCP tool timeout. So run it with a HARD
+    # 2s budget and degrade to regime_gate=None on timeout — the gate is a nice-to-
+    # have and must never block the account header. shutdown(wait=False) lets the
+    # briefing return immediately (the leaked fetch still warms the cache for next
+    # call).
+    macro["regime_gate"] = None
     try:
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FTimeout
         from app.routes.market_intelligence import get_market_intelligence
-        _intel = get_market_intelligence("SPY")
-        macro["regime_gate"] = ((_intel or {}).get("regime", {}) or {}).get("regime_gate")
+        _mi_ex = ThreadPoolExecutor(max_workers=1)
+        _mi_fut = _mi_ex.submit(get_market_intelligence, "SPY")
+        try:
+            _intel = _mi_fut.result(timeout=2.0)
+            macro["regime_gate"] = ((_intel or {}).get("regime", {}) or {}).get("regime_gate")
+        except _FTimeout:
+            pass  # cold cache — skip rather than stall the briefing
+        finally:
+            _mi_ex.shutdown(wait=False)
     except Exception:
         macro["regime_gate"] = None
 
