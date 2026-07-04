@@ -48,12 +48,7 @@ Start any session at **`HANDOFF.md`**. This index is the map: every doc, its pur
 | `SESSION_LOG.md` | Dated session history, most-recent-first (3–6 lines/entry). | LIVING (append-only) |
 | `archive/` | Superseded/shipped docs — proposals, old handoff, shipped change-lists. Recoverable, out of the active set. | Immutable |
 
-## 🗄 Stale / superseded (archive candidates)
-| Doc | Why | Status |
-|---|---|---|
-| `PORTFOLIO.md` | Live state is `get_briefing` + HANDOFF Current State; not updated since 2026-06-15. | STALE → archive |
-| `Sprint21_ChangeList.md` | Sprint 21 shipped; historical change-list. | SHIPPED → archive |
-| `PARAPET_SPRINT.md` | Frontend sprint history, not a living reference. | archive candidate |
+**Archived 2026-07-04:** `archive/PORTFOLIO.md` (live state = `get_briefing` + HANDOFF Current State; stale since 06-15), `archive/Sprint21_ChangeList.md` (shipped), `archive/PARAPET_SPRINT.md` (frontend sprint history).
 
 ---
 

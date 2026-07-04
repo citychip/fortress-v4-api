@@ -112,22 +112,8 @@ The OneDrive `2606Fortress` folder is the **dev/edit copy**; deploys copy files 
 - **Convention:** any NEW *backend* script created in OneDrive must be added to the `MAP` in `sync_check.sh` **and** (if backend-related) to `deploy_data_sources.sh`'s copy block, so it can never silently miss GitHub.
 - **Runtime-state policy:** `iv_history.json`, `pending_orders.json`, `position_snapshots.json`, `entry_conditions.json` (last two NEW, Sprint 16), and `*.pre-ibkr-bak`/`*.pre-sprint0-bak` are transient — gitignore them. `conditional_alerts.json`, `macro_events.json`, `trade_outcomes.json` are config/data — commit them (the last re-appears as a diff as trades close; commit at session wrap).
 
-## Documentation Index (where detail lives)
-| Doc | What's in it |
-|---|---|
-| `PORTFOLIO.md` (v4.1) | **Live positions, account, pending actions, stop-loss watch, strategy quick-ref** — start here for state |
-| `01_Portfolio_Strategy_v3_9.md` | Full strategy spec: governance, strategies, entry/exit/risk rules, post-earnings playbook |
-| `STRATEGY_ENHANCEMENTS_v3_10.md` | **Research-codified rules + parameters (2026-06-22):** VRP gate, 50% profit-take, PMCC guardrails, β-vega, cluster concentration — status per rule |
-| `IMPROVEMENT_RESEARCH_2026-06-22.md` | External best-practice scan + sources behind the v3.10 enhancements |
-| `BACKLOG_SPRINT_PLAN.md` | Sprint backlog — 0/15/16/17/18 done; **19 = strategy enhancements** |
-| `SESSION_LOG.md` | **Dated session history** (verbose narrative + entry template) — HANDOFF keeps only the latest |
-| `WORKFLOW.md` (v2.5) | Daily workflow, entry/roll/stop, URLs, thresholds, QuantData refresh, common issues |
-| `07_MCP_Workflow_and_Prompts_v1_9.md` | MCP prompt playbook — exact phrasings per phase |
-| `DATA_SOURCES.md` (v1.5) | Reliability ledger + source-of-truth per data attribute |
-| `SYSTEM.md` | Architecture, services, IBKR auth, deploy commands, repos, key paths |
-| `PARAPET.md` / `PARAPET_SPRINT.md` | Frontend reference / component map / sprint history |
-| `JOURNAL_FEEDBACK_LOOP.md` | Trade-outcomes store + `journal_analytics.py` — expectancy/win-rate by IVR/DTE/delta |
-| `archive/` | Superseded/shipped proposals (incl. `CATALYST_GATE_PROPOSAL.md`) + `HANDOFF_full_2026-06-15.md` |
+## Documentation Index
+**→ The master doc map is `README.md`** — every doc, its purpose, and its LIVING/SNAPSHOT status, kept current there (single source; this table was retired 2026-07-04 to avoid a second index that drifts). Quick pointers: strategy spec = `01_Portfolio_Strategy_v3_9.md`; daily workflow = `WORKFLOW.md`; data source-of-truth = `DATA_SOURCES.md`; system/deploy = `SYSTEM.md`; backlog = `BACKLOG_SPRINT_PLAN.md`; history = `SESSION_LOG.md` + `archive/`. Live book state = `get_briefing` + the Current State table above (the old `PORTFOLIO.md` is archived).
 
 ## Key Commands (token in `SYSTEM.md` / WSL `~/.git-credentials`)
 ```bash
