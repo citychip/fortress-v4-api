@@ -144,21 +144,34 @@ def get_iv_rank(ticker: str, today: str, _unused: dict = None) -> dict:
     with an HV-range IVR proxy. Returns {} (ticker skipped) when no trustworthy IV
     is available — it NEVER emits a junk ~0% reading (the Sprint 18.1 guard).
     """
+    # Sprint 25.13 — resilient ordering: fetch the IV/IVR (what actually gates the
+    # row) FIRST, and isolate each risky call so a flaky yfinance PRICE fetch can no
+    # longer drop a ticker whose IV is perfectly good. The old code fetched
+    # fast_info() at the top under one broad try/except, so a price hiccup silently
+    # skipped JPM/JNJ/MU/CSX from the candidate board even though the backend IV-rank
+    # had them. Price is cosmetic for the scan — never let it drop a good IV row.
+    yf_symbol = "^GSPC" if ticker == "SPX" else ticker
+
+    # 1. IV + IVR first (from the backend cache/prefetch — this is what gates).
     try:
-        yf_symbol = "^GSPC" if ticker == "SPX" else ticker
-        t = yf.Ticker(yf_symbol)
-        price = t.fast_info.get("lastPrice") or t.fast_info.get("previousClose", 0)
+        be = _backend_iv_rank(ticker) or {}
+    except Exception:
+        be = {}
+    current_iv = be.get("current_iv")
+    if not current_iv:
+        try:
+            current_iv = _yf_atm_iv(yf_symbol)
+        except Exception:
+            current_iv = None
+    if not current_iv or current_iv < MIN_SANE_IV_PCT:
+        return {}   # no trustworthy IV → skip; never emit junk (Sprint 18.1 guard)
+    iv_source = be.get("iv_source", "yfinance_bs")
 
-        be = _backend_iv_rank(ticker)
-        current_iv = be.get("current_iv") or _yf_atm_iv(yf_symbol)
-        if not current_iv or current_iv < MIN_SANE_IV_PCT:
-            return {}   # no trustworthy IV → skip; do NOT emit junk
-        iv_source = be.get("iv_source", "yfinance_bs")
-
-        # Prefer the backend's canonical IVR; else HV-range proxy on a sane IV.
-        ivr = be.get("ivr")
-        if ivr is None:
-            hist = t.history(period="1y", auto_adjust=True)["Close"].values
+    # 2. IVR: prefer the backend's canonical value; else HV-range proxy on a sane IV.
+    ivr = be.get("ivr")
+    if ivr is None:
+        try:
+            hist = yf.Ticker(yf_symbol).history(period="1y", auto_adjust=True)["Close"].values
             if len(hist) < 22:
                 return {}
             weekly_ivs = []
@@ -169,10 +182,20 @@ def get_iv_rank(ticker: str, today: str, _unused: dict = None) -> dict:
                 weekly_ivs.append(hv)
             iv_min, iv_max = min(weekly_ivs), max(weekly_ivs)
             ivr = round((current_iv - iv_min) / (iv_max - iv_min) * 100, 1) if iv_max > iv_min else 0.0
-        ivr = max(0.0, min(100.0, float(ivr)))
-        return {"price": price, "ivr": ivr, "current_iv": current_iv, "iv_source": iv_source}
-    except Exception:
-        return {}
+        except Exception:
+            return {}   # genuinely can't rank → skip
+    ivr = max(0.0, min(100.0, float(ivr)))
+
+    # 3. Price — cosmetic for the scan; fetch defensively, default 0 on any hiccup.
+    price = be.get("price") or be.get("spot") or 0
+    if not price:
+        try:
+            fi = yf.Ticker(yf_symbol).fast_info
+            price = fi.get("lastPrice") or fi.get("previousClose", 0)
+        except Exception:
+            price = 0
+
+    return {"price": price, "ivr": ivr, "current_iv": current_iv, "iv_source": iv_source}
 
 
 def _vrp_thresholds() -> tuple[float, float]:
@@ -318,9 +341,14 @@ def main():
     print("  ⚠️ IV HIGH/HV HIGH = IVR ≥ 25 but HV is also elevated — real vol risk, caution")
     print("  ❌ POOR SPREAD  = IVR < 25 — below strategy threshold, skip")
 
-    # Save report
-    out_dir = pathlib.Path(os.environ.get("FORTRESS_DATA_DIR", str(pathlib.Path.home() / "Fortress_Dashboard/quant")))
-    out_dir.mkdir(exist_ok=True)
+    # Save report — Sprint 25.13: write to the scanner's OWN dir (_QUANT_DIR =
+    # this file's folder = fortress-v4-api/quant), which is exactly where the
+    # backend's get_candidates reads the report from. The old code defaulted to
+    # ~/Fortress_Dashboard/quant (a dir that doesn't exist → the write CRASHED, so
+    # the report never regenerated and the Candidates board stayed frozen on a
+    # stale file). No more env dependence / path mismatch.
+    out_dir = _QUANT_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"Workflow_05_IV_Crush_{today_str}.md"
     with open(out_path, "w") as f:
         f.write(f"# IV Crush Opportunity Report — {today_str}\n\n")
