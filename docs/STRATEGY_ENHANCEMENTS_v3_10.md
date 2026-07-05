@@ -17,15 +17,20 @@ Every rule below has: **what** · **why (source)** · **parameter** (`cfg` key) 
   risk for little remaining theta.
 - **Parameter:** `strategy.profit_target_pct` (live = **80**, unchanged) · researched default
   recorded as `strategy.profit_target_pct_recommended = 50`.
-- **Status:** 🟡 **codified, NOT applied** — flip `profit_target_pct` to 50–60 only after a
-  backtest. LEAPS legs keep their own `leaps_profit_take_pct`.
+- **Status:** 🟢 **surfaced as advisory (Sprint 26.3, 2026-07-05):** `GET /api/manage/profit_targets`
+  + MCP `get_profit_targets` flag any short leg that has captured ≥ the *live* `profit_target_pct`
+  (currently **80**) — profit capture = entry `avg_cost` vs current `market_value`. The config
+  threshold itself is unchanged; flipping it to 50–60 still awaits a backtest. LEAPS legs keep
+  their own `leaps_profit_take_pct`.
 
 ## 2. Time discipline — 21-DTE management
 - **What:** close/roll **profitable** short legs by ~21 DTE, not just delta-breached ones.
 - **Why:** the final 21 days hold outsized gamma vs remaining theta (tastytrade).
 - **Parameter:** `strategy.dte_roll_threshold = 21` (already drives roll alerts).
-- **Status:** 🟢 mostly in place — **verify** the 21-DTE trigger also prompts closing winners,
-  not only flagging Δ-breaches (Sprint 19 check).
+- **Status:** ✅ **LIVE (Sprint 26.3, 2026-07-05):** `get_profit_targets` flags every open short
+  leg at ≤ `dte_roll_threshold` (21) DTE for close/roll — regardless of Δ-breach — so the
+  time-discipline trigger now prompts on *all* near-expiry shorts, not only delta-breached ones.
+  (Live example: NVDA Jul-17 180P, 12 DTE → flagged.)
 
 ## 3. Entry edge — gate on the variance risk premium (VRP), not IVR alone
 - **What:** require a real **IV − realized-vol** edge before selling, on top of IVR ≥ 25.
@@ -49,8 +54,11 @@ Every rule below has: **what** · **why (source)** · **parameter** (`cfg` key) 
 - **Parameters:** `strategy.pmcc_short_above_breakeven = True` (advisory),
   `strategy.leap_roll_delta = 0.70`, `strategy.leap_roll_dte = 120`.
 - **Status:** ✅ **breakeven guardrail LIVE (2026-06-23, 19.4a):** `/api/options/pmcc-breakeven`
-  (short strike must clear long breakeven, else GUARANTEED-LOSS). 🔴 LEAP-roll-delta alert (19.4b)
-  deferred — needs per-leg greeks not exposed in the aggregated position rows.
+  (short strike must clear long breakeven, else GUARANTEED-LOSS). ✅ **LEAP-roll-delta alert now
+  LIVE (Sprint 25.11):** `GET /api/manage/leap_roll_all` + MCP `get_leap_roll_all` scans the
+  per-leg book and flags any LEAP core with long Δ ≤ `leap_roll_delta` (0.70) or DTE ≤
+  `leap_roll_dte` (120) — the per-leg greeks were available via `state.get_active_positions` all
+  along.
 
 ## 5. Tail hedge — keep selective; prefer a put spread; size off vega
 - **What:** keep hedging **catalyst-timed** (not continuous); consider a **put spread** or a
@@ -59,6 +67,9 @@ Every rule below has: **what** · **why (source)** · **parameter** (`cfg` key) 
   premium-selling book's worst day is a **vol spike** (short vega), not just a price drop.
 - **Parameters:** existing `spy_hedge_*` band + catalyst gate; new `beta_vega_target` (B1).
 - **Status:** 🟢 selective hedging + SPY hedge already in place; 🟡 vega-based sizing pending B1.
+  ✅ **short-call-funded collar now surfaced (Sprint 26.2, 2026-07-05):** `get_covered_call_candidates`
+  returns a DTE-matched ~0.25Δ `protective_put` + `collar_net` alongside the covered call, so the
+  collar-over-naked-put preference is a concrete advisory (live: near-costless collars on AMZN/GOOGL).
 
 ## 6. Risk visibility — β-weighted vega (the missing dial)
 - **What:** a portfolio **β-weighted vega** number = expected P&L per 1-pt move in SPY IV.

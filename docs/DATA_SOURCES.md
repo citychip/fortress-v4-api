@@ -57,6 +57,7 @@ Truth chain: **IBKR** (account/positions/greeks) → **backend** (port 8081, com
 | PCS spread count / notional vs cap | PCS exposure cap | Backend | `/api/portfolio/pcs-exposure` | Briefing banner |
 | Pacing (entries/week) | Max 5 new entries per week | Backend counter | `/api/briefing` | Briefing stat bar |
 | Unrealized / realized P&L | Profit-target exits | IBKR cost basis | `/api/pnl` (source of truth since v2.5) | Briefing strip, Positions > P&L |
+| Risk limits: USD-cash margin-debt floor, Excess-Liq floor, stale-data | Health Manager breach alerts (Sprint 26.1, D-06) | Backend from positions + settings (`margin_debt_limit_usd` −15k, `excess_liq_min_usd` 25k) | `/api/manage/risk_limits` | Recovery > Health-Manager banner; `margin-debt-alert` task | ⚠ **`usd_cash` is LEDGER-GATED** — verified 2026-07-05 the fallback positions payload carries `net_liq`/`excess_liq` but **no** cash field, so `usd_cash`/`data_age_min` read `null` (fail-safe: never a false "within limits") until an authenticated ledger sync populates cash. Excess-liq works now. |
 
 ## 2. Strategy thresholds (single source of truth: settings)
 
@@ -112,6 +113,10 @@ Since Sprint 13 (#80), Parapet reads these live — no hardcoded copies.
 | Stop-loss verdict (price vs SMA200) | ACT/WATCH/SAFE signals | yfinance price history → SMA200 | `/api/manage/stop_loss_all` | Triage, sidebar badge |
 | Pretrade PROCEED/BLOCKED | Final gate before stage | Backend composite of all gates | `/api/manage/pretrade_all` | Candidates |
 | Capital efficiency % | Position recycling | Backend | `/api/portfolio/capital-efficiency` | Candidates Eff% |
+| LEAP-roll signals (long Δ ≤0.70 / DTE ≤120) | Roll the LEAP core early | Backend per-leg greeks | `/api/manage/leap_roll_all` | (MCP `get_leap_roll_all`) |
+| Manage-at-50% / 21-DTE (short legs) | Systematic close/roll (D-05 + time-discipline) | Backend: `avg_cost` vs `market_value` + expiry | `/api/manage/profit_targets` | Recovery > "Manage now" |
+| Covered-call + full collar per under-written LEAP | Monetize LEAP cores; DTE-matched protective put (D-03) | Backend: 21.1b PMCC leg + BS put-by-delta | `/api/manage/covered_call_candidates` | Recovery > covered-call table |
+| Mag-7 cluster-% glide history | De-concentration trajectory vs ≤60% | Backend daily snapshot store | `/api/manage/cluster_history` | Recovery > cluster glide line |
 | Strategy recommendation (PMCC/CSP/IC/…) | §2.5 selection framework | Backend regime + yield calc | `/api/options/strategy_metrics` | Candidates Rec |
 | Pending orders + IBKR status | Approval workflow | Backend order store + IBKR | `/api/orders/pending` | Triage (read-only; approve via Claude MCP) |
 | Forward P&L curve, breakevens, max P/L | Exit planning, IV-crush scenario | Backend BS model | `/api/options/forward-pnl` | Positions > Risk |
