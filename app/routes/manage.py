@@ -413,11 +413,43 @@ def leap_roll_all():
     }
 
 
+def _collar_protective_put(spot: float | None, iv_dec: float | None,
+                           dte_days: int, target_delta: float) -> tuple[float | None, float | None]:
+    """
+    Sprint 26.2 — DTE-matched protective put for a collar. Finds the OTM put
+    strike whose |delta| ≈ target_delta (bisection) and returns (strike, debit)
+    where debit is the per-contract Black-Scholes price in USD. The DTE is passed
+    in by the caller so it MATCHES the short call exactly (no premium-decay drag
+    from a longer-dated put — Technical Decision "DTE-Matched Protective Puts").
+    Returns (None, None) on unusable inputs. Advisory math only.
+    """
+    import math as _m
+    from app.services.bs_fallback import _norm_cdf, _RISK_FREE
+    if not spot or spot <= 0 or not iv_dec or iv_dec <= 0 or dte_days <= 0:
+        return None, None
+    t = dte_days / 365.0
+    lo, hi = spot * 0.5, spot            # protective put sits below spot
+    strike = spot * 0.9
+    for _ in range(60):
+        strike = (lo + hi) / 2
+        d1 = (_m.log(spot / strike) + (_RISK_FREE + 0.5 * iv_dec ** 2) * t) / (iv_dec * _m.sqrt(t))
+        adelta = abs(_norm_cdf(d1) - 1.0)   # |put delta| — rises as strike → ATM
+        if adelta > target_delta:
+            hi = strike
+        else:
+            lo = strike
+    d1 = (_m.log(spot / strike) + (_RISK_FREE + 0.5 * iv_dec ** 2) * t) / (iv_dec * _m.sqrt(t))
+    d2 = d1 - iv_dec * _m.sqrt(t)
+    put = strike * _m.exp(-_RISK_FREE * t) * _norm_cdf(-d2) - spot * _norm_cdf(-d1)
+    return round(strike, 0), round(max(put, 0.0) * 100, 2)
+
+
 @router.get("/manage/covered_call_candidates")
 def covered_call_candidates():
     """
     Sprint 25.9 / 23.3 — auto-surface a covered-call candidate for each
-    UNDER-WRITTEN LEAP core.
+    UNDER-WRITTEN LEAP core. Sprint 26.2 adds the FULL COLLAR (a DTE-matched
+    protective put funded by the covered call) per Decision D-03.
 
     A long-dated long CALL (a LEAP core) ties up capital while earning nothing
     if it isn't written against — the MONETIZE case the capital-efficiency page
@@ -435,6 +467,7 @@ def covered_call_candidates():
     from ..services.config_store import cfg
     leap_min_dte = int(cfg("strategy.leap_core_min_dte", 90))
     target_dte   = int(cfg("strategy.covered_call_target_dte", 45))
+    put_delta    = float(cfg("strategy.collar_put_delta_target", 0.25))
 
     try:
         data = state.get_active_positions()
@@ -501,6 +534,24 @@ def covered_call_candidates():
                     "ivr":              sm.get("ivr"),
                     "vol_source":       sm.get("vol_source"),
                 }
+                # 26.2 — fund a DTE-matched protective put to close the collar.
+                iv_dec = (sm.get("iv") or 0) / 100.0   # sm.iv is a percentage
+                put_strike, put_debit = _collar_protective_put(
+                    sm.get("spot"), iv_dec, target_dte, put_delta)
+                if put_strike is not None:
+                    net = round((rec["estimated_credit"] or 0) - (put_debit or 0), 2)
+                    rec["protective_put"] = {
+                        "strike":        put_strike,
+                        "debit":         put_debit,
+                        "target_delta":  put_delta,
+                        "dte":           target_dte,   # matched to the short call
+                    }
+                    rec["collar_net"] = net            # >0 = net credit, <0 = net debit to establish
+                    rec["collar_note"] = (
+                        f"collar: sell {rec['short_strike']:.0f}C / buy {put_strike:.0f}P · "
+                        f"{'net credit' if net >= 0 else 'net debit'} ${abs(net):.0f} · "
+                        f"caps downside below {put_strike:.0f}"
+                    )
                 if not pmcc.get("earnings_safe"):
                     note = "inside earnings window — defer or size down per Strategy §4"
             else:
@@ -573,6 +624,135 @@ def get_cluster_history():
     target = float(cfg("strategy.cluster_concentration_warn_pct", 60.0))
     hist = state.read_json("cluster_history.json", {"points": []})
     return {"target": target, "points": hist.get("points") or []}
+
+
+@router.get("/manage/profit_targets")
+def profit_targets():
+    """
+    Sprint 26.3 — manage-at-50% + 21-DTE scan (Decision D-05 + time-discipline).
+
+    Scans OPEN SHORT option legs (the premium-selling / defined-risk sleeve; LEAP
+    long-call cores are excluded) and flags any that have (a) captured ≥
+    `strategy.profit_target_pct` of the premium received, or (b) decayed to ≤
+    `strategy.dte_roll_threshold` DTE — the two systematic close/roll triggers that
+    lift capital turnover and cut late-cycle gamma risk. Profit capture uses the
+    IBKR entry basis (`avg_cost`) vs current `market_value`; when the entry basis
+    isn't synced the row still carries its reliable DTE flag. ADVISORY ONLY.
+    """
+    from ..services.config_store import cfg
+    profit_pct = float(cfg("strategy.profit_target_pct", 50))
+    dte_manage = int(cfg("strategy.dte_roll_threshold", 21))
+
+    try:
+        data = state.get_active_positions()
+    except state.StateError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    out = []
+    for p in (data.get("positions") or []):
+        if str(p.get("sec_type") or "OPT").upper() != "OPT":
+            continue
+        try:
+            qty = int(p.get("qty") or 0)
+        except (TypeError, ValueError):
+            qty = 0
+        if qty >= 0:
+            continue  # only SHORT premium legs; long/LEAP cores are not profit-managed
+        dte = _dte_days(p.get("expiry")) or 0
+
+        avg_cost = p.get("avg_cost")
+        mv = p.get("market_value")
+        credit = abs(float(avg_cost)) * abs(qty) if avg_cost not in (None, 0) else None
+        capture_pct = None
+        if credit and mv is not None:
+            try:  # short: received `credit`, pays abs(mv) to close → profit / credit
+                capture_pct = round((credit - abs(float(mv))) / credit * 100, 1)
+            except (TypeError, ValueError, ZeroDivisionError):
+                capture_pct = None
+
+        reasons = []
+        if capture_pct is not None and capture_pct >= profit_pct:
+            reasons.append(f"{capture_pct:.0f}% of max profit ≥ {profit_pct:.0f}% → close/roll")
+        if 0 <= dte <= dte_manage:
+            reasons.append(f"DTE {dte} ≤ {dte_manage} → time-manage (gamma)")
+        if not reasons:
+            continue
+        out.append({
+            "ticker":     (p.get("ticker") or "").upper(),
+            "right":      str(p.get("right", "")).upper(),
+            "strike":     p.get("strike"),
+            "expiry":     p.get("expiry"),
+            "dte":        dte,
+            "qty":        qty,
+            "capture_pct": capture_pct,
+            "action":     "MANAGE",
+            "reasons":    reasons,
+        })
+    out.sort(key=lambda r: (r.get("dte") if r.get("dte") is not None else 9999,
+                            -(r.get("capture_pct") or 0)))
+    return {
+        "as_of": datetime.now(timezone.utc).isoformat(),
+        "profit_target_pct": profit_pct,
+        "dte_roll_threshold": dte_manage,
+        "count": len(out),
+        "positions": out,
+    }
+
+
+@router.get("/manage/risk_limits")
+def risk_limits():
+    """
+    Sprint 26.1 (Health Manager) — margin-debt & liquidity risk monitor.
+
+    Surfaces the two hard account risk limits — the USD-cash margin-debt floor
+    and the Excess-Liquidity floor (Decision D-06) — with breach flags, plus a
+    stale-data check (sync age vs the configured budget). Read by the
+    `margin-debt-alert` scheduled task and the dashboard. Fail-safe: a missing
+    value reads as unknown, never as "within limits". ADVISORY / read-only.
+    """
+    from ..services.config_store import cfg
+    cash_floor   = float(cfg("strategy.margin_debt_limit_usd", -15000.0))
+    excess_floor = float(cfg("strategy.excess_liq_min_usd", 25000.0))
+    stale_min    = int(cfg("strategy.data_stale_minutes", 30))
+
+    try:
+        data = state.get_active_positions()
+    except state.StateError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    pos = data if isinstance(data, dict) else {}
+
+    base_cash = pos.get("base_cash")
+    excess_liq = pos.get("excess_liq")
+    if excess_liq is None:
+        excess_liq = pos.get("excess_liquidity")
+
+    synced = pos.get("synced_at") or pos.get("_ibkr_sync_time")
+    age_min = None
+    stale = None
+    if synced:
+        try:
+            ts = datetime.fromisoformat(str(synced).replace("Z", "+00:00"))
+            age_min = round((datetime.now(timezone.utc) - ts).total_seconds() / 60.0, 1)
+            stale = age_min > stale_min
+        except (ValueError, TypeError):
+            pass
+
+    cash_breach = base_cash is not None and float(base_cash) < cash_floor
+    liq_breach  = excess_liq is not None and float(excess_liq) < excess_floor
+    return {
+        "as_of":             datetime.now(timezone.utc).isoformat(),
+        "net_liq":           pos.get("net_liq"),
+        "usd_cash":          base_cash,
+        "cash_floor":        cash_floor,
+        "cash_breach":       cash_breach,
+        "excess_liq":        excess_liq,
+        "excess_floor":      excess_floor,
+        "excess_liq_breach": liq_breach,
+        "data_age_min":      age_min,
+        "stale_data":        stale,
+        "any_breach":        bool(cash_breach or liq_breach),
+        "status":            "🔴 BREACH" if (cash_breach or liq_breach) else "🟢 within limits",
+    }
 
 
 # ---------------------------------------------------------------------------

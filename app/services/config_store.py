@@ -177,6 +177,9 @@ DEFAULTS: dict[str, Any] = {
         # Account-level USD floors (Strategy §7 — currency normalised to USD per user pref)
         "available_funds_min_usd":  17000.0,
         "excess_liq_min_usd":       25000.0,
+        # Health Manager risk limits (Sprint 26.1 / Decision D-06)
+        "margin_debt_limit_usd":    -15000.0,    # alert when USD cash falls below this
+        "data_stale_minutes":       30,          # sync age past this = stale-data flag
 
         # Stop-loss (Strategy §6)
         "stop_loss_drawdown_pct":   50.0,        # max drawdown from peak MV %

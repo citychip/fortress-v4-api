@@ -6,6 +6,12 @@
 
 ---
 
+- **2026-07-05 (Sprint 26 — risk-manager hardening from the Manus AI v5.0 proposal; code-complete, needs deploy/relaunch/build):**
+  - **26.2 full collar** — `covered_call_candidates` extended with a DTE-matched protective put (`_collar_protective_put`, BS put-by-delta ~0.25Δ) + `collar_net`; Recovery table gains Buy-put / Collar-net columns.
+  - **26.3 manage-at-50% + 21-DTE** — `GET /api/manage/profit_targets` + MCP `get_profit_targets` (short-leg scan: ≥50% capture via avg_cost vs mark, or ≤21 DTE) + Recovery "Manage now" card.
+  - **26.1 Health Manager** — `GET /api/manage/risk_limits` + MCP `get_risk_limits` (USD-cash −15k floor, excess-liq 25k floor, stale-data, breach flags, fail-safe) + config keys + **`margin-debt-alert`** scheduled task (weekday 09:03) + Recovery Health-Manager banner. ⏳ deferred: Discord/Slack webhook, scheduler/latency monitors.
+  - ⚠ Needs: `deploy_data_sources.sh` + `deploy_parapet.sh` + sync `fortress_mcp_v452.py` → Windows path + relaunch. Then verify `get_covered_call_candidates` shows collar fields, `get_profit_targets`, `get_risk_limits`. · Trades: none.
+
 - **2026-07-05 (Sprint 25 close-out — all remaining items + follow-ons; deployed + verified):**
   - **25.13** JPM/JNJ/MU/CSX Candidates fix — 3rd layer (`state.parse_crush_report_markdown` `int("-")` crash) deployed; board back to 25 rows (commit `7261951`).
   - **25.1 gateway watchdog** BUILT + INSTALLED + VALIDATED — `gateway_watchdog.sh` + systemd unit. First probe (curl `/v1/api/tickle`) false-negatived a healthy gateway (IBKR Akamai bounces raw `/v1/api/*` with "Bad Request"); corrected to read iBeam's own log state (`docker logs | grep "running and authenticated"`) + an UNKNOWN state that never restarts. Live-confirmed iBeam auto-re-auths on restart (`IBEAM_ACCOUNT/PASSWORD` set). Commits `e33e56c`.

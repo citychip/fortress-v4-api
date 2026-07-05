@@ -7,6 +7,19 @@ Parapet UI sprints are at 13; these are **system/backend sprints** numbered 15�
 
 > **Completed Sprints 0–24 (all shipped + verified) → `archive/BACKLOG_COMPLETED.md`.** This file tracks the ACTIVE backlog only.
 
+## Sprint 26 — Risk-manager hardening (from Manus AI Optimalisatievoorstel v5.0, 2026-07-05)
+**Source: external strategic/architectural proposal (`Strategisch & Architectonisch Optimalisatievoorstel`, Manus AI, 2026-07-04) — the three items it proposes BEYOND the shipped Sprint 25. All code-complete this session; need deploy + MCP relaunch + Parapet build + a verify pass.**
+
+| # | Item | File(s) | Effort | Status |
+|---|---|---|---|---|
+| 26.2 | **Full collar (D-03)** — extend `covered_call_candidates` with a **DTE-matched protective put** funded by the covered call. New `_collar_protective_put` (BS put-by-delta, DTE = short-call DTE, ~`collar_put_delta_target` 0.25); each `recommended_call` now carries `protective_put{strike,debit,dte,target_delta}` + `collar_net` (credit − put debit) + `collar_note`. Recovery-page table gains Buy-put / Collar-net columns. | `manage.py` + api.ts + `EfficiencyPage.tsx` + MCP doc | S | ✅ CODE-COMPLETE 2026-07-05 |
+| 26.3 | **Manage-at-50% + 21-DTE (D-05 + time-discipline)** — new `GET /api/manage/profit_targets` + MCP `get_profit_targets`: scans open SHORT legs, flags ≥`profit_target_pct` (50%) capture (entry `avg_cost` vs current `market_value`) OR ≤`dte_roll_threshold` (21) DTE → close/roll advisory. Recovery-page **"Manage now"** card. Profit-capture degrades to blank when IBKR avg-cost isn't synced; the 21-DTE flag is always reliable. | `manage.py` + api.ts + `EfficiencyPage.tsx` + MCP | S | ✅ CODE-COMPLETE 2026-07-05 |
+| 26.1 | **Health Manager: margin-debt + liquidity monitor (D-06)** — new `GET /api/manage/risk_limits` + MCP `get_risk_limits`: USD-cash margin-debt floor (`margin_debt_limit_usd` −15k) + Excess-Liq floor (25k) + stale-data check, with breach flags (fail-safe: missing → unknown, never "ok"). New **`margin-debt-alert`** scheduled task (weekday 09:03) reads it → 🔴/🟢. Recovery-page **Health Manager banner**. ⏳ Not built: Discord/Slack webhook (optional external wiring), scheduler-health + API-latency monitors, and folding margin awareness into the gateway watchdog. | `manage.py` + `config_store.py` + api.ts + `EfficiencyPage.tsx` + MCP + scheduled task | M | ✅ CODE-COMPLETE 2026-07-05 |
+
+**Deferred from the proposal (not yet scoped):** the watchdog → full "Health Manager" merge (scheduler-health, API-latency, websocket monitors + Discord/Slack heartbeat); documentation migration matrix (Deel III Week 1) if still wanted after the 25.x consolidation.
+
+---
+
 ## Sprint 25 — Reliability, visibility & de-concentration (post-Sprint-22 review, 2026-07-04)
 **Source: full-stack review after Sprints 21–22 shipped. Three themes, in priority order: (A) make the data backbone trustworthy so the guards stop firing, (B) surface the recovery KPIs that already exist in data but not on screen, (C) turn the concentration *warnings* into an actual glide. Items that already have IDs are ELEVATED here, not duplicated — see the cross-refs.**
 
