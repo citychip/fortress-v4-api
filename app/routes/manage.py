@@ -532,6 +532,49 @@ def covered_call_candidates():
     }
 
 
+@router.post("/manage/cluster_history")
+def record_cluster_history(payload: dict | None = None):
+    """
+    Sprint 25.6 follow-on — persist a daily Mag-7 cluster-% point so the Recovery
+    page can draw the concentration *glide line* (not just current-vs-target).
+
+    Upsert-by-date: at most one point per calendar day. A same-day re-post only
+    rewrites if the value moved > 0.05pp, so the atomic-write backups stay at
+    ~1/day even though the page posts on every load. Body: {"pct": <float>};
+    returns {"target", "points":[{date, pct}]}.
+    """
+    from ..services.config_store import cfg
+    target = float(cfg("strategy.cluster_concentration_warn_pct", 60.0))
+    try:
+        pct = float((payload or {}).get("pct"))
+    except (TypeError, ValueError):
+        pct = None
+
+    hist = state.read_json("cluster_history.json", {"points": []})
+    points = hist.get("points") or []
+    if pct is not None:
+        today = datetime.now(timezone.utc).date().isoformat()
+        last = points[-1] if points else None
+        if last and last.get("date") == today:
+            if abs(float(last.get("pct", 0)) - pct) > 0.05:
+                last["pct"] = round(pct, 1)
+                state.write_json("cluster_history.json", {"points": points})
+        else:
+            points.append({"date": today, "pct": round(pct, 1)})
+            points = points[-400:]  # keep ~13 months
+            state.write_json("cluster_history.json", {"points": points})
+    return {"target": target, "points": points}
+
+
+@router.get("/manage/cluster_history")
+def get_cluster_history():
+    """Sprint 25.6 — the stored Mag-7 cluster-% glide series (read-only, no write)."""
+    from ..services.config_store import cfg
+    target = float(cfg("strategy.cluster_concentration_warn_pct", 60.0))
+    hist = state.read_json("cluster_history.json", {"points": []})
+    return {"target": target, "points": hist.get("points") or []}
+
+
 # ---------------------------------------------------------------------------
 # Aggregated position list — for UI pickers
 # ---------------------------------------------------------------------------

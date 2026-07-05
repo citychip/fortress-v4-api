@@ -1,5 +1,7 @@
 # Fortress — Session Handoff & Start-Here Guide
-**Last updated: 2026-07-03 · Read this top-to-bottom to start any session. This is the lean START-HERE — current state, open priorities, and protocols only. Per-session narrative lives in `SESSION_LOG.md`; per-item backlog in `BACKLOG_SPRINT_PLAN.md`; deep detail via the Documentation Index. Run the OPEN checklist now; run the CLOSE protocol (bottom) at wrap.**
+**Last updated: 2026-07-05 · Read this top-to-bottom to start any session. This is the lean START-HERE — current state, open priorities, and protocols only. Per-session narrative lives in `SESSION_LOG.md`; per-item backlog in `BACKLOG_SPRINT_PLAN.md`; deep detail via the Documentation Index. Run the OPEN checklist now; run the CLOSE protocol (bottom) at wrap.**
+
+> **2026-07-05: Sprint 25 COMPLETE.** All items + follow-ons shipped (covered-call recommender `get_covered_call_candidates`, cluster-glide history `get_cluster_history`, candlestick drill-down, stale-earnings fix). **Gateway watchdog is live** (`fortress-gateway-watchdog.service`) — it auto-restarts a wedged `cp-gateway` (iBeam auto-re-auths), reading iBeam's own log state (NOT curling `/v1/api/*`, which IBKR's Akamai edge bounces). New MCP tools need a **relaunch**. Only open thread: **OAuth Stage 2 = IBKR-side** (see 25.1). Next session: scope Sprint 26.
 
 ---
 
