@@ -33,6 +33,7 @@ FILES=(
   "src/components/KV.tsx"
   "src/components/Badge.tsx"
   "src/components/AnalyticsCharts.tsx"
+  "src/components/MtfCandleChart.tsx"
   "src/components/positions/PositionCards.tsx"
   "src/components/system/UniverseSection.tsx"
   "src/components/system/ConnectionsSection.tsx"
