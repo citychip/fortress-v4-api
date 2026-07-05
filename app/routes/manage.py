@@ -721,12 +721,22 @@ def risk_limits():
         raise HTTPException(status_code=500, detail=str(e))
     pos = data if isinstance(data, dict) else {}
 
-    base_cash = pos.get("base_cash")
-    excess_liq = pos.get("excess_liq")
-    if excess_liq is None:
-        excess_liq = pos.get("excess_liquidity")
+    def _first(*keys):
+        for k in keys:
+            v = pos.get(k)
+            if v is not None:
+                return v
+        return None
 
-    synced = pos.get("synced_at") or pos.get("_ibkr_sync_time")
+    # The IBKR sync writer is out-of-mount and field names vary by sync path
+    # (ledger vs position-only vs bs fallback), so probe the known aliases. Cash
+    # typically only populates under an authenticated ledger sync — when it's
+    # absent the monitor fail-safes to unknown (never "within limits").
+    base_cash  = _first("base_cash", "cash", "cashbalance", "total_cash",
+                        "usd_cash", "settled_cash", "totalcashvalue")
+    excess_liq = _first("excess_liq", "excess_liquidity")
+
+    synced = _first("synced_at", "_ibkr_sync_time", "ocr_last_sync", "last_sync", "updated_at")
     age_min = None
     stale = None
     if synced:
