@@ -201,7 +201,17 @@ def days_to_earnings(ticker: str, calendar: dict[str, Any]) -> int | None:
     try:
         earnings_date = datetime.strptime(date_str, "%Y-%m-%d").date()
         today = datetime.now(timezone.utc).date()
-        return (earnings_date - today).days
+        days = (earnings_date - today).days
+        # A negative value means the stored `next_earnings` is in the PAST —
+        # i.e. stale (the blocklist wasn't refreshed after the last report).
+        # That is not a known *upcoming* earnings date, so treat it as unknown.
+        # Returning None (rather than a raw negative int) keeps the Candidates
+        # board from showing confusing "-73d"/"-10d" and prevents the
+        # unbounded `days_to_earnings <= 10` check in options.py from wrongly
+        # applying a gap-risk penalty to a stock whose earnings already passed.
+        if days < 0:
+            return None
+        return days
     except ValueError:
         return None
 

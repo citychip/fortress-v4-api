@@ -88,9 +88,11 @@
 ## Active Conditional Alerts
 | ID | Ticker | Trigger | Status | Note |
 |---|---|---|---|---|
-| `8bd4926b` | MSFT | price_below 375 | **TRIGGERED** | MSFT ~$369 (below 375, under 200-SMA). Tranches taken: 420→390C (06-25), 390→375C (06-26, +$1,200 cr). Still ~24.7% — **next tranche = trim a Jan'28 LEAP into a $395–410 bounce** (don't sell 369). ⚠ **Post-20.3 deploy: delete + recreate as `close_below 375`** (alert_type isn't PATCH-updatable) so it's EOD-confirmed and stops false-firing on wicks. |
+| `f9be085a` | MSFT | close_below 382 | Armed | **Thesis-Stop break** (~$382.58 weekly). Daily-close-confirmed (20.3, wick-immune) → start accelerating the Jan'28 LEAP de-risk. First rung of the MSFT ladder. |
+| `de612a78` | MSFT | close_below 375 | Armed | **Deeper break** → size the de-risk tranche up. Replaced the wick-prone `price_below` `8bd4926b` (now deleted) with a close-confirmed rule. |
+| `baa3bc98` | MSFT | close_above 395 | Armed | **Trim-into-strength** — take the LEAP-trim tranche into a $395+ bounce rather than selling the low. |
+| ~~`8bd4926b`~~ | MSFT | price_below 375 | **DELETED 07-03** | Wick-prone intraday rule; superseded by close-confirmed `de612a78` (close_below 375). |
 | ~~`320fc5ae`~~ | META | dte_lte 8 | **DELETED 06-26** | Jul31 PCS closed; alert removed. |
-| (missing) | MSFT | price_above 412 | — | Recreate only if resuming a staged upside exit |
 
 ---
 

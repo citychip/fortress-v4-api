@@ -413,6 +413,125 @@ def leap_roll_all():
     }
 
 
+@router.get("/manage/covered_call_candidates")
+def covered_call_candidates():
+    """
+    Sprint 25.9 / 23.3 — auto-surface a covered-call candidate for each
+    UNDER-WRITTEN LEAP core.
+
+    A long-dated long CALL (a LEAP core) ties up capital while earning nothing
+    if it isn't written against — the MONETIZE case the capital-efficiency page
+    flags (e.g. AMZN 0.15× / GOOGL 0.25×). This scans the PER-LEG book for LEAP
+    cores (long call, DTE > `strategy.leap_core_min_dte`) whose contracts are NOT
+    fully covered by an open short call on the same underlying, and for each
+    surfaces the adaptive ~0.30Δ / 30–45 DTE covered call the 21.1b engine would
+    write — sourced straight from `get_strategy_metrics` (the PMCC short leg) so
+    the strike / credit / yield math is the exact tested path the Strategy
+    Selector uses (no re-implemented Black-Scholes).
+
+    "Under-written" here is structural: contracts held minus short calls open.
+    ADVISORY ONLY — never stages or places an order.
+    """
+    from ..services.config_store import cfg
+    leap_min_dte = int(cfg("strategy.leap_core_min_dte", 90))
+    target_dte   = int(cfg("strategy.covered_call_target_dte", 45))
+
+    try:
+        data = state.get_active_positions()
+    except state.StateError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    legs = [p for p in (data.get("positions") or [])
+            if str(p.get("sec_type") or "OPT").upper() == "OPT"]
+
+    def _qty(p) -> int:
+        try:
+            return int(p.get("qty") or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    # Open short-call contracts per ticker (qty < 0, right C) = already written.
+    written_by_ticker: dict[str, int] = {}
+    for p in legs:
+        if str(p.get("right", "")).upper() == "C" and _qty(p) < 0:
+            t = (p.get("ticker") or "").upper()
+            written_by_ticker[t] = written_by_ticker.get(t, 0) + abs(_qty(p))
+
+    # LEAP cores: long call (qty > 0), long-dated. Sum contracts per ticker,
+    # remember the nearest-dated core (the one to write against first).
+    cores: dict[str, dict] = {}
+    for p in legs:
+        if not (str(p.get("right", "")).upper() == "C" and _qty(p) > 0):
+            continue
+        dte = _dte_days(p.get("expiry")) or 0
+        if dte <= leap_min_dte:
+            continue  # short-dated long calls aren't LEAP cores
+        t = (p.get("ticker") or "").upper()
+        core = cores.setdefault(t, {
+            "ticker": t, "contracts": 0,
+            "nearest_expiry": p.get("expiry"), "nearest_dte": dte,
+        })
+        core["contracts"] += abs(_qty(p))
+        if dte < (core["nearest_dte"] or 10**9):
+            core["nearest_dte"], core["nearest_expiry"] = dte, p.get("expiry")
+
+    out = []
+    for t, core in cores.items():
+        written = written_by_ticker.get(t, 0)
+        unwritten = core["contracts"] - written
+        if unwritten <= 0:
+            continue  # fully covered — nothing to monetize
+
+        rec, note = None, None
+        try:
+            from app.routes.options import get_strategy_metrics
+            sm = get_strategy_metrics(ticker=t, mode="new", target_dte=target_dte)
+            pmcc = next((s for s in sm.get("strategies", []) if s.get("id") == "pmcc"), None)
+            if pmcc and (pmcc.get("estimated_credit") or 0) > 0:
+                rec = {
+                    "short_strike":     pmcc.get("short_strike"),
+                    "target_delta":     pmcc.get("target_delta"),
+                    "target_dte":       target_dte,
+                    "estimated_credit": pmcc.get("estimated_credit"),
+                    "annualized_yield": pmcc.get("annualized_yield"),
+                    "pop":              pmcc.get("pop"),
+                    "earnings_safe":    pmcc.get("earnings_safe"),
+                    "delta_rationale":  pmcc.get("delta_rationale"),
+                    "spot":             sm.get("spot"),
+                    "ivr":              sm.get("ivr"),
+                    "vol_source":       sm.get("vol_source"),
+                }
+                if not pmcc.get("earnings_safe"):
+                    note = "inside earnings window — defer or size down per Strategy §4"
+            else:
+                note = "no positive-credit short call (thin premium / degraded chain)"
+        except HTTPException as e:
+            note = f"strategy_metrics unavailable: {e.detail}"
+        except Exception as e:  # never let one bad ticker sink the scan
+            note = f"strategy_metrics error: {e}"
+
+        out.append({
+            "ticker":              t,
+            "leap_contracts":      core["contracts"],
+            "short_calls_open":    written,
+            "unwritten":           unwritten,
+            "nearest_leap_expiry": core["nearest_expiry"],
+            "nearest_leap_dte":    core["nearest_dte"],
+            "recommended_call":    rec,
+            "note":                note,
+        })
+
+    # Actionable (has a recommendation) first, then biggest un-monetized core.
+    out.sort(key=lambda r: (r.get("recommended_call") is None, -(r.get("unwritten") or 0)))
+    return {
+        "as_of": datetime.now(timezone.utc).isoformat(),
+        "target_dte": target_dte,
+        "leap_core_min_dte": leap_min_dte,
+        "count": len(out),
+        "candidates": out,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Aggregated position list — for UI pickers
 # ---------------------------------------------------------------------------
