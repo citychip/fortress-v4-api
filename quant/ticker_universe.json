@@ -28,11 +28,27 @@
     "JPM",
     "JNJ"
   ],
-  "tier2": [],
+  "tier2": [
+    "RMD",
+    "PYPL",
+    "HCA",
+    "CBRE",
+    "GILD",
+    "MSI",
+    "RJF",
+    "MA",
+    "CVX",
+    "XOM",
+    "PG",
+    "WMT",
+    "COST",
+    "TROW"
+  ],
   "macro": [
     "SPX",
     "SPY",
-    "VIX"
+    "VIX",
+    "XSP"
   ],
   "excluded": [
     {
@@ -57,5 +73,5 @@
       "note": "Strategy §3.3 — ignored entirely. Display in book, never recommend."
     }
   ],
-  "_last_updated": "2026-07-04"
+  "_last_updated": "2026-07-07"
 }

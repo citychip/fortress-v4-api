@@ -14,8 +14,8 @@
       "snoozed": false,
       "snoozed_at": null,
       "created_at": "2026-06-30T14:06:18.880881+00:00",
-      "last_close": 390.49,
-      "last_close_date": "2026-07-02"
+      "last_close": 386.74,
+      "last_close_date": "2026-07-06"
     },
     {
       "id": "f9be085a",
@@ -30,7 +30,9 @@
       "triggered_at": null,
       "snoozed": false,
       "snoozed_at": null,
-      "created_at": "2026-07-03T23:19:25.869357+00:00"
+      "created_at": "2026-07-03T23:19:25.869357+00:00",
+      "last_close": 386.74,
+      "last_close_date": "2026-07-06"
     },
     {
       "id": "de612a78",
@@ -45,8 +47,10 @@
       "triggered_at": null,
       "snoozed": false,
       "snoozed_at": null,
-      "created_at": "2026-07-03T23:22:21.430965+00:00"
+      "created_at": "2026-07-03T23:22:21.430965+00:00",
+      "last_close": 386.74,
+      "last_close_date": "2026-07-06"
     }
   ],
-  "_last_updated": "2026-07-05T21:30:00.005891+00:00"
+  "_last_updated": "2026-07-07T18:25:00.003384+00:00"
 }

@@ -40,7 +40,63 @@
       "exit_reason": "stop_loss",
       "notes": "Jul31 545/525 PCS closed 06-25 on stop-loss ACT (short-leg delta breach ~0.47 + price below 200-SMA) ahead of Jul 29 earnings, ~-$235. Entry IVR/DTE/delta not captured at open.",
       "logged_at": "2026-06-26T15:21:50.775570Z"
+    },
+    {
+      "ticker": "NVDA",
+      "strategy": "PCS",
+      "closed": "2026-07-06",
+      "realized_pnl": -65.0,
+      "exit_reason": "21dte",
+      "notes": "Jul17'26 180/175 \u00d77; entry credit 0.269, closed 0.36 debit; only 1.6% captured at 11 DTE with CPI Jul 14 inside expiry window \u2014 de-gamma per 26.3 rule.",
+      "logged_at": "2026-07-06T15:33:10.784531Z",
+      "ivr_at_entry": 59.0,
+      "dte_at_entry": 24,
+      "short_delta_at_entry": 0.0955,
+      "entry_conditions_source": "auto_captured",
+      "opened": "2026-06-23"
+    },
+    {
+      "ticker": "GOOGL",
+      "strategy": "LEAP_trim",
+      "closed": "2026-07-07",
+      "realized_pnl": -84.47,
+      "exit_reason": "concentration_trim",
+      "notes": "Sold 1 of 2 Jan21'28 310C LEAPs @ ~108.75 vs 109.60 basis (incl. fees) in the planned 367\u2013369 trim zone. Cluster 97.3%\u219282.1%, GOOGL 26.5%\u219210.9%. Remaining LEAP 1:1 covered vs Jan'27 390C short. Breakeven-quality exit on a 31%-of-NLV line \u2014 de-risk, not a loss trade.",
+      "logged_at": "2026-07-07T16:25:33.054449Z",
+      "ivr_at_entry": 98.6,
+      "dte_at_entry": 87,
+      "short_delta_at_entry": 0.3518,
+      "entry_conditions_source": "auto_captured",
+      "opened": "2026-06-23"
+    },
+    {
+      "ticker": "MSFT",
+      "strategy": "LEAP_salvage_exit",
+      "closed": "2026-07-07",
+      "realized_pnl": -1978.75,
+      "exit_reason": "salvage_weak_leg",
+      "notes": "Unit-2 exit of the MSFT LEAP salvage: sold Jan'28 340C (basis 123.98) + bought back Jan'27 410C (basis 34.43 cr) @ 70.18 combo credit. Realized = today's \u22122,063.22 minus GOOGL trim \u221284.47. Weak-leg exit per corrected salvage doctrine (30\u201340% recovery odds, breakeven $408 post-conversion). Freed ~$7.0k \u2192 Bucket A seed 2. Companion Unit-1 conversion (310/450 vertical, +$21.35 cr) journaled 9b59ebac.",
+      "logged_at": "2026-07-07T17:34:13.328513Z",
+      "ivr_at_entry": 76.0,
+      "dte_at_entry": 87,
+      "short_delta_at_entry": 0.2977,
+      "entry_conditions_source": "auto_captured",
+      "opened": "2026-06-23"
+    },
+    {
+      "ticker": "AMZN",
+      "strategy": "PMCC_short",
+      "closed": "2026-07-07",
+      "realized_pnl": -165.94,
+      "exit_reason": "salvage_calendar_match",
+      "notes": "Oct16'26 280C short bought back ~8.86 vs 6.985 entry credit as part of salvage ticket 1 (rolled into Jan'28 280C for +$33.33 combo credit). Not a failed trade \u2014 a structural upgrade: calendar mismatch eliminated, per \u00a7G. Realized = day total \u22122,229.16 minus prior \u22122,063.22.",
+      "logged_at": "2026-07-07T18:21:25.721971Z",
+      "ivr_at_entry": 73.0,
+      "dte_at_entry": 56,
+      "short_delta_at_entry": 0.3598,
+      "entry_conditions_source": "auto_captured",
+      "opened": "2026-06-26"
     }
   ],
-  "updated_at": "2026-06-26T15:21:50.775757Z"
+  "updated_at": "2026-07-07T18:21:25.723501Z"
 }
