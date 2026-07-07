@@ -1,5 +1,14 @@
 # Fortress — Daily Workflow
-**v2.7 · Updated 2026-06-16 (catalyst gate + `get_vix_term` VIX term-structure input; ex-div assignment check; `journal_analytics.py` feedback loop; GEX/skew/liquidity NaN-500 fix + deploy smoke-test; IBKR-first verified; gateway-down + alert gotchas — see ⚠ below)**
+**v2.9 · Updated 2026-07-07 (NEW: §v3.11 Cadence & Income Flow below — 2–3 sessions/week operating model, XSP-first entries, weekly-close de-risk rules. Prior v2.8: §Trade Session Procedure — the canonical analyze→exact-orders→manual-TWS-execution loop (validated end-to-end twice on 07-07), incl. the gateway-vs-IBKR-Desktop single-session conflict; catalyst gate + `get_vix_term`; ex-div check; `journal_analytics.py`; NaN-500 fix; IBKR-first; gateway-down + alert gotchas — see ⚠ below)**
+
+> ## ⭐ v3.11 CADENCE & INCOME FLOW (2026-07-07 — canonical rules in `STRATEGY_v3_11_UPDATE_2026-07-07.md`)
+> **Operating model: 2–3 sessions/week, not daily.** The daily sections below are subordinate to these rules:
+> 1. **Session types:** (a) *Management session* — OPEN checklist, risk sweeps, rolls per doctrine v2; (b) *Trade session* — full §Trade Session Procedure whenever orders will be placed; (c) *Friday close check* — weekly-close de-risk rules evaluate on Friday's close only (MSFT: Fri close < wk-200 ≈383 → cut 50% Monday · close ≥395 → trim into strength).
+> 2. **New income entries: XSP FIRST** (≥45–60 DTE; gates: index IVR ≥25 + VRP ≥3.5pp + contango; VIX level is secondary, not a hard gate). Single-name only POST-earnings, ≤2 concurrent names, tier2 non-Mag-7 preferred. Pre-earnings single-name premium selling is DISCONTINUED — the per-name earnings-verification stage now applies only to the sleeve.
+> 3. **Pacing is dynamic:** VIX <18 → max 2 new entries/wk · 18–25 → 3 · >25 → 5. Rolls, closes, and hedge maintenance don't count.
+> 4. **Hedge check:** compare hedge MAX PAYOUT to 25–33% of Bucket-B β-DD — the $20–30k MV floor is RETIRED. Re-run the formula at every hedge-leg expiry (next: Aug 21).
+> 5. **Log every close same-session** (`log_trade_outcome` + journal) — the n≥30 compliance-score measurement regime depends on it.
+> 6. **Roll doctrine v2:** keep-names tested (Δ>0.40) → out-and-up for debit or close; same-strike out-rolls forbidden on keep-names; expiry-matched verticals (MSFT Jan'28 310/450) are exempt from roll/stop flags — manage as packages.
 
 > ⚠ **2026-06-10 — QuantData `iv_rank` is broken upstream** (ticker argument ignored; SPX/MSFT/NVDA return identical payloads). IV rank comes from the **fortress MCP `get_iv_rank(ticker)`**. All `qd_get_iv_rank` references below and in 07_MCP_Workflow are superseded.
 >
@@ -89,6 +98,36 @@ Fortress provides DP floors (dark pool support) and GEX walls (gamma exposure �
 Daily: Fortress flags roll triggers (short call Δ > 0.40 or DTE ≤ 21) and stop-loss ACT signals (underlying below 200-SMA floor). QuantData provides real-time GEX and dark pool levels to determine roll direction (up vs. out). If QuantData is down, Massive provides an independent snapshot for greeks verification before any roll decision.
 
 **Why this matters:** The dual-confirm rule (two independent IV sources before entry) and GEX + DP floor anchoring (two independent strike references) are the two guardrails that prevent the most common PMCC failure modes — entering when IV is insufficient and getting assigned at the wrong strike.
+
+---
+
+## ⭐ TRADE SESSION PROCEDURE — analyze → exact orders → manual execution in IBKR Desktop (v1.0, 2026-07-06)
+
+**Why this exists:** IBKR permits ONE authenticated session per username. Logging into IBKR Desktop/TWS to place orders **kicks the CP Gateway session** (web_api → 401 "ibeam session may need restart"). This is EXPECTED, not a fault — the 07-06 "random" double-401 was exactly this. Don't fight it; structure the session in three phases. Default execution path is **manual in IBKR Desktop** (Fortress `stage_order`/`approve_order` remains available for Fortress-routed orders, but is not the primary path).
+
+### Phase 1 — ANALYZE (gateway UP; IBKR Desktop NOT logged in)
+Run the full sweep while data is live. Do not log into IBKR Desktop until the order list is final.
+1. **Backbone (Step 0):** `trigger_ibkr_sync` → `get_ibkr_status` (must read `active_backend: web_api` + authenticated) → `get_briefing` staleness < ~2h.
+2. **Book state:** `refresh_iv_data()` (async ~20s) → `get_briefing` + `get_portfolio_beta` — NLV vs floors ($25k excess / $17k avail), pacing x/5, β-Δ vs target, Θ, **β-vega flag** (net_long_vega = blind spot), cluster % vs 60%. Delta sanity: SPY hedge + short legs must show non-zero `delta_contribution`.
+3. **Risk sweeps:** `get_stop_loss_all` · `get_roll_all` · `get_profit_targets` (50% / 21-DTE) · `get_conditional_alerts` · `get_spy_hedge_coverage` (vs $20–30k §2.D) · `get_ex_div`.
+4. **Context gates:** `get_macro_events` (defer_advisory? hold new premium if high-impact ≤ defer window) · `get_vix_term` (contango/backwardation) · `get_technical_gate` (SPY + every book name + every candidate — act/watch states) · `get_market_intelligence("SPY")` · quantdata flow/DP/max-pain as needed.
+5. **New income candidates:** `get_candidates` → ⚠ **VERIFY EARNINGS with `get_earnings_history` for EVERY candidate before sizing** — `days_to_earnings: null` renders as "clear"/PRIME even in blackout (07-06: JPM/JNJ/CSX flagged 🔥PRIME while reporting Jul 14/15/22). FMP profile for tickers new to the universe. Liquidity check: if `get_contract_price` returns "no quote" on the candidate's strikes, the trade is dead (MAR pattern).
+6. **TV levels (tradingview MCP, "Clean" layout):** switch symbol → read `data_get_study_values` → **verify Plot ≈ live spot; if stale, cycle the symbol away and back and re-read** (07-06 AAPL trap). Use WMAs/SMAs; LuxAlgo pivots go stale on trending names. Short calls into resistance; put strikes below support.
+7. **Price the tickets:** `get_contract_price` per leg (`source: ibkr` = live) → combo **mid**; verify short-leg delta with `options_greeks` (bands: new PMCC short 0.20–0.30, PCS 0.15–0.20). **Roll doctrine:** roll OUT (or up-and-out), never in; broken/concentrated names = same-strike out for CREDIT (delta will RISE — accepted; the de-risk ladder is the fix, not another roll); healthy names = up-and-out delta relief for a small debit. Leg direction: roll = BUY-to-close front short + SELL-to-open back leg. Expiry-spans-earnings check per hard rule.
+8. **DELIVERABLE — the exact order list.** Every order fully specified: per-leg action (BTC/STO/BUY/SELL) · qty · ticker · expiry · strike · right · combo net **LMT at mid** (state CREDIT or DEBIT) · TIF DAY · invalidation condition (e.g. "skip if daily close < X fires the ladder instead"). Nothing goes to Phase 2 unless it's on this list.
+
+### Phase 2 — EXECUTE (log into IBKR Desktop; gateway session is sacrificed)
+- The web_api **will** 401 when you log in — expected. **Do NOT restart the gateway mid-session**; it will steal the session back from TWS.
+- All Fortress/MCP numbers are now FROZEN (`bs_yfinance` fallback, frozen `synced_at`) — **TWS quotes are the only authoritative prices.** Re-mid every combo at entry; mids drift between analysis and execution (07-06 AAPL slipped $0.92/sh).
+- Work limits **at the mid**, never the pre-filled bid/ask; if unfilled, step toward the market 2–3 ticks, re-check the mid each step.
+- Verify per ticket before submit: leg directions (no inverted rolls), qty matches the book, order type Limit, TIF DAY.
+- Note/screenshot every fill price for Phase 3.
+
+### Phase 3 — VERIFY + LOG (log out of IBKR Desktop; restore gateway)
+1. Log out of IBKR Desktop → `docker restart cp-gateway` (or Parapet → Reconnect) → wait ~40s → `get_ibkr_status` must read `web_api` + authenticated (the watchdog should also self-heal it; verify anyway).
+2. `trigger_ibkr_sync` → `get_briefing`: confirm `synced_at` ADVANCED and fills are in the book. Compare β-Δ / Θ / β-vega / hedge MV against the Phase-1 read — the deltas should match what the plan predicted.
+3. `get_stop_loss_all` + `get_roll_all`: note which flags cleared and which persist by design (same-strike out-rolls stay hot).
+4. **Log everything:** `add_journal_entry` per fill (prose + framework rules) · `log_trade_outcome` per CLOSE (realized P&L + exit_reason; entry conditions auto-capture) · update `HANDOFF.md` Current State + `SESSION_LOG.md` per the CLOSE protocol.
 
 ---
 
@@ -259,6 +298,7 @@ trigger_ibkr_sync()
 | "<!doctype" JSON errors | Same — iBeam disconnected → click Reconnect |
 | Stale data (staleness.state = "stale") | `trigger_ibkr_sync()` |
 | **Book looks "fresh" but won't change / `synced_at` frozen** | Gateway is down — backend silently fell back to `bs_yfinance` and serves a FROZEN snapshot while `staleness` still reads "fresh". Check `get_ibkr_status` → `active_backend`. If `web_api` shows 401/`gateway_unreachable`, a sync retry won't help — restart iBeam (`docker restart cp-gateway` / Parapet Reconnect, wait ~40s), then re-pull |
+| **web_api 401 right after logging into IBKR Desktop/TWS** | EXPECTED — IBKR allows ONE session per username; TWS took it. Do NOT restart the gateway while trading (it steals the session back). Finish placing orders, log out of TWS, then restart the gateway (Trade Session Procedure Phase 3) |
 | **Conditional price alert fired but rule was "close below X"** | `price_above`/`price_below` alerts evaluate on **live intraday spot, not daily close** — they false-fire on intraday wicks (MSFT 385 fired Jun 11 on a $384 wick though it never closed <385). Confirm the actual close before acting |
 | **Pacing shows headroom after manual fills** | Pacing counter only increments on Fortress-staged orders; manual IBKR fills are NOT counted. Track manual entries yourself |
 | Orders page not updating | Auto-polls every 15s — wait, or manual refresh |
