@@ -89,3 +89,5 @@ position_snapshots.json
 entry_conditions.json
 *.pre-sprint0-bak
 *.pre-*-bak
+main
+*.corrupt

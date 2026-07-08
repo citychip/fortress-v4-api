@@ -18,12 +18,12 @@ def enrich_row(row: dict, calendar: dict, concentration: dict, excluded_map: dic
     if days is None:
         days = state.days_to_earnings(ticker, calendar)
 
-    if days is not None and 0 <= days <= 10:
-        earnings_state = "blackout"
-    elif days is not None and 0 <= days <= 30:
-        earnings_state = "approaching"
-    else:
-        earnings_state = "clear"
+    # Scanner-null fix (2026-07-08): unknown earnings date must NEVER render
+    # "clear" — the 07-06 trap flagged JPM/JNJ/CSX 🔥PRIME while they reported
+    # Jul 14/15/22. Canonical derivation lives in state.earnings_state_from_days
+    # (None → "unverified": advisory, non-blocking, but visibly needs a manual
+    # get_earnings_history check before sizing).
+    earnings_state = state.earnings_state_from_days(days)
 
     conc_pct = concentration.get(ticker, 0)
     if conc_pct >= 50:
@@ -52,6 +52,11 @@ def enrich_row(row: dict, calendar: dict, concentration: dict, excluded_map: dic
         "excluded": is_excluded,
         "exclusion_reason": exclusion_reason,
         "can_trade": can_trade,
+        # Advisory companion to "unverified" — consumers must verify per name.
+        "earnings_note": (
+            "⚠ earnings date UNKNOWN — verify with get_earnings_history before sizing"
+            if earnings_state == "unverified" else None
+        ),
     }
 
 

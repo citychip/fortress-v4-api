@@ -1,5 +1,5 @@
-# Fortress — Backlog Archive: Completed Sprints 0–24
-**Shipped + verified sprints, moved here 2026-07-04 to keep `BACKLOG_SPRINT_PLAN.md` focused on active work. Full per-item detail preserved.**
+# Fortress — Backlog Archive: Completed Sprints 0–26
+**Shipped + verified sprints, moved here to keep `BACKLOG_SPRINT_PLAN.md` focused on active work. Full per-item detail preserved. (0–24 moved 2026-07-04; 25–26 summaries appended at the bottom 2026-07-08 — their full narrative lives in `SESSION_LOG.md` 07-03→07-08.)**
 
 ## ✅ Sprint 0 — Unblock (DONE 2026-06-19)
 Four high-value items touch routes that lived **outside the OneDrive repo mount** (`pretrade_check`, `regime`, `strategy_metrics`, `pacing`). Now pulled in, drift-tracked, and deployable.
@@ -189,6 +189,14 @@ Four high-value items touch routes that lived **outside the OneDrive repo mount*
 | 24.2 | **Briefing SKILL update.** Add the Technical Gate step, explicit fallback labeling, and optimization KPIs (capital-efficiency flag, cluster-glide, hedge coverage) to the standard output. | `daily-post-open-briefing` SKILL | S | 22.1 |
 | 24.3 | **Adopt the two session rules** (already in the Procedure): dynamic watchlist; data-source availability (tell first in live sessions, label fallback in scheduled). Reference from Strategy + SKILL. | Procedure + Strategy | S | ✅ in Procedure |
 | 24.4 | **Vega-flip alert.** Scheduled task / alert when `beta_vega_flag` flips `net_short → net_long` (the unflagged risk the β-vega stat surfaces but doesn't alert on). | scheduled task | S | 19.1/20.6 |
+
+---
+
+## ✅ Sprint 25 — Reliability, visibility & de-concentration (COMPLETE 2026-07-05)
+All 13 items shipped + verified: **25.1** gateway watchdog (iBeam-log probe, UNKNOWN state, cooldown; OAuth Stage 2 isolated to IBKR-side consumer-key activation) · **25.2/25.3** chart TTL-cache + parallel technical gate · **25.4** briefing `regime_gate` w/ 2s budget · **25.5** async `refresh_iv_data` · **25.6** cluster-glide gauge + history line (`cluster_history.json`) · **25.7** Recovery/Efficiency page (log-scaled bars, MONETIZE flag) · **25.8** MTF disposition + candlestick drill-down (`MtfCandleChart.tsx`) · **25.9/23.3** covered-call recommender (`get_covered_call_candidates`) + JPM/JNJ tier1 + §8 call-writing playbook · **25.10** MSFT close-confirmed alert ladder · **25.11** `get_leap_roll_all` · **25.12** `vega-flip-alert` task · **25.13** three-layer scanner fix (price-skip, report path, `int("-")` parser). Detail: SESSION_LOG 07-03→07-05.
+
+## ✅ Sprint 26 — Risk-manager hardening, from Manus v5.0 (code 2026-07-05 · DEPLOYED+VERIFIED 2026-07-08)
+**26.1** Health Manager: `GET /api/manage/risk_limits` + MCP `get_risk_limits` (cash −15k / excess-liq 25k floors, fail-safe nulls; `usd_cash`/`data_age_min` ledger-gated pending OAuth Stage 2) + `margin-debt-alert` task (wd 09:03) + Recovery banner · **26.2** full collar: `covered_call_candidates` + DTE-matched protective put (`protective_put`, `collar_net`) + Recovery columns · **26.3** manage-at-%/21-DTE: `GET /api/manage/profit_targets` + MCP tool + "Manage now" card (empty card hides). 07-08 verify pass also found+fixed the pre-sync DTE-0 false-flag (Sprint 27.3). Deferred from proposal: webhook/scheduler-health/latency monitors.
 
 ---
 

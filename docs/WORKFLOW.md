@@ -1,11 +1,11 @@
 # Fortress — Daily Workflow
-**v2.9 · Updated 2026-07-07 (NEW: §v3.11 Cadence & Income Flow below — 2–3 sessions/week operating model, XSP-first entries, weekly-close de-risk rules. Prior v2.8: §Trade Session Procedure — the canonical analyze→exact-orders→manual-TWS-execution loop (validated end-to-end twice on 07-07), incl. the gateway-vs-IBKR-Desktop single-session conflict; catalyst gate + `get_vix_term`; ex-div check; `journal_analytics.py`; NaN-500 fix; IBKR-first; gateway-down + alert gotchas — see ⚠ below)**
+**v3.0 · Updated 2026-07-08 (Sprint 27 wiring is LIVE: matched-vertical roll/stop flags auto-exempt (`vertical_exempt` — no more manual ignoring) · briefing pacing is DYNAMIC (`vix_band`) · per-ticker β-DD block incl. `frozen[]` in the briefing · `weekly_close_above/below` alert types fire on the Friday bar only · scanner `days_to_earnings: null` renders "unverified", never "clear" (candidates route itself pending) · MCP v4.12.0. Prior v2.9: §v3.11 Cadence & Income Flow; v2.8: §Trade Session Procedure — the canonical analyze→exact-orders→manual-TWS-execution loop, incl. the gateway-vs-IBKR-Desktop single-session conflict.)**
 
 > ## ⭐ v3.11 CADENCE & INCOME FLOW (2026-07-07 — canonical rules in `STRATEGY_v3_11_UPDATE_2026-07-07.md`)
 > **Operating model: 2–3 sessions/week, not daily.** The daily sections below are subordinate to these rules:
-> 1. **Session types:** (a) *Management session* — OPEN checklist, risk sweeps, rolls per doctrine v2; (b) *Trade session* — full §Trade Session Procedure whenever orders will be placed; (c) *Friday close check* — weekly-close de-risk rules evaluate on Friday's close only (MSFT: Fri close < wk-200 ≈383 → cut 50% Monday · close ≥395 → trim into strength).
+> 1. **Session types:** (a) *Management session* — OPEN checklist, risk sweeps, rolls per doctrine v2; (b) *Trade session* — full §Trade Session Procedure whenever orders will be placed; (c) *Friday close check* — weekly-close de-risk rules evaluate on Friday's close only (MSFT: Fri close < wk-200 ≈383 → cut 50% Monday · close ≥395 → trim into strength). **Since 07-08 these are codifiable as `weekly_close_below`/`weekly_close_above` conditional alerts (EOD pass, Friday bar only) — prefer an alert over a manual check.**
 > 2. **New income entries: XSP FIRST** (≥45–60 DTE; gates: index IVR ≥25 + VRP ≥3.5pp + contango; VIX level is secondary, not a hard gate). Single-name only POST-earnings, ≤2 concurrent names, tier2 non-Mag-7 preferred. Pre-earnings single-name premium selling is DISCONTINUED — the per-name earnings-verification stage now applies only to the sleeve.
-> 3. **Pacing is dynamic:** VIX <18 → max 2 new entries/wk · 18–25 → 3 · >25 → 5. Rolls, closes, and hedge maintenance don't count.
+> 3. **Pacing is dynamic:** VIX <18 → max 2 new entries/wk · 18–25 → 3 · >25 → 5. Rolls, closes, and hedge maintenance don't count. **Now computed live in the briefing** (`pacing.pacing_mode`/`vix_band`; `strategy.entries_per_week_max` stays the ceiling). ⚠ The roll/hedge exclusion keys on journal `framework_rules` — tag hedge/roll journals or they wrongly count.
 > 4. **Hedge check:** compare hedge MAX PAYOUT to 25–33% of Bucket-B β-DD — the $20–30k MV floor is RETIRED. Re-run the formula at every hedge-leg expiry (next: Aug 21).
 > 5. **Log every close same-session** (`log_trade_outcome` + journal) — the n≥30 compliance-score measurement regime depends on it.
 > 6. **Roll doctrine v2:** keep-names tested (Δ>0.40) → out-and-up for debit or close; same-strike out-rolls forbidden on keep-names; expiry-matched verticals (MSFT Jan'28 310/450) are exempt from roll/stop flags — manage as packages.
@@ -50,18 +50,19 @@
 | QuantData | `https://v3.quantdata.us` | credential refresh |
 | Parapet | `http://localhost:4000` | active UI |
 
-### Key Thresholds (current)
+### Key Thresholds (v3.11, updated 2026-07-08)
 | Metric | Floor / Target | Action if breached |
 |---|---|---|
 | Available Funds | > $17K | pause new entries |
 | Excess Liq | > $25K | pause new entries |
-| β-weighted Δ | ~320 target | hedge/trim if far over; add if well under |
-| MSFT concentration | < 50% NLV | **achieved (41.9%)** — no new MSFT legs |
-| SPY hedge | $20K–$30K notional | buy puts to close gap |
-| IV Rank (entry) | ≥ 25 (≥ 50 prime) | min for premium selling |
-| DTE short leg | 30–45 entry / ≤ 21 roll | entry window / roll trigger |
-| Δ short leg | 0.25–0.30 (PMCC), 0.15–0.20 (PCS) | roll if > 0.40 |
-| Profit target / stop | close at 50% gain / 200% of credit | manage |
+| Per-ticker β-DD | ≤ 30% NLV soft-gate / 40% weekly-close backstop | freeze name (briefing `beta_dd.frozen`) / mandatory salvage analysis §G |
+| Mag-7 cluster | ≤ 60% NLV (MV basis, legacy KPI) | de-concentrate via trims/salvage |
+| SPY hedge | max PAYOUT 25–33% of Engine β-DD (B-2) | re-run at every hedge-leg expiry (next: Aug 21). Old $20–30k MV floor RETIRED — ignore `coverage_ok:false` |
+| Pacing | dynamic: VIX<18→2/wk · 18–25→3 · >25→5 | briefing `pacing.vix_band`; static cap = ceiling |
+| IV Rank (entry) | ≥ 25 (≥ 50 prime); XSP gate: idx IVR≥25 + VRP≥3.5pp + contango | min for premium selling |
+| DTE short leg | 30–45 entry (XSP 45–60) / ≤ 21 roll | entry window / roll trigger |
+| Δ short leg | 0.25–0.30 (PMCC), 0.15–0.20 (PCS) | doctrine v2 if > 0.40 (keep-names: up-and-out for debit; matched verticals EXEMPT) |
+| Profit target / stop | close at 50% gain (config 80, user-set — O-4) / 200% of credit | manage; `get_profit_targets` scans both triggers |
 
 ### QuantData credential refresh (when Market Intel / flow shows no data)
 Auto: daily 06:00 ET via APScheduler (`qd_refresh_session.py`). Manual:
@@ -300,7 +301,8 @@ trigger_ibkr_sync()
 | **Book looks "fresh" but won't change / `synced_at` frozen** | Gateway is down — backend silently fell back to `bs_yfinance` and serves a FROZEN snapshot while `staleness` still reads "fresh". Check `get_ibkr_status` → `active_backend`. If `web_api` shows 401/`gateway_unreachable`, a sync retry won't help — restart iBeam (`docker restart cp-gateway` / Parapet Reconnect, wait ~40s), then re-pull |
 | **web_api 401 right after logging into IBKR Desktop/TWS** | EXPECTED — IBKR allows ONE session per username; TWS took it. Do NOT restart the gateway while trading (it steals the session back). Finish placing orders, log out of TWS, then restart the gateway (Trade Session Procedure Phase 3) |
 | **Conditional price alert fired but rule was "close below X"** | `price_above`/`price_below` alerts evaluate on **live intraday spot, not daily close** — they false-fire on intraday wicks (MSFT 385 fired Jun 11 on a $384 wick though it never closed <385). Confirm the actual close before acting |
-| **Pacing shows headroom after manual fills** | Pacing counter only increments on Fortress-staged orders; manual IBKR fills are NOT counted. Track manual entries yourself |
+| **Pacing looks wrong** | Position-diff detector (Sprint 16.5) catches manual fills when ≥2 snapshots exist (`position_diff_reason` explains fallbacks). The roll/hedge EXCLUSION keys on journal `framework_rules` — untagged hedge/roll journals wrongly count (07-08: 2/2 "used" were both hedge tranches) |
+| **A matched vertical shows a roll/stop flag** | Should NOT happen since 07-08 (`vertical_exempt`). If it does, the same-expiry coverage detection broke — investigate `state.short_call_vertical_exempt`, don't just ignore the flag |
 | Orders page not updating | Auto-polls every 15s — wait, or manual refresh |
 | QuantData IV skew / exposure_by_strike broken | Known issue, GitHub issue pending |
 | Backend down | `sudo systemctl restart fortress-dashboard-v4` |
