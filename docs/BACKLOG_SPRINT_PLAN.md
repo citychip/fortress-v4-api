@@ -25,11 +25,11 @@ The entire v3.11 backend backlog plus the session's own finds. Commits: fortress
 ## Open items (small)
 | # | Item | Effort | Note |
 |---|---|---|---|
-| O-1 | ✅ **DONE 2026-07-08 (same session)** — `route_candidates.py` wired: `state.earnings_state_from_days` + `earnings_note` on unverified rows; added to `sync_check.sh` MAP + `deploy_data_sources.sh` ROUTE_FILES. **Needs one `deploy_data_sources.sh` run to go live.** | S | verify: `get_candidates` rows show "unverified" not "clear" |
+| O-1 | ✅ **DONE + VERIFIED LIVE 2026-07-08** — `route_candidates.py` wired (`state.earnings_state_from_days` + `earnings_note`), deployed, and confirmed: null-earnings rows (TROW/COST/WMT) return `earnings_state: "unverified"` + warning note, never "clear". | S | closed |
 | O-2 | **Create MSFT `weekly_close_below 383`** conditional alert (v3.11 weekly rule) — retire the manual Friday check. | S | write-tool one-liner |
 | O-3 | **Hedge/roll journal tagging** — pacing excludes entries whose `framework_rules` mention roll/hedge; the 07-06/07 SPY tranches were untagged → pacing over-counts (2/2 at VIX<18). Tag at journal time, or add a ticker/description heuristic. | S | data hygiene + optional code |
 | O-4 | **Profit-take 50 vs 80 decision** — `profit_target_pct` is user-set 80; research default 50 (`profit_target_pct_recommended`). One click in Settings → Strategy if adopting. | S | operator decision |
-| O-5 | 🟡 **Half done 07-08:** deleted the 5 stale unmapped duplicates from OneDrive (`route_settings/briefing/journal/options_analytics/pnl.py` — all older copies of mapped files; repo = source of truth). **Remaining:** repo cruft (`git rm --cached main data/position_snapshots.json.corrupt` + gitignore both). | S | hygiene |
+| O-5 | ✅ **DONE 2026-07-08** — deleted the 5 stale unmapped OneDrive duplicates (`route_settings/briefing/journal/options_analytics/pnl.py`); repo cruft removed + gitignored (`main`, `*.corrupt`, commit `0286d9d`); ancient repo-only docs purged via docs rsync. Bonus: MCP instructions string bumped v4.5.1/v3.9.0 → v4.12.0/v3.11 (applies at next MCP relaunch — copy `fortress_mcp_v452.py` to the Windows path first). | S | closed |
 | O-6 | **Parapet visual check** — Alerts tab ConditionalAlertsCard + Settings close-eval rows after next build. | S | 27.8 follow-up |
 | O-7 | **Briefing-SKILL wiring** (old 22.1/24.2 remainder) — add Technical-Gate + β-DD/`frozen` + dynamic-pacing band to the `daily-post-open-briefing` scheduled-task prompt. | S | no code |
 | O-8 | **OAuth Stage 2** — IBKR-side consumer-key activation (SHARMILAH). Nothing to build locally; portal/ticket only. | ext | the only external blocker |
