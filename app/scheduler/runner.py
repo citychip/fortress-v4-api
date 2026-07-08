@@ -272,7 +272,8 @@ def build_scheduler() -> BackgroundScheduler:
     # 10 — Close-confirmed conditional alerts (Sprint 20.3): ONE daily EOD pass
     #   against the official DAILY CLOSE. Deliberately separate from the intraday
     #   alert_eval jobs above (which evaluate spot and false-fire on wicks) — the
-    #   close pass evaluates only close_above / close_below.
+    #   close pass evaluates only close-confirmed types: close_above/close_below
+    #   (daily) + weekly_close_above/weekly_close_below (v3.11 — Friday bar only).
     #   Default 21:15 UTC is post-close in BOTH EDT (17:15 ET) and EST (16:15 ET),
     #   so — unlike the EDT-anchored jobs above — it needs no seasonal edit.
     #   Time + enable are tunable via config (alerts.close_eval_*).
@@ -316,7 +317,8 @@ def _evaluate_conditional_alerts() -> None:
 
 
 def _evaluate_close_alerts() -> None:
-    """EOD pass — evaluate close_above/close_below vs the official daily close.
+    """EOD pass — evaluate close-confirmed alerts vs the official close:
+    close_above/close_below daily, weekly_close_* on the Friday bar (v3.11).
 
     In-process; runs once after the cash close (Sprint 20.3). Kept separate from
     the intraday spot eval so wicks can never fire a close-confirmed rule.

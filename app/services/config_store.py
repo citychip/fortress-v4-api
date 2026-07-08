@@ -265,6 +265,10 @@ DEFAULTS: dict[str, Any] = {
         "cluster_concentration_warn_pct": 60.0,  # warn when the cluster's summed % NLV exceeds this
         # β-weighted vega target (B1) — net short-vega risk dial vs SPY IV (Sprint 19).
         "beta_vega_target":     0.0,     # 0 = informational only until B1 ships
+        # ── v3.11 wiring (2026-07-08) — regime-derived pacing + per-ticker β-DD ──
+        "dynamic_pacing_enabled": True,    # VIX<18→2/wk · 18–25→3 · >25→5; entries_per_week_max stays the CEILING
+        "beta_dd_soft_gate_pct": 30.0,     # per-ticker β-DD > this %NLV → name FROZEN (no new longs / duration adds / size-ups)
+        "beta_dd_hard_backstop_pct": 40.0, # β-DD > this at a WEEKLY close → mandatory salvage analysis (§G) within one session
     },
 
     # ── CATALYST GATE (Strategy §4 — binary-event timing) ─────────────────────

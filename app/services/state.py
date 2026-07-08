@@ -216,6 +216,26 @@ def days_to_earnings(ticker: str, calendar: dict[str, Any]) -> int | None:
         return None
 
 
+def earnings_state_from_days(days: int | None) -> str:
+    """
+    Canonical earnings-state derivation (v3.11 scanner-null fix, 2026-07-08).
+
+    None does NOT mean "clear" — it means the earnings date is UNKNOWN
+    (yfinance gap, stale blocklist, new ticker). The old inline derivations
+    fell through to "clear", which rendered names in real blackout as
+    PRIME/tradeable (07-06: JPM/JNJ/CSX flagged PRIME while reporting
+    Jul 14/15/22). "unverified" is advisory — it never hard-blocks, but the
+    UI/scanner must render it as needs-manual-verify, not clear.
+    """
+    if days is None:
+        return "unverified"
+    if 0 <= days <= 10:
+        return "blackout"
+    if 0 <= days <= 30:
+        return "approaching"
+    return "clear"
+
+
 def is_earnings_blackout(ticker: str, calendar: dict[str, Any], window: int = 10) -> bool:
     """True if ticker is within the blackout window before earnings (Strategy §4)."""
     days = days_to_earnings(ticker, calendar)
@@ -480,6 +500,77 @@ def _leg_strike(leg: dict) -> Optional[float]:
     return leg.get("short_strike") or leg.get("long_strike")
 
 
+def short_call_vertical_exempt(legs: list[dict], short_strike, short_expiry) -> bool:
+    """
+    Doctrine v2 (Strategy v3.11) — expiry-MATCHED vertical exemption.
+
+    A short call whose expiry matches a long call on the same underlying at a
+    LOWER strike (with covering qty) is one leg of a defined-risk vertical
+    (e.g. MSFT Jan'28 310/450, AMZN Jan'28 200/280 + 200/300 post-salvage).
+    Max loss is defined at entry, so delta-based roll/stop/gamma flags on that
+    short leg are noise — the package is managed as a unit (weekly-close
+    de-risk rules), never leg-rolled.
+
+    Greedy allocation: long-call qty at the SAME expiry covers shorts from the
+    lowest short strike up; a short is exempt only if FULLY covered by longs at
+    strictly lower strikes. PMCC shorts (earlier expiry than the LEAP) never
+    match — the expiry must be identical, which is exactly the calendar-mismatch
+    vs matched-vertical distinction doctrine v2 draws.
+
+    Accepts both raw sync legs (strike in short_strike/long_strike) and the
+    compact aggregated legs (strike in 'strike').
+    """
+    if short_strike is None or not short_expiry:
+        return False
+    try:
+        s_strike = float(short_strike)
+    except (TypeError, ValueError):
+        return False
+    exp = str(short_expiry)[:10]
+
+    def _strike_of(l: dict) -> Optional[float]:
+        v = l.get("strike")
+        if v is None:
+            v = _leg_strike(l)
+        try:
+            return float(v) if v is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    shorts: list[dict] = []
+    longs: list[dict] = []
+    for l in (legs or []):
+        if (l.get("right") or "").upper() != "C":
+            continue
+        if str(l.get("expiry") or "")[:10] != exp:
+            continue
+        strike = _strike_of(l)
+        try:
+            qty = int(l.get("qty") or 0)
+        except (TypeError, ValueError):
+            qty = 0
+        if strike is None or qty == 0:
+            continue
+        (shorts if qty < 0 else longs).append({"strike": strike, "qty": abs(qty)})
+    if not shorts or not longs:
+        return False
+    shorts.sort(key=lambda x: x["strike"])
+    longs.sort(key=lambda x: x["strike"])
+    covered: set[float] = set()
+    for s in shorts:
+        need = s["qty"]
+        for lg in longs:
+            if need == 0:
+                break
+            if lg["strike"] < s["strike"] and lg["qty"] > 0:
+                take = min(lg["qty"], need)
+                lg["qty"] -= take
+                need -= take
+        if need == 0:
+            covered.add(s["strike"])
+    return s_strike in covered
+
+
 def _normalize_alert_state(raw: Optional[str], delta: Optional[float]) -> str:
     """Normalize IBKR-sync alert states to the frontend stateMap vocabulary."""
     if not raw:
@@ -660,11 +751,24 @@ def aggregate_positions_by_ticker(positions_data: dict) -> list[dict]:
             _crit = float(_cfg2("strategy.delta_critical_threshold") or 0.35)
         except Exception:
             _crit = 0.35
+        # Doctrine v2 (v3.11): a short call inside an expiry-MATCHED vertical is
+        # defined-risk — never promote it to critical_gamma (kills the recurring
+        # false MSFT/AMZN briefing flags on the Jan'28 verticals).
+        _vert_exempt = bool(
+            primary_short is not None
+            and short_call_vertical_exempt(
+                legs, _leg_strike(primary_short), primary_short.get("expiry")
+            )
+        )
         if (_gamma_check_eligible
+                and not _vert_exempt
                 and current_delta is not None
                 and abs(current_delta) > _crit
                 and alert_state in ("safe", "watch", "unknown")):
             alert_state = "critical_gamma"
+        elif _vert_exempt and alert_state == "critical_gamma":
+            # Sync-stamped gamma alert on an exempt vertical — downgrade to watch.
+            alert_state = "watch"
 
         delta_state = _normalize_delta_state(current_delta, strategy, "MIXED")
 
@@ -688,6 +792,7 @@ def aggregate_positions_by_ticker(positions_data: dict) -> list[dict]:
             "current_delta": current_delta,
             "delta_state": delta_state,
             "alert_state": alert_state,
+            "vertical_exempt": _vert_exempt,
             "notes": notes,
             "qty": abs(int((_primary_short_any or {}).get("qty") or 1)),
             "legs": [

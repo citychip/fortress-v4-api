@@ -189,6 +189,13 @@ SCHEMA: dict[str, list[dict]] = {
         {"key": "vix_act_threshold", "label": "VIX ACT level", "type": "number", "min": 0, "max": 100, "step": 0.5, "description": "Halt new entries when VIX crosses above this level"},
         {"key": "ivr_low_warn_threshold", "label": "IVR low WARN", "type": "number", "min": 0, "max": 100, "step": 1, "description": "Warn when IVR drops below this (premium too thin)"},
         {"key": "theta_decay_warn_pct", "label": "Theta decay WARN (% NLV/day)", "type": "number", "unit": "%", "min": 0, "max": 5, "step": 0.01, "description": "Alert when daily theta burn exceeds this % of NLV"},
+        # --- Close-confirmed conditional alerts (Sprint 20.3 / v3.11 weekly) ---
+        {"key": "close_eval_enabled", "label": "EOD close-alert pass", "type": "boolean",
+         "description": "Run the daily end-of-day evaluation of close_above/close_below (daily) and weekly_close_above/weekly_close_below (Friday bar only) conditional alerts against the official close. Wick-immune by design."},
+        {"key": "close_eval_utc_hour", "label": "Close-pass hour (UTC)", "type": "number", "unit": "h", "min": 0, "max": 23, "step": 1,
+         "description": "UTC hour of the EOD close-alert pass. Default 21 (= post-close in both EDT and EST — no seasonal edit needed)."},
+        {"key": "close_eval_utc_minute", "label": "Close-pass minute (UTC)", "type": "number", "unit": "min", "min": 0, "max": 59, "step": 5,
+         "description": "UTC minute of the EOD close-alert pass. Default 15."},
     ],
     "security": [
         # --- Data source toggles ---

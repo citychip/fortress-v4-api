@@ -198,17 +198,29 @@ def stop_loss_all():
 
         dp_floors = dp_floors_map.get(ticker, [])
         current_mv = pos.get("net_market_value")
+        vert_exempt = bool(pos.get("vertical_exempt"))
 
-        try:
-            ev = evaluate_stop_loss(
-                position=pos,
-                latest_price=latest_price,
-                sma_200=sma_200,
-                dp_floors=dp_floors,
-                current_mv=current_mv,
-            )
-        except Exception as exc:
-            ev = {"verdict": "SAFE", "signals": [], "reasons": [str(exc)]}
+        if vert_exempt:
+            # Doctrine v2 (v3.11): expiry-matched verticals are defined-risk
+            # packages — leg-level stop signals are suppressed; the package is
+            # managed by the weekly-close de-risk rules, not per-leg stops.
+            ev = {
+                "verdict": "SAFE",
+                "recommended_action": "Expiry-matched vertical (doctrine v2) — manage as package; no leg-level stop action.",
+                "signals": ["vertical_exempt"],
+                "reasons": ["Short call is fully covered by a same-expiry long call (defined-risk vertical) — stop flags suppressed per Strategy v3.11 doctrine v2."],
+            }
+        else:
+            try:
+                ev = evaluate_stop_loss(
+                    position=pos,
+                    latest_price=latest_price,
+                    sma_200=sma_200,
+                    dp_floors=dp_floors,
+                    current_mv=current_mv,
+                )
+            except Exception as exc:
+                ev = {"verdict": "SAFE", "signals": [], "reasons": [str(exc)]}
 
         results.append({
             "ticker": ticker,
@@ -218,6 +230,7 @@ def stop_loss_all():
             "current_delta": pos.get("current_delta"),
             "net_market_value": current_mv,
             "synthesized_id": _synthesize_id(pos),
+            "vertical_exempt": vert_exempt,
             "verdict": ev.get("verdict", "SAFE"),
             "recommended_action": ev.get("recommended_action", ""),
             "signals": ev.get("signals", []),
@@ -237,6 +250,7 @@ def stop_loss_all():
             "act": sum(1 for r in results if r["verdict"] == "ACT"),
             "watch": sum(1 for r in results if r["verdict"] == "WATCH"),
             "safe": sum(1 for r in results if r["verdict"] == "SAFE"),
+            "vertical_exempt": sum(1 for r in results if r.get("vertical_exempt")),
         },
     }
 
@@ -318,11 +332,23 @@ def roll_all():
             "qty": pos.get("qty") or 1,
             "current_delta": pos.get("current_delta"),
         }
+        vert_exempt = bool(pos.get("vertical_exempt"))
 
-        try:
-            ev = evaluate_roll(position=roll_input)
-        except Exception as exc:
-            ev = {"urgency": "NONE", "roll_needed": False, "reasons": [str(exc)], "current_dte": None}
+        if vert_exempt:
+            # Doctrine v2 (v3.11): expiry-matched verticals are never leg-rolled —
+            # delta on the short leg WILL run high by design; the package resolves
+            # at expiry or via the weekly-close de-risk rules.
+            ev = {
+                "urgency": "NONE",
+                "roll_needed": False,
+                "current_dte": _dte_days(roll_input["expiry"]),
+                "reasons": ["Expiry-matched vertical — roll flags suppressed per Strategy v3.11 doctrine v2 (manage as package)."],
+            }
+        else:
+            try:
+                ev = evaluate_roll(position=roll_input)
+            except Exception as exc:
+                ev = {"urgency": "NONE", "roll_needed": False, "reasons": [str(exc)], "current_dte": None}
 
         results.append({
             "ticker": ticker,
@@ -331,6 +357,7 @@ def roll_all():
             "short_strike": pos.get("short_strike"),
             "current_delta": pos.get("current_delta"),
             "synthesized_id": _synthesize_id(pos),
+            "vertical_exempt": vert_exempt,
             "roll_needed": ev.get("roll_needed", False),
             "urgency": ev.get("urgency", "NONE"),
             "current_dte": ev.get("current_dte"),
@@ -349,6 +376,7 @@ def roll_all():
             "warning": sum(1 for r in results if r["urgency"] == "WARNING"),
             "approaching": sum(1 for r in results if r["urgency"] == "APPROACHING"),
             "none": sum(1 for r in results if r["urgency"] == "NONE"),
+            "vertical_exempt": sum(1 for r in results if r.get("vertical_exempt")),
         },
     }
 
@@ -658,7 +686,17 @@ def profit_targets():
             qty = 0
         if qty >= 0:
             continue  # only SHORT premium legs; long/LEAP cores are not profit-managed
-        dte = _dte_days(p.get("expiry")) or 0
+
+        # Fail-safe (2026-07-08): right after a relaunch/pre-sync the position
+        # payload can lack option metadata (expiry None, strike unset, right
+        # "NONE"). `_dte_days(None) or 0` then read as DTE 0 and false-flagged
+        # EVERY short leg "DTE 0 ≤ 21". Missing metadata → SKIP the leg (an
+        # advisory scan must under-report, never fabricate an exit signal).
+        dte = _dte_days(p.get("expiry"))
+        strike = p.get("strike") or state._leg_strike(p)
+        right = str(p.get("right") or "").upper()
+        if dte is None or strike is None or right not in ("C", "P"):
+            continue
 
         avg_cost = p.get("avg_cost")
         mv = p.get("market_value")
@@ -679,8 +717,8 @@ def profit_targets():
             continue
         out.append({
             "ticker":     (p.get("ticker") or "").upper(),
-            "right":      str(p.get("right", "")).upper(),
-            "strike":     p.get("strike"),
+            "right":      right,
+            "strike":     strike,
             "expiry":     p.get("expiry"),
             "dte":        dte,
             "qty":        qty,
@@ -1054,15 +1092,8 @@ def pre_trade_check(ticker: str):
     }
 
     days_to_earnings = state.days_to_earnings(ticker, calendar)
-    if days_to_earnings is not None and 0 <= days_to_earnings <= 10:
-        earnings_state = "blackout"
-        earnings_passed = False
-    elif days_to_earnings is not None and 0 <= days_to_earnings <= 30:
-        earnings_state = "approaching"
-        earnings_passed = True
-    else:
-        earnings_state = "clear"
-        earnings_passed = True
+    earnings_state = state.earnings_state_from_days(days_to_earnings)
+    earnings_passed = earnings_state != "blackout"
     gate_earnings = {
         "name": "earnings_blackout",
         "rule": "Strategy §4 — no entry within 10 days of earnings",
@@ -1070,7 +1101,7 @@ def pre_trade_check(ticker: str):
         "detail": (
             f"Earnings in {days_to_earnings}d — {earnings_state}"
             if days_to_earnings is not None
-            else "No earnings date found — treat as clear"
+            else "⚠ No earnings date found — UNVERIFIED, confirm via get_earnings_history before sizing (scanner-null fix)"
         ),
         "days_to_earnings": days_to_earnings,
         "earnings_state": earnings_state,
@@ -1215,13 +1246,7 @@ def pretrade_all():
     for ticker in tickers:
         conc_pct = concentration.get(ticker, 0.0)
         days_to_earnings = state.days_to_earnings(ticker, calendar)
-
-        if days_to_earnings is not None and 0 <= days_to_earnings <= 10:
-            earnings_state = "blackout"
-        elif days_to_earnings is not None and 0 <= days_to_earnings <= 30:
-            earnings_state = "approaching"
-        else:
-            earnings_state = "clear"
+        earnings_state = state.earnings_state_from_days(days_to_earnings)
 
         excluded_entry = excluded_map.get(ticker)
         is_excluded = excluded_entry is not None
@@ -1253,6 +1278,10 @@ def pretrade_all():
         verdict = "PROCEED" if not failures else "BLOCKED"
 
         adv = _pretrade_advisories(ticker, market_adv)
+        # Scanner-null fix: unknown earnings date = advisory caution, never a block.
+        caution_flags = list(adv["caution_flags"])
+        if earnings_state == "unverified":
+            caution_flags.append("earnings_unverified")
 
         results.append({
             "ticker": ticker,
@@ -1266,8 +1295,8 @@ def pretrade_all():
             "exclusion_reason": excluded_entry.get("reason") if excluded_entry else None,
             "has_leap": has_leap,
             # Sprint 16.1 — advisory caution (non-blocking)
-            "caution": adv["caution"],
-            "caution_flags": adv["caution_flags"],
+            "caution": bool(adv["caution"]) or earnings_state == "unverified",
+            "caution_flags": caution_flags,
         })
 
     # Sort: PROCEED first, then by earnings proximity
@@ -1352,13 +1381,7 @@ def trade_report():
 
         conc_pct = concentration.get(ticker, 0.0)
         days_to_earnings = state.days_to_earnings(ticker, calendar)
-
-        if days_to_earnings is not None and 0 <= days_to_earnings <= 10:
-            earnings_state = "blackout"
-        elif days_to_earnings is not None and 0 <= days_to_earnings <= 30:
-            earnings_state = "approaching"
-        else:
-            earnings_state = "clear"
+        earnings_state = state.earnings_state_from_days(days_to_earnings)
 
         is_excluded = ticker in excluded_map
         has_leap = any(

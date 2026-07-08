@@ -18,7 +18,7 @@
     "quantdata_instance_id": "a7da66dc-7c6e-4e72-bc1e-555e686adc72",
     "quantdata_api_base": "https://core-lb-prod.quantdata.us/api",
     "quantdata_api_key": "",
-    "ibkr_auto_sync_enabled": false,
+    "ibkr_auto_sync_enabled": true,
     "ibkr_auto_sync_interval_min": 15,
     "api_token_hint": "(set via FORTRESS_API_TOKEN env var)",
     "ibkr_auth_mode": "ibeam",

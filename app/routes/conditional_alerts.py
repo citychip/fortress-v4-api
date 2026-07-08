@@ -2,20 +2,30 @@
 Conditional Alerts — Phase 7.
 
 Trigger types:
-  price_above       — spot >= threshold (e.g. "MSFT hits $450")
-  price_below       — spot <= threshold (e.g. "MSFT pulls back to $400 → entry")
-  close_above       — DAILY CLOSE >= threshold (EOD-confirmed; immune to wicks)
-  close_below       — DAILY CLOSE <= threshold (EOD-confirmed; immune to wicks)
-  pnl_pct           — position unrealized P&L% >= threshold (e.g. 50% profit → close)
-  dte_lte           — short leg DTE <= threshold (e.g. 21d → review roll)
-  delta_gte         — short leg abs(delta) >= threshold (e.g. 0.35 → roll)
-  conditional_entry — same as price_below but tagged as 🔵 entry signal
+  price_above        — spot >= threshold (e.g. "MSFT hits $450")
+  price_below        — spot <= threshold (e.g. "MSFT pulls back to $400 → entry")
+  close_above        — DAILY CLOSE >= threshold (EOD-confirmed; immune to wicks)
+  close_below        — DAILY CLOSE <= threshold (EOD-confirmed; immune to wicks)
+  weekly_close_above — WEEKLY (Friday) CLOSE >= threshold (v3.11 weekly-close rules)
+  weekly_close_below — WEEKLY (Friday) CLOSE <= threshold (v3.11 weekly-close rules)
+  pnl_pct            — position unrealized P&L% >= threshold (e.g. 50% profit → close)
+  dte_lte            — short leg DTE <= threshold (e.g. 21d → review roll)
+  delta_gte          — short leg abs(delta) >= threshold (e.g. 0.35 → roll)
+  conditional_entry  — same as price_below but tagged as 🔵 entry signal
 
   NOTE (Sprint 20.3): close_above / close_below are evaluated ONLY by the EOD
   close pass (POST /api/conditional-alerts/evaluate-close), against the official
   daily close — never on intraday spot. The intraday /evaluate pass skips them.
   This removes the manual "confirm on the daily close" step that price_* rules
   required (they false-fire on intraday wicks).
+
+  NOTE (v3.11, 2026-07-08): weekly_close_above / weekly_close_below ride the
+  SAME EOD pass but only fire when the just-settled daily bar is a FRIDAY —
+  i.e. the weekly close. This codifies the v3.11 weekly-close de-risk rules
+  (e.g. MSFT: Fri close < wk-200 ≈383 → cut the 310/450 vertical 50% Monday;
+  Fri close ≥395 → trim into strength) so they no longer need a manual Friday
+  check. Caveat: a holiday-shortened week (Friday closed) is skipped — the
+  rule simply re-arms for the next full week.
 
 GET  /api/conditional-alerts                  — list all (optionally filter by ticker)
 POST /api/conditional-alerts                  — create
@@ -43,10 +53,15 @@ _log = logging.getLogger("fortress.conditional_alerts")
 
 AlertType = Literal[
     "price_above", "price_below",
-    "close_above", "close_below",   # Sprint 20.3 — EOD-confirmed (daily close)
+    "close_above", "close_below",               # Sprint 20.3 — EOD-confirmed (daily close)
+    "weekly_close_above", "weekly_close_below", # v3.11 — Friday-close-confirmed (weekly)
     "pnl_pct", "dte_lte", "delta_gte",
     "conditional_entry",
 ]
+
+# Close-confirmed families — evaluated ONLY by the EOD pass, never intraday.
+CLOSE_ALERT_TYPES = ("close_above", "close_below",
+                     "weekly_close_above", "weekly_close_below")
 UrgencyLevel = Literal["critical", "watch", "profit", "entry"]
 
 # ── badge cache ───────────────────────────────────────────────────────────────
@@ -185,10 +200,10 @@ def evaluate_conditional_alerts():
         if alert.get("triggered") or alert.get("snoozed"):
             continue
 
-        # Sprint 20.3 — close-confirmed alerts are evaluated ONLY by the EOD
-        # close pass (evaluate_close_alerts), against the official daily close.
-        # Skip them here so intraday spot (wick-prone) can never fire them.
-        if alert.get("alert_type") in ("close_above", "close_below"):
+        # Sprint 20.3 / v3.11 — close-confirmed alerts (daily AND weekly) are
+        # evaluated ONLY by the EOD close pass (evaluate_close_alerts), against
+        # the official close. Skip them here so intraday spot can never fire them.
+        if alert.get("alert_type") in CLOSE_ALERT_TYPES:
             continue
 
         ticker     = alert["ticker"]
@@ -284,12 +299,14 @@ def _daily_close(ticker: str):
 @router.post("/conditional-alerts/evaluate-close")
 def evaluate_close_alerts():
     """
-    EOD pass — evaluate ONLY close_above / close_below alerts against the
-    official DAILY CLOSE (not intraday spot). Run once after the cash close by
-    the scheduler's close_alert_eval job; also callable on demand to confirm a
-    close rule. Records last_close / last_close_date on every close alert for
-    audit, and triggered_close / triggered_close_date when it fires.
-    Returns the list of newly triggered alerts.
+    EOD pass — evaluate ONLY close-confirmed alerts (close_above / close_below
+    / weekly_close_above / weekly_close_below) against the official DAILY CLOSE
+    (not intraday spot). weekly_close_* additionally require the settled bar to
+    be a FRIDAY (the weekly close, v3.11 weekly-close de-risk rules). Run once
+    after the cash close by the scheduler's close_alert_eval job; also callable
+    on demand to confirm a close rule. Records last_close / last_close_date on
+    every close alert for audit, and triggered_close / triggered_close_date
+    when it fires. Returns the list of newly triggered alerts.
     """
     data = _load()
     alerts = data.get("alerts", [])
@@ -297,7 +314,7 @@ def evaluate_close_alerts():
     close_cache: dict = {}   # ticker → (close, bar_date), fetched once per ticker
 
     for alert in alerts:
-        if alert.get("alert_type") not in ("close_above", "close_below"):
+        if alert.get("alert_type") not in CLOSE_ALERT_TYPES:
             continue
         if alert.get("triggered") or alert.get("snoozed"):
             continue
@@ -319,9 +336,20 @@ def evaluate_close_alerts():
         alert["last_close"] = round(close, 4)
         alert["last_close_date"] = bar_date
 
+        # v3.11 — weekly_close_* alerts only evaluate on the WEEKLY close: the
+        # settled bar must be a Friday. Any other weekday: stay armed, no fire.
+        # (Holiday-shortened weeks with no Friday bar are skipped by design.)
+        if alert_type in ("weekly_close_above", "weekly_close_below"):
+            try:
+                is_friday = datetime.strptime(bar_date, "%Y-%m-%d").weekday() == 4
+            except (ValueError, TypeError):
+                is_friday = False
+            if not is_friday:
+                continue
+
         fired = (
-            (alert_type == "close_above" and close >= threshold) or
-            (alert_type == "close_below" and close <= threshold)
+            (alert_type in ("close_above", "weekly_close_above") and close >= threshold) or
+            (alert_type in ("close_below", "weekly_close_below") and close <= threshold)
         )
 
         if fired:

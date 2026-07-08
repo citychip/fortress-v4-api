@@ -1,0 +1,180 @@
+{
+  "snapshots": [
+    {
+      "date": "2026-07-08",
+      "captured_at": "2026-07-08T12:40:32.355543Z",
+      "reason": "briefing",
+      "legs": {
+        "AMZN  280121C00280000": {
+          "ticker": "AMZN",
+          "sec_type": "OPT",
+          "right": "C",
+          "strike": 280.0,
+          "expiry": "2028-01-21",
+          "qty": -1.0
+        },
+        "AMD   260731P00450000": {
+          "ticker": "AMD",
+          "sec_type": "OPT",
+          "right": "P",
+          "strike": 450.0,
+          "expiry": "2026-07-31",
+          "qty": -1.0
+        },
+        "MSFT  280121C00450000": {
+          "ticker": "MSFT",
+          "sec_type": "OPT",
+          "right": "C",
+          "strike": 450.0,
+          "expiry": "2028-01-21",
+          "qty": -1.0
+        },
+        "SPY   260821P00665000": {
+          "ticker": "SPY",
+          "sec_type": "OPT",
+          "right": "P",
+          "strike": 665.0,
+          "expiry": "2026-08-21",
+          "qty": -5.0
+        },
+        "SPY   260821P00710000": {
+          "ticker": "SPY",
+          "sec_type": "OPT",
+          "right": "P",
+          "strike": 710.0,
+          "expiry": "2026-08-21",
+          "qty": 5.0
+        },
+        "SPY   260918P00700000": {
+          "ticker": "SPY",
+          "sec_type": "OPT",
+          "right": "P",
+          "strike": 700.0,
+          "expiry": "2026-09-18",
+          "qty": -7.0
+        },
+        "SPY   260918P00650000": {
+          "ticker": "SPY",
+          "sec_type": "OPT",
+          "right": "P",
+          "strike": 650.0,
+          "expiry": "2026-09-18",
+          "qty": -1.0
+        },
+        "AAPL  280121C00240000": {
+          "ticker": "AAPL",
+          "sec_type": "OPT",
+          "right": "C",
+          "strike": 240.0,
+          "expiry": "2028-01-21",
+          "qty": 1.0
+        },
+        "MSFT  280121C00310000": {
+          "ticker": "MSFT",
+          "sec_type": "OPT",
+          "right": "C",
+          "strike": 310.0,
+          "expiry": "2028-01-21",
+          "qty": 1.0
+        },
+        "AAPL  270115C00340000": {
+          "ticker": "AAPL",
+          "sec_type": "OPT",
+          "right": "C",
+          "strike": 340.0,
+          "expiry": "2027-01-15",
+          "qty": -2.0
+        },
+        "SPY   260918P00745000": {
+          "ticker": "SPY",
+          "sec_type": "OPT",
+          "right": "P",
+          "strike": 745.0,
+          "expiry": "2026-09-18",
+          "qty": 8.0
+        },
+        "NVDA  260821C00220000": {
+          "ticker": "NVDA",
+          "sec_type": "OPT",
+          "right": "C",
+          "strike": 220.0,
+          "expiry": "2026-08-21",
+          "qty": -1.0
+        },
+        "GOOGL 270115C00390000": {
+          "ticker": "GOOGL",
+          "sec_type": "OPT",
+          "right": "C",
+          "strike": 390.0,
+          "expiry": "2027-01-15",
+          "qty": -1.0
+        },
+        "AAPL  280121C00290000": {
+          "ticker": "AAPL",
+          "sec_type": "OPT",
+          "right": "C",
+          "strike": 290.0,
+          "expiry": "2028-01-21",
+          "qty": 1.0
+        },
+        "AMZN  280121C00200000": {
+          "ticker": "AMZN",
+          "sec_type": "OPT",
+          "right": "C",
+          "strike": 200.0,
+          "expiry": "2028-01-21",
+          "qty": 2.0
+        },
+        "AMZN  280121C00300000": {
+          "ticker": "AMZN",
+          "sec_type": "OPT",
+          "right": "C",
+          "strike": 300.0,
+          "expiry": "2028-01-21",
+          "qty": -1.0
+        },
+        "MSFT  260821C00465000": {
+          "ticker": "MSFT",
+          "sec_type": "OPT",
+          "right": "C",
+          "strike": 465.0,
+          "expiry": "2026-08-21",
+          "qty": 1.0
+        },
+        "NVDA  280121C00170000": {
+          "ticker": "NVDA",
+          "sec_type": "OPT",
+          "right": "C",
+          "strike": 170.0,
+          "expiry": "2028-01-21",
+          "qty": 1.0
+        },
+        "AMD   260731P00430000": {
+          "ticker": "AMD",
+          "sec_type": "OPT",
+          "right": "P",
+          "strike": 430.0,
+          "expiry": "2026-07-31",
+          "qty": 1.0
+        },
+        "GOOGL 280121C00310000": {
+          "ticker": "GOOGL",
+          "sec_type": "OPT",
+          "right": "C",
+          "strike": 310.0,
+          "expiry": "2028-01-21",
+          "qty": 1.0
+        },
+        "OST|STK": {
+          "ticker": "OST",
+          "sec_type": "STK",
+          "right": null,
+          "strike": 0.0,
+          "expiry": null,
+          "qty": 44.0
+        }
+      }
+    }
+  ],
+  "updated_at": "2026-07-08T12:40:32.371491Z"
+}

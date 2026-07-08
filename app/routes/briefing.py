@@ -179,6 +179,74 @@ def _fetch_betas_and_prices(tickers: list[str]) -> dict:
     return result
 
 
+def compute_beta_dd(data: dict, betas: dict) -> dict:
+    """
+    v3.11 §C — per-ticker β-DD, the CONTROL metric for single-name risk.
+
+        per-ticker β-DD ($) = Σ over the name's legs of
+            OPT: qty × current_delta × multiplier × spot
+            STK: qty × spot
+        …as % of NLV. (MV/NLV stays a REPORTING metric only — it understates
+        spread risk and misstates LEAP exposure.)
+
+    Gates (advisory flags, never blocking):
+        soft_gate   — β-DD > 30% NLV → FREEZE the name (no new longs, no
+                      duration adds, no size-ups; reduce only via strength-
+                      trims / salvage §G / weekly rules §F)
+        hard_backstop — β-DD > 40% at a WEEKLY close → mandatory salvage
+                      analysis within one session (execution stays manual)
+
+    SPY (the hedge) and inert stock lines (OST) are computed for visibility
+    but excluded from gating (`gate_eligible: false`).
+    """
+    soft_pct = float(cfg("strategy.beta_dd_soft_gate_pct", 30.0))
+    hard_pct = float(cfg("strategy.beta_dd_hard_backstop_pct", 40.0))
+    net_liq = data.get("net_liq") or 0
+    positions = data.get("positions", []) or []
+
+    dollar: dict[str, float] = {}
+    for p in positions:
+        t = (p.get("ticker") or "").upper()
+        if not t:
+            continue
+        qty = p.get("qty") or 0
+        spot = (betas.get(t, {}) or {}).get("price")
+        if not spot:
+            continue
+        if str(p.get("sec_type") or "OPT").upper() == "STK":
+            dollar[t] = dollar.get(t, 0.0) + qty * float(spot)
+        else:
+            delta = p.get("current_delta")
+            if delta is None:
+                continue
+            try:
+                mult = int(p.get("multiplier") or 100)
+            except (TypeError, ValueError):
+                mult = 100
+            dollar[t] = dollar.get(t, 0.0) + qty * float(delta) * mult * float(spot)
+
+    _no_gate = {"SPY", "OST"}  # hedge + inert line — visibility only
+    tickers_out = []
+    for t, dd in sorted(dollar.items(), key=lambda kv: -abs(kv[1])):
+        pct = round(dd / net_liq * 100, 1) if net_liq else None
+        eligible = t not in _no_gate
+        tickers_out.append({
+            "ticker": t,
+            "beta_dd_usd": round(dd, 0),
+            "beta_dd_pct": pct,
+            "gate_eligible": eligible,
+            "soft_gate": bool(eligible and pct is not None and pct > soft_pct),
+            "hard_backstop": bool(eligible and pct is not None and pct > hard_pct),
+        })
+    return {
+        "basis": "sum(qty × delta × mult × spot) per ticker, % of NLV (v3.11 §C)",
+        "soft_gate_pct": soft_pct,
+        "hard_backstop_pct": hard_pct,
+        "frozen": [r["ticker"] for r in tickers_out if r["soft_gate"]],
+        "tickers": tickers_out,
+    }
+
+
 def compute_portfolio_greeks_with_beta(data: dict) -> dict:
     """
     Compute portfolio Greeks with SPY-equivalent beta-weighted delta.
@@ -225,8 +293,39 @@ def compute_portfolio_greeks_with_beta(data: dict) -> dict:
 # Pacing computation
 # ---------------------------------------------------------------------------
 
-def compute_pacing(journal: dict) -> dict:
-    """Count OPEN actions in the current calendar week (Mon-Sun)."""
+def _dynamic_pacing_max(vix, static_max: int) -> tuple[int, str]:
+    """
+    v3.11 dynamic pacing band (regime-derived): the weekly new-entry budget
+    scales with the vol regime instead of a flat cap —
+        VIX < 18   → 2 new entries/week (calm tape, thin premium, be picky)
+        18 ≤ VIX ≤ 25 → 3
+        VIX > 25   → 5 (rich premium — the regime the engine is built for)
+    The static `strategy.entries_per_week_max` remains the absolute CEILING
+    (min() below), so a conservative manual setting can only tighten the band.
+    Tunable off via `strategy.dynamic_pacing_enabled`. Returns (max, band_label).
+    """
+    try:
+        v = float(vix)
+    except (TypeError, ValueError):
+        return static_max, "static (no VIX)"
+    if v <= 0:
+        return static_max, "static (no VIX)"
+    if v < 18:
+        dyn, band = 2, "vix<18"
+    elif v <= 25:
+        dyn, band = 3, "18≤vix≤25"
+    else:
+        dyn, band = 5, "vix>25"
+    return min(dyn, static_max) if static_max else dyn, band
+
+
+def compute_pacing(journal: dict, vix=None) -> dict:
+    """Count OPEN actions in the current calendar week (Mon-Sun).
+
+    v3.11: `max_per_week` is now regime-derived from VIX (see
+    `_dynamic_pacing_max`) with the static config as ceiling; the payload
+    carries `pacing_mode`/`vix_band`/`static_max` so the derivation is
+    never opaque."""
     now = datetime.now(timezone.utc)
     monday = (now - timedelta(days=now.weekday())).replace(
         hour=0, minute=0, second=0, microsecond=0
@@ -250,7 +349,13 @@ def compute_pacing(journal: dict) -> dict:
                 })
         except ValueError:
             continue
-    _max = cfg("strategy.entries_per_week_max", 2)
+    _static_max = int(cfg("strategy.entries_per_week_max", 2))
+    _dynamic_enabled = bool(cfg("strategy.dynamic_pacing_enabled", True))
+    if _dynamic_enabled:
+        _max, _band = _dynamic_pacing_max(vix, _static_max)
+        _mode = "dynamic" if "static" not in _band else "static"
+    else:
+        _max, _band, _mode = _static_max, "disabled", "static"
     journal_used = len(opens_this_week)
 
     # Sprint 16.5 — reconcile against the position-diff fill detector, which is
@@ -278,6 +383,11 @@ def compute_pacing(journal: dict) -> dict:
         "used": used,
         "remaining": max(0, _max - used),
         "entries_this_week": opens_this_week,   # journal detail (named entries)
+        # v3.11 dynamic pacing transparency
+        "pacing_mode": _mode,
+        "vix_band": _band,
+        "vix": round(float(vix), 2) if isinstance(vix, (int, float)) else None,
+        "static_max": _static_max,
         # Sprint 16.5 / 20.2 transparency
         "source": pd_source,
         "journal_used": journal_used,
@@ -575,6 +685,15 @@ def get_briefing():
     except Exception:
         pass
 
+    # v3.11 §C — per-ticker β-DD block (best-effort: betas are 1h-cached, and a
+    # failure here must never break the briefing header).
+    try:
+        _tickers = list({p.get("ticker", "").upper() for p in (positions.get("positions") or []) if p.get("ticker")})
+        _betas = _fetch_betas_and_prices(_tickers) if _tickers else {}
+        beta_dd_block = compute_beta_dd(positions, _betas) if _betas else None
+    except Exception:
+        beta_dd_block = None
+
     return {
         "as_of": datetime.now(timezone.utc).isoformat(),
         "account": account,
@@ -585,13 +704,14 @@ def get_briefing():
             "state": staleness_state,
             "ocr_last_sync": positions.get("ocr_last_sync"),
         },
-        "pacing": compute_pacing(journal),
+        "pacing": compute_pacing(journal, vix=macro.get("vix")),
         "concentration": {
             "top": top_concentration,
             "all": conc_dict,
             "msft_warning": msft_warning,
             "cluster": cluster_block,
         },
+        "beta_dd": beta_dd_block,
         "greeks": compute_portfolio_greeks_with_beta(positions),
         "actions": compute_actions(positions, alerts, candidates, calendar),
     }
