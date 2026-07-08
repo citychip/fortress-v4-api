@@ -22,15 +22,14 @@ Start any session at **`HANDOFF.md`**. This index is the map: every doc, its pur
 ## ♟ Strategy — the rules
 | Doc | Purpose | Status |
 |---|---|---|
-| **`STRATEGY_v3_11_UPDATE_2026-07-07.md`** | **CANONICAL RULES DELTA (v3.11, in force):** two-bucket (VWCE 20%), hybrid XSP income, per-ticker β-DD caps (30/40), B-2 hedge formula, roll doctrine v2 (matched-vertical exemption), weekly-close de-risk, dynamic pacing, compliance-score n≥30. Read WITH the v3.9 spec. | LIVING (canonical delta) |
-| `01_Portfolio_Strategy_v3_9.md` | Base strategy spec: governance, strategies, entry/exit/risk, post-earnings playbook. v3.11 delta overrides where they conflict. | LIVING (spec) |
-| `STRATEGY_ENHANCEMENTS_v3_10.md` | Research-codified rules addendum (VRP gate, 50% take, PMCC guardrails, β-vega, cluster, §8 LEAP call-writing). | LIVING (addendum) |
+| **`01_Portfolio_Strategy_v3_11.md`** | **THE single canonical strategy spec (consolidated 07-08):** governance, two-bucket architecture, hybrid XSP income, all strategies, entry/roll/exit rules incl. doctrine v2 + salvage, β-DD caps, B-2 hedge formula, weekly-close protocol, dynamic pacing, compliance measurement. Supersedes the v3.9 spec + v3.10 addendum + v3.11 delta (all archived / retained as review record). | LIVING (spec) |
 | `MULTITIMEFRAME_PROCEDURE.md` | Monthly/Weekly/Daily/4h technical procedure + source-split + decision matrix (v1.1). | LIVING |
 | `REVISED_RECOVERY_STRATEGY_2026-06-26.md` | The recovery plan (loss attribution + 5 pillars + de-concentration glide). | LIVING |
 
-## 🔍 External review loop (active until Manus v6 lands — then archive all three)
+## 🔍 External review loop (active until Manus v6 lands — then archive all four)
 | Doc | Purpose | Status |
 |---|---|---|
+| `STRATEGY_v3_11_UPDATE_2026-07-07.md` | The v3.11 adoption record as sent to the reviewers (rules now live in the consolidated spec — do not edit this copy). | SNAPSHOT 2026-07-07 |
 | `AI_REVIEW_BRIEF_2026-07-07.md` | The 10-question review brief sent to Gemini/Manus. | SNAPSHOT 2026-07-07 |
 | `REVIEW_REQUEST_2026-07-08.md` | Follow-up request (incl. Q7 compliance checklist). | SNAPSHOT 2026-07-08 |
 | `LEAP_SALVAGE_MSFT_CROSSCHECK_2026-07-07.md` | Live-data cross-check that caught the external AIs' errors (naked-upside trap, β-DD ranking, hedge already in band). | SNAPSHOT 2026-07-07 |
@@ -55,7 +54,7 @@ Start any session at **`HANDOFF.md`**. This index is the map: every doc, its pur
 
 **Archived 2026-07-04:** `archive/PORTFOLIO.md` (live state = `get_briefing` + HANDOFF Current State; stale since 06-15), `archive/Sprint21_ChangeList.md` (shipped), `archive/PARAPET_SPRINT.md` (frontend sprint history).
 
-**Archived 2026-07-08:** `archive/DOC_CONSOLIDATION_PROPOSAL.md` (executed), `archive/ENHANCEMENT_PROPOSAL_v1.md` (Sprints 21–24 shipped), `archive/IMPROVEMENT_RESEARCH_2026-06-22.md` (v3.10 source material), `archive/STRATEGY_AMENDMENT_TWO_BUCKET_2026-07-07.md` (folded into `STRATEGY_v3_11_UPDATE`). Sprint 25/26 backlog tables → `archive/BACKLOG_COMPLETED.md`. Deleted (code, not docs): `route_settings.py`, `route_briefing.py`, `route_journal.py`, `route_options_analytics.py`, `route_pnl.py` — all stale, unmapped duplicates of files whose current copies are mapped (or live only in the repo).
+**Archived 2026-07-08:** `archive/DOC_CONSOLIDATION_PROPOSAL.md` (executed), `archive/ENHANCEMENT_PROPOSAL_v1.md` (Sprints 21–24 shipped), `archive/IMPROVEMENT_RESEARCH_2026-06-22.md` (v3.10 source material), `archive/STRATEGY_AMENDMENT_TWO_BUCKET_2026-07-07.md` (folded into v3.11). **Strategy consolidation (same day):** `archive/01_Portfolio_Strategy_v3_9.md` + `archive/STRATEGY_ENHANCEMENTS_v3_10.md` → merged into the single `01_Portfolio_Strategy_v3_11.md`. Sprint 25/26 backlog tables → `archive/BACKLOG_COMPLETED.md`. Deleted (code, not docs): `route_settings.py`, `route_briefing.py`, `route_journal.py`, `route_options_analytics.py`, `route_pnl.py` — all stale, unmapped duplicates of files whose current copies are mapped (or live only in the repo).
 
 ---
 

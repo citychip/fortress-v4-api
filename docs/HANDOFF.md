@@ -57,7 +57,7 @@
 
 ## Current State (live read 2026-07-08 ~12:48 UTC, post Sprint 26/27 deploy+verify — staleness 0.1h/fresh, web_api. ⚠ Always re-sync if staleness >~2h. ⚠ Partial-greeks trap: verify SPY `delta_contribution` ≠ 0 before trusting β-Δ. ⚠ Gateway 401s during order placement are EXPECTED — see WORKFLOW.md §Trade Session Procedure.)
 
-**⭐ v3.11 IN FORCE — canonical rules: `STRATEGY_v3_11_UPDATE_2026-07-07.md`** (two-bucket, hybrid XSP income, β-DD caps, B-2 hedge formula, roll doctrine v2, weekly-close de-risk, dynamic pacing, compliance-score measurement). Review package for Gemini/Manus = that file + `AI_REVIEW_BRIEF_2026-07-07.md` + `LEAP_SALVAGE_MSFT_CROSSCHECK_2026-07-07.md`.
+**⭐ v3.11 IN FORCE — canonical rules: `01_Portfolio_Strategy_v3_11.md` (consolidated single spec since 07-08:** two-bucket, hybrid XSP income, β-DD caps, B-2 hedge formula, roll doctrine v2, weekly-close de-risk, dynamic pacing, compliance-score measurement — the old v3.9 spec + v3.10 addendum are archived). Review package for Gemini/Manus stays as sent: `STRATEGY_v3_11_UPDATE_2026-07-07.md` (unedited adoption record) + `AI_REVIEW_BRIEF_2026-07-07.md` + `LEAP_SALVAGE_MSFT_CROSSCHECK_2026-07-07.md`.
 
 | Metric | Value |
 |---|---|
@@ -126,7 +126,7 @@ The OneDrive `2606Fortress` folder is the **dev/edit copy**; deploys copy files 
 - **Runtime-state policy:** `iv_history.json`, `pending_orders.json`, `position_snapshots.json`, `entry_conditions.json` (last two NEW, Sprint 16), and `*.pre-ibkr-bak`/`*.pre-sprint0-bak` are transient — gitignore them. `conditional_alerts.json`, `macro_events.json`, `trade_outcomes.json` are config/data — commit them (the last re-appears as a diff as trades close; commit at session wrap).
 
 ## Documentation Index
-**→ The master doc map is `README.md`** — every doc, its purpose, and its LIVING/SNAPSHOT status, kept current there (single source; this table was retired 2026-07-04 to avoid a second index that drifts). Quick pointers: strategy spec = `01_Portfolio_Strategy_v3_9.md`; daily workflow = `WORKFLOW.md`; data source-of-truth = `DATA_SOURCES.md`; system/deploy = `SYSTEM.md`; backlog = `BACKLOG_SPRINT_PLAN.md`; history = `SESSION_LOG.md` + `archive/`. Live book state = `get_briefing` + the Current State table above (the old `PORTFOLIO.md` is archived).
+**→ The master doc map is `README.md`** — every doc, its purpose, and its LIVING/SNAPSHOT status, kept current there (single source; this table was retired 2026-07-04 to avoid a second index that drifts). Quick pointers: strategy spec = `01_Portfolio_Strategy_v3_11.md` (single consolidated spec); daily workflow = `WORKFLOW.md`; data source-of-truth = `DATA_SOURCES.md`; system/deploy = `SYSTEM.md`; backlog = `BACKLOG_SPRINT_PLAN.md`; history = `SESSION_LOG.md` + `archive/`. Live book state = `get_briefing` + the Current State table above (the old `PORTFOLIO.md` is archived).
 
 ## Key Commands (token in `SYSTEM.md` / WSL `~/.git-credentials`)
 ```bash

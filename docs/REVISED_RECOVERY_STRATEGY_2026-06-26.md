@@ -1,6 +1,6 @@
 # Fortress — Revised Recovery Strategy
 
-**2026-06-26 · addendum to `01_Portfolio_Strategy_v3_9.md` + `STRATEGY_ENHANCEMENTS_v3_10.md`**
+**2026-06-26 · addendum to the strategy spec (now consolidated as `01_Portfolio_Strategy_v3_11.md`; the v3.9/v3.10 docs this originally referenced are archived)**
 **Goal: recover the ~$21k unrealized drawdown of the past months with positive-expectancy income, not by doubling down on the beta that caused it.**
 
 > Not financial advice. This is a portfolio-construction and process plan distilled from the live book (IBKR/Parapet/Fortress, 2026-06-26). Steven makes and fires every trade.
