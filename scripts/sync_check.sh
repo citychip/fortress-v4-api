@@ -62,6 +62,8 @@ MAP=(
   "sched_runner.py:$API/app/scheduler/runner.py"
   # Sprint 22.5 (2026-07-03): chart route (1mo/4h intervals).
   "chart_route.py:$API/app/routes/chart.py"
+  # O-1 (2026-07-08): candidates route — earnings-null → "unverified" fix.
+  "route_candidates.py:$API/app/routes/candidates.py"
 )
 
 echo "── File-content drift (OneDrive → repo) ──"
