@@ -96,7 +96,16 @@
       "short_delta_at_entry": 0.3598,
       "entry_conditions_source": "auto_captured",
       "opened": "2026-06-26"
+    },
+    {
+      "ticker": "AMD",
+      "strategy": "PCS",
+      "closed": "2026-07-08",
+      "realized_pnl": -16.83,
+      "exit_reason": "de_gamma_pre_cpi",
+      "notes": "AMD Jul31'26 450/430 bull put credit spread, x1 (NOT x7 \u2014 prior handoff size was a mislog; TWS confirmed 1 combo). Opened at 4.579 credit; closed BTC 450P/STC 430P at 4.74 debit (filled better than 4.95 limit). Deep-OTM (spot ~512) but IV ~100%+ from pre-CPI vol bid prevented theta decay, so exited ~flat-to-small-loss to strip gamma/vega before Jul 14 CPI. Roll not permitted \u2014 Jul31 expiry would span AMD's early-Aug earnings.",
+      "logged_at": "2026-07-08T18:41:39.144957Z"
     }
   ],
-  "updated_at": "2026-07-07T18:21:25.723501Z"
+  "updated_at": "2026-07-08T18:41:39.146389Z"
 }
