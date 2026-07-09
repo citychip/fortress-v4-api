@@ -33,6 +33,8 @@ The entire v3.11 backend backlog plus the session's own finds. Commits: fortress
 | O-6 | **Parapet visual check** — Alerts tab ConditionalAlertsCard + Settings close-eval rows after next build. | S | 27.8 follow-up |
 | O-7 | **Briefing-SKILL wiring** (old 22.1/24.2 remainder) — add Technical-Gate + β-DD/`frozen` + dynamic-pacing band to the `daily-post-open-briefing` scheduled-task prompt. | S | no code |
 | O-8 | **OAuth Stage 2** — IBKR-side consumer-key activation (SHARMILAH). Nothing to build locally; portal/ticket only. | ext | the only external blocker |
+| O-9 | **v4.0 household overlay — Phase 1 doc wiring** (Cowork 07-09). Add the 2 README index rows + `sync_check.sh` MAP entries for `02_Household_Strategy_v4_0.md` + `PROPOSAL_Two_Leaf_Dashboard_and_Docs_2026-07-09.md`; decide archive of obsolete candidates (`REVISED_RECOVERY_STRATEGY_2026-06-26`, review-loop snapshots, `Fortress_Forward_Prognosis` docx). Operator decision + doc-only. | S | no code; HANDOFF #8 |
+| O-10 | **v4.0 household layer — Phase 2 (read-only view)** — `get_household_overview` + `get_household_concentration` (aggregate over `get_briefing` + an eToro `household_state.json` snapshot) + Parapet **Household** page panels 1–2. Promotes `Combined_Portfolio.xlsx` to a live view. Later phases: staged-uncap + tail-hedge trackers, scheduled diversification screen, Chrome eToro ingest. Full design in the proposal. | M | read-only; engine untouched |
 
 ## Standing conventions
 - New backend script in OneDrive → add to `sync_check.sh` MAP + `deploy_data_sources.sh`; new Parapet file → `deploy_parapet.sh` FILES.
