@@ -32,11 +32,12 @@ cp "$API/quant/workflow_05_iv_crush_report.py" "$API/quant/workflow_05_iv_crush_
 cp "$SRC/workflow_05_iv_crush_report.py" "$API/quant/workflow_05_iv_crush_report.py"
 cp "$API/quant/workflow_01_premarket_scanner.py" "$API/quant/workflow_01_premarket_scanner.py.pre-18.2-bak" 2>/dev/null || true
 cp "$SRC/workflow_01_premarket_scanner.py" "$API/quant/workflow_01_premarket_scanner.py"
-# Docs → repo (2026-06-22) — version-control the handoff/strategy/session docs.
-# Recursive (top-level + archive/); drift-tracked by sync_check.sh's docs section.
+# Docs → repo (2026-06-22; recursive rsync since 2026-07-09 for the v3/v4/shared
+# reorg). Mirrors the WHOLE docs/ tree (root + v3/ + v4/ + shared/ + archive/),
+# copying only .md and preserving subfolders. No --delete (repo removals are done
+# via `git mv`/`git rm`, not the deploy). Drift-tracked by sync_check.sh's docs section.
 mkdir -p "$API/docs/archive"
-cp "$SRC/docs"/*.md "$API/docs/" 2>/dev/null || true
-cp "$SRC/docs/archive"/*.md "$API/docs/archive/" 2>/dev/null || true
+rsync -am --include='*/' --include='*.md' --exclude='*' "$SRC/docs/" "$API/docs/"
 # Deploy scripts → repo (2026-06-22) — so deploy-logic changes reach GitHub.
 mkdir -p "$API/scripts"
 cp "$SRC/deploy_data_sources.sh" "$API/scripts/deploy_data_sources.sh" 2>/dev/null || true
