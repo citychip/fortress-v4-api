@@ -24,6 +24,8 @@ FILES=(
   "src/lib/positions.ts"
   "src/lib/colors.ts"
   "src/lib/useSettings.ts"
+  "src/lib/useMode.ts"
+  "src/lib/household.ts"
   "src/components/Layout.tsx"
   "src/components/SourceBadge.tsx"
   "src/components/Sidebar.tsx"
@@ -45,6 +47,7 @@ FILES=(
   "src/pages/MarketPage.tsx"
   "src/pages/TechnicalPage.tsx"
   "src/pages/EfficiencyPage.tsx"
+  "src/pages/HouseholdPage.tsx"
   "src/pages/SystemPage.tsx"
 )
 

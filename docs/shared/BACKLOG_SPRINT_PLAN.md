@@ -22,6 +22,17 @@ The entire v3.11 backend backlog plus the session's own finds. Commits: fortress
 
 ---
 
+## 🔨 Sprint 28 — v4 Household dashboard (IN PROGRESS, started 2026-07-09 Cowork)
+Option-1 coexistence: ONE Parapet app, an `Engine v3` | `Household v4` mode toggle in the sidebar (persisted in localStorage); v3 pages untouched. Frontend-only, read-only, engine/MCP not modified.
+
+| # | Item | Where | Status |
+|---|---|---|---|
+| 28.1 | **Mode switcher** — `lib/useMode.ts` (v3\|v4, localStorage + `fortress-mode` CustomEvent for cross-component sync); Sidebar renders a toggle + swaps its NAV list per mode; `App.tsx` gains the `/household` route. v3 nav unchanged. | `Sidebar.tsx` · `App.tsx` · `lib/useMode.ts` | 🔨 building |
+| 28.2 | **Household page** — `pages/HouseholdPage.tsx`: metric cards (household NLV, leaf split, AI/tech/chips vs 35%, semis) + single-name-vs-15%-cap bars + sector-vs-25%-cap bars (div-bar pattern reused from `ClusterGlide`). Seeded from `lib/household.ts` (Combined_Portfolio.xlsx values) until the live route lands. | `pages/HouseholdPage.tsx` · `lib/household.ts` | 🔨 building |
+| 28.3 | **Data wiring (Phase 2 dep)** — swap the seed for `get_household_overview` / `get_household_concentration` (O-10) via a `/api/household/*` route; `household.ts.getHousehold()` already returns a Promise so the page won't change. | backend routes + `lib/household.ts` | ⏳ after O-10 |
+
+**Visuals catalogue (build order after 28.2):** ① sector treemap/donut · ② staged-uncap tracker (per-LEAP stepper + 4-gate chips) · ③ leaf-overlap matrix · ④ delta gauge + β-vega flag · ⑤ β-DD bars (30/40 lines) · ⑥ hedge-coverage band (B-2 25–33%) · ⑦ vol-skew curve + VIX-term sparkline · ⑧ equity curve (`get_pnl_history`) · ⑨ expectancy tiles by IVR/DTE/delta · ⑩ household-concentration glide vs 35% · ⑪ **position-and-catalyst timeline** (DTE bars + earnings/CPI/FOMC markers — highest value) · ⑫ two-leaf architecture SVG header. All recharts/div-based, read-only.
+
 ## Open items (small)
 | # | Item | Effort | Note |
 |---|---|---|---|
@@ -34,7 +45,7 @@ The entire v3.11 backend backlog plus the session's own finds. Commits: fortress
 | O-7 | **Briefing-SKILL wiring** (old 22.1/24.2 remainder) — add Technical-Gate + β-DD/`frozen` + dynamic-pacing band to the `daily-post-open-briefing` scheduled-task prompt. | S | no code |
 | O-8 | **OAuth Stage 2** — IBKR-side consumer-key activation (SHARMILAH). Nothing to build locally; portal/ticket only. | ext | the only external blocker |
 | O-9 | ✅ **DONE 2026-07-09 (Cowork)** — docs reorg into `v3/`+`v4/`+`shared/`+`archive/`; README rewritten (foldered index, both v4 docs registered, v3.11 reframed as Leaf-B ENGINE); review-loop snapshots + `REVISED_RECOVERY` archived; `deploy_data_sources.sh` docs-copy made recursive (rsync). Remaining: run the repo `git mv` set + deploy + commit (commands handed over); optional root cleanup of `Combined_Portfolio_Strategy_v4.md` stub + `Fortress_Forward_Prognosis` docx + sprint0 files; optional non-breaking code-comment path bumps (`fortress_mcp_v452.py:68`, `config_store.py:63`, `options_analytics.py:2317`). | S | mostly closed |
-| O-11 | **Parapet v3/v4 mode switcher** (option 1) — `Engine v3` \| `Household v4` toggle in `Layout.tsx`, persisted in localStorage; v3 pages untouched, v4 gets its own nav (Household + panels). Frontend-only, pairs with O-10's read-only routes. Build after O-10 lands the data. | M | frontend-only; engine untouched |
+| O-11 | **Parapet v3/v4 mode switcher** → now **Sprint 28** (in progress 07-09). Toggle in the Sidebar (not Layout — that's where the nav lives), household page seeded until O-10 lands live data. | M | see Sprint 28 |
 | O-10 | **v4.0 household layer — Phase 2 (read-only view)** — `get_household_overview` + `get_household_concentration` (aggregate over `get_briefing` + an eToro `household_state.json` snapshot) + Parapet **Household** page panels 1–2. Promotes `Combined_Portfolio.xlsx` to a live view. Later phases: staged-uncap + tail-hedge trackers, scheduled diversification screen, Chrome eToro ingest. Full design in the proposal. | M | read-only; engine untouched |
 
 ## Standing conventions
