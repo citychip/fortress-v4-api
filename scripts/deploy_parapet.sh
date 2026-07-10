@@ -38,6 +38,7 @@ FILES=(
   "src/components/MtfCandleChart.tsx"
   "src/components/TimelinePanel.tsx"
   "src/components/RiskPanel.tsx"
+  "src/components/UncapTracker.tsx"
   "src/components/positions/PositionCards.tsx"
   "src/components/system/UniverseSection.tsx"
   "src/components/system/ConnectionsSection.tsx"
