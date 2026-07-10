@@ -40,6 +40,7 @@ FILES=(
   "src/components/RiskPanel.tsx"
   "src/components/UncapTracker.tsx"
   "src/components/LeafHeader.tsx"
+  "src/components/LeafOverlap.tsx"
   "src/components/positions/PositionCards.tsx"
   "src/components/system/UniverseSection.tsx"
   "src/components/system/ConnectionsSection.tsx"
