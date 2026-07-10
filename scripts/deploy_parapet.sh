@@ -39,6 +39,7 @@ FILES=(
   "src/components/TimelinePanel.tsx"
   "src/components/RiskPanel.tsx"
   "src/components/UncapTracker.tsx"
+  "src/components/LeafHeader.tsx"
   "src/components/positions/PositionCards.tsx"
   "src/components/system/UniverseSection.tsx"
   "src/components/system/ConnectionsSection.tsx"
@@ -51,6 +52,8 @@ FILES=(
   "src/pages/TechnicalPage.tsx"
   "src/pages/EfficiencyPage.tsx"
   "src/pages/HouseholdPage.tsx"
+  "src/pages/RiskPage.tsx"
+  "src/pages/TimelinePage.tsx"
   "src/pages/SystemPage.tsx"
 )
 
