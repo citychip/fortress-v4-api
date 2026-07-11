@@ -1735,14 +1735,83 @@ def monitor_alerts():
 # Strategy v3.5 §2.D — SPY hedge coverage
 # ---------------------------------------------------------------------------
 
+def _compute_b2_hedge(data: dict) -> dict:
+    """Sprint 28.9 — B-2 hedge metric (v3.11 §7). The RETIRED $20-30k MV floor
+    above measures COST; B-2 measures PROTECTION: SPY bear-put-spread MAX PAYOUT
+    (Σ qty × width × 100) must span 25-33% of the engine dollar-delta (long book
+    net of shorts, ex-SPY/OST — basis matches the briefing beta_dd). Read-only,
+    self-contained from the synced positions. Per-ticker spot from BS inputs."""
+    positions = data.get("positions", []) or []
+    spot_by: dict = {}
+    for p in positions:
+        t = (p.get("ticker") or "").upper()
+        sp = (p.get("bs_inputs") or {}).get("spot")
+        if t and sp and t not in spot_by:
+            spot_by[t] = float(sp)
+    engine = 0.0
+    for p in positions:
+        t = (p.get("ticker") or "").upper()
+        if t in ("SPY", "OST") or not t:
+            continue
+        if str(p.get("sec_type") or "OPT").upper() != "OPT":
+            continue
+        d = p.get("current_delta")
+        spot = spot_by.get(t)
+        if d is None or not spot:
+            continue
+        try:
+            mult = int(p.get("multiplier") or 100)
+        except (TypeError, ValueError):
+            mult = 100
+        engine += (p.get("qty") or 0) * float(d) * mult * float(spot)
+    engine = abs(engine)
+    by_exp: dict = {}
+    for p in positions:
+        if (p.get("ticker") or "").upper() != "SPY" or (p.get("right") or "").upper() != "P":
+            continue
+        rec = by_exp.setdefault(p.get("expiry") or "", {"long": [], "short": []})
+        k = [float(p.get("strike") or 0), abs(float(p.get("qty") or 0))]
+        q = p.get("qty") or 0
+        if q > 0:
+            rec["long"].append(k)
+        elif q < 0:
+            rec["short"].append(k)
+    max_payout = 0.0
+    for _exp, rec in by_exp.items():
+        longs = sorted(rec["long"], key=lambda x: -x[0])
+        for sstrike, sqty in sorted(rec["short"], key=lambda x: -x[0]):
+            rem = sqty
+            for lg in longs:
+                if rem <= 0:
+                    break
+                take = min(rem, lg[1])
+                if take > 0 and lg[0] > sstrike:
+                    max_payout += take * (lg[0] - sstrike) * 100
+                    lg[1] -= take
+                    rem -= take
+    b2_min = round(0.25 * engine, 0)
+    b2_max = round(0.33 * engine, 0)
+    verdict = "under" if max_payout < b2_min else ("over" if max_payout > b2_max else "in_band")
+    return {
+        "engine_beta_dd": round(engine, 0),
+        "max_payout": round(max_payout, 0),
+        "b2_min": b2_min,
+        "b2_max": b2_max,
+        "b2_pct_of_engine": round(100 * max_payout / engine, 1) if engine else None,
+        "b2_verdict": verdict,
+        "b2_basis": "engine dollar-delta ex-SPY/OST; band 25-33% max-payout (v3.11 B-2)",
+    }
+
+
 @router.get("/manage/spy_hedge_coverage")
 def spy_hedge_coverage():
     """Reports current SPY hedge MV against the €20–30K target band."""
     data = state.get_active_positions()
+    b2 = _compute_b2_hedge(data)
 
     cached = data.get("spy_hedge_coverage")
     if cached and cached.get("legs_count", 0) > 0:
-        return {**cached, "source": "ibkr_sync_cached"}
+        return {**cached, **b2, "source": "ibkr_sync_cached"}
 
     target_min = 20000
     target_max = 30000
@@ -1768,6 +1837,7 @@ def spy_hedge_coverage():
         "target_max": target_max,
         "coverage_ok": target_min <= hedge_mv <= target_max,
         "legs_count": legs,
+        **b2,
         "source": "computed",
     }
 

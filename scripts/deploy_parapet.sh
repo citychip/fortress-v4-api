@@ -45,6 +45,7 @@ FILES=(
   "src/components/VolSkewPanel.tsx"
   "src/components/EquityCurve.tsx"
   "src/components/ConcentrationGlide.tsx"
+  "src/components/HedgeBand.tsx"
   "src/components/positions/PositionCards.tsx"
   "src/components/system/UniverseSection.tsx"
   "src/components/system/ConnectionsSection.tsx"
