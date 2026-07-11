@@ -41,6 +41,10 @@ FILES=(
   "src/components/UncapTracker.tsx"
   "src/components/LeafHeader.tsx"
   "src/components/LeafOverlap.tsx"
+  "src/components/ExpectancyTiles.tsx"
+  "src/components/VolSkewPanel.tsx"
+  "src/components/EquityCurve.tsx"
+  "src/components/ConcentrationGlide.tsx"
   "src/components/positions/PositionCards.tsx"
   "src/components/system/UniverseSection.tsx"
   "src/components/system/ConnectionsSection.tsx"
@@ -55,6 +59,7 @@ FILES=(
   "src/pages/HouseholdPage.tsx"
   "src/pages/RiskPage.tsx"
   "src/pages/TimelinePage.tsx"
+  "src/pages/AnalyticsPage.tsx"
   "src/pages/SystemPage.tsx"
 )
 
