@@ -32,6 +32,7 @@ from app.routes import (
     briefing,
     calendar,
     candidates,
+    household,
     chart,
     journal,
     manage,
@@ -112,6 +113,7 @@ app.add_middleware(BaseHTTPMiddleware, dispatch=bearer_token_middleware)
 app.include_router(briefing.router, prefix="/api")
 app.include_router(positions.router, prefix="/api")
 app.include_router(candidates.router, prefix="/api")
+app.include_router(household.router, prefix="/api")
 app.include_router(calendar.router, prefix="/api")
 app.include_router(universe.router, prefix="/api")
 app.include_router(alerts.router, prefix="/api")

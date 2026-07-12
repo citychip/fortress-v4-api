@@ -64,6 +64,10 @@ MAP=(
   "chart_route.py:$API/app/routes/chart.py"
   # O-1 (2026-07-08): candidates route — earnings-null → "unverified" fix.
   "route_candidates.py:$API/app/routes/candidates.py"
+  # O-10 (2026-07-12): v4.0 Phase 2 household route (read-only). NB the eToro
+  # snapshot household_state.json is a committed DATA store (seed-if-absent in
+  # deploy), deliberately NOT listed here — like conditional_alerts/trade_outcomes.
+  "route_household.py:$API/app/routes/household.py"
 )
 
 echo "── File-content drift (OneDrive → repo) ──"
