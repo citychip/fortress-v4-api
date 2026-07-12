@@ -33,9 +33,31 @@ router = APIRouter()
 
 _STORE_NAME = "household_state.json"
 
+# Last-resort seed if household_state.json is missing/unreadable entirely (so the
+# route degrades gracefully instead of 500ing). Mirrors the JSON store's "seed".
+_EMERGENCY_SEED = {
+    "as_of": "2026-07-09", "household_eur": 85400,
+    "leaf_ibkr_pct": 71, "leaf_etoro_pct": 29,
+    "ai_tech_chips_pct": 57.0, "semis_pct": 15.3,
+    "single_name_cap": 15, "sector_cap": 25, "group_cap": 35,
+    "names": [
+        {"ticker": "AAPL", "pct": 15.5}, {"ticker": "GOOGL", "pct": 9.0},
+        {"ticker": "AMZN", "pct": 8.4}, {"ticker": "NVDA", "pct": 7.5},
+        {"ticker": "MSFT", "pct": 7.2}, {"ticker": "MU", "pct": 3.2},
+        {"ticker": "TSM", "pct": 2.8},
+    ],
+    "sectors": [
+        {"sector": "Technology", "pct": 23.5}, {"sector": "Semis", "pct": 15.3},
+        {"sector": "Comm services", "pct": 9.6}, {"sector": "Cons cyclical", "pct": 8.8},
+        {"sector": "Defensives", "pct": 7.8},
+    ],
+    "source": "seed",
+}
+
 
 def _load_store() -> dict:
-    """Load the eToro snapshot + caps/meta store from BASE_DIR."""
+    """Load the eToro snapshot + caps/meta store from BASE_DIR (= FORTRESS_DATA_DIR,
+    i.e. the repo's quant/ dir at runtime — NOT the repo root)."""
     path = state.BASE_DIR / _STORE_NAME
     with open(path, "r", encoding="utf-8") as fh:
         return json.load(fh)
@@ -61,7 +83,11 @@ def _compute_household() -> dict:
     (source='seed') if the briefing/positions read is unavailable — exactly the
     frontend's try/catch fallback, so the Parapet page behaves identically.
     """
-    store = _load_store()
+    try:
+        store = _load_store()
+    except Exception:
+        # Store missing/unreadable — never 500 the dashboard.
+        return dict(_EMERGENCY_SEED)
     caps = store.get("caps", {})
     etoro = store.get("etoro", {})
     meta = store.get("ibkr_meta", {})

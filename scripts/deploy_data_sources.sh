@@ -160,12 +160,16 @@ echo "route files compile OK"
 # (repo root). COPY-IF-ABSENT so a deploy never clobbers a live snapshot that
 # was refreshed in-repo after a new eToro read. It is a committed data store
 # (like macro_events.json), NOT tracked in sync_check's strict code-drift MAP.
+# Seed target is FORTRESS_DATA_DIR (= $API/quant at runtime — state.BASE_DIR),
+# NOT the repo root, else _load_store() 404s. Copy-if-absent so a live snapshot
+# refreshed in-repo is never clobbered.
+HH_DIR="${FORTRESS_DATA_DIR:-$API/quant}"
 if [ -f "$SRC/household_state.json" ]; then
-  if [ ! -f "$API/household_state.json" ]; then
-    cp "$SRC/household_state.json" "$API/household_state.json"
-    echo "  seeded household_state.json → $API/ (first deploy)"
+  if [ ! -f "$HH_DIR/household_state.json" ]; then
+    cp "$SRC/household_state.json" "$HH_DIR/household_state.json"
+    echo "  seeded household_state.json → $HH_DIR/ (first deploy)"
   else
-    echo "  household_state.json already present in repo — left untouched (live snapshot)"
+    echo "  household_state.json already present in $HH_DIR — left untouched (live snapshot)"
   fi
 fi
 
