@@ -133,6 +133,11 @@ ROUTE_FILES=(
   # O-1 (2026-07-08): candidates route — earnings-null → "unverified" fix
   # (state.earnings_state_from_days; the last "null renders clear" surface).
   "route_candidates.py:$API/app/routes/candidates.py"
+  # O-10 (2026-07-12): v4.0 Phase 2 household route (read-only, engine untouched)
+  # — /api/household[/overview|/concentration]. Needs the eToro snapshot store
+  # copied too (below) AND a one-line app.include_router registration in the API
+  # main (see docs). Mirrors fortress-parapet/src/lib/household.ts.
+  "route_household.py:$API/app/routes/household.py"
 )
 r0_paths=()
 for pair in "${ROUTE_FILES[@]}"; do
@@ -151,6 +156,19 @@ if ! python3 -m py_compile "${r0_paths[@]}"; then
 fi
 echo "route files compile OK"
 
+# O-10 (2026-07-12): seed the eToro household snapshot store into BASE_DIR
+# (repo root). COPY-IF-ABSENT so a deploy never clobbers a live snapshot that
+# was refreshed in-repo after a new eToro read. It is a committed data store
+# (like macro_events.json), NOT tracked in sync_check's strict code-drift MAP.
+if [ -f "$SRC/household_state.json" ]; then
+  if [ ! -f "$API/household_state.json" ]; then
+    cp "$SRC/household_state.json" "$API/household_state.json"
+    echo "  seeded household_state.json → $API/ (first deploy)"
+  else
+    echo "  household_state.json already present in repo — left untouched (live snapshot)"
+  fi
+fi
+
 echo "── Restart backend ──"
 sudo systemctl restart fortress-dashboard-v4
 sleep 4
@@ -165,6 +183,10 @@ curl -s "http://localhost:8081/api/options/vol-skew/SPY" -H "Authorization: Bear
 curl -s "http://localhost:8081/api/options/gex/SPY" -H "Authorization: Bearer $TOKEN" \
   | python3 -c "import sys,json; d=json.load(sys.stdin); print('gex:', {k: d.get(k) for k in ('call_wall','put_wall','source')})"
 
+curl -s "http://localhost:8081/api/household/overview" -H "Authorization: Bearer $TOKEN" \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print('household:', {k: d.get(k) for k in ('household_eur','leaf_ibkr_pct','leaf_etoro_pct','source')})"
+
 echo ""
 echo "Done. During RTH with gateway up, expect source: ibkr (liquidity/skew/iv_source)."
+echo "household/overview → source: live (briefing up) or seed (fallback); needs app.include_router(household.router) in the API main + a backend restart."
 echo "Fallback test: docker stop cp-gateway → re-run curls → source: yfinance/_bs → docker start cp-gateway."

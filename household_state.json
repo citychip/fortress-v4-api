@@ -1,0 +1,42 @@
+{
+  "_comment": "v4.0 Phase 2 (O-10) — Leaf A (eToro) read-only snapshot + household caps/meta. eToro has NO API, so this is a STORED SNAPSHOT: aggregates precomputed from Combined_Portfolio.xlsx. Refresh the etoro block + as_of after a new eToro read. Leaf B (IBKR) is computed LIVE by route_household.py from get_active_positions(); nothing here is ever traded. Mirrors fortress-parapet/src/lib/household.ts so the Parapet page can swap its client-side seed for /api/household unchanged.",
+  "as_of": "2026-07-09",
+  "etoro": {
+    "total_eur": 25010,
+    "by_name": { "AAPL": 273, "GOOGL": 657, "AMZN": 320, "MSFT": 387, "NVDA": 1279, "MU": 2705, "TSM": 2351 },
+    "by_sector": { "Semis": 7937, "Defensives": 12871, "Comm services": 1188, "Technology": 1308, "Cons cyclical": 664 },
+    "ai_tech_chips_eur": 11013
+  },
+  "caps": { "single_name": 15, "sector": 25, "group": 35 },
+  "ibkr_meta": {
+    "AAPL":  { "sector": "Technology",    "ai": true },
+    "MSFT":  { "sector": "Technology",    "ai": true },
+    "NVDA":  { "sector": "Semis",         "ai": true },
+    "GOOGL": { "sector": "Comm services", "ai": true },
+    "AMZN":  { "sector": "Cons cyclical", "ai": true }
+  },
+  "ibkr_exclude": ["SPY", "OST"],
+  "sector_order": ["Technology", "Semis", "Comm services", "Cons cyclical", "Defensives"],
+  "default_sector": "Defensives",
+  "fx_fallback": 1.1435,
+  "seed": {
+    "as_of": "2026-07-09",
+    "household_eur": 85400,
+    "leaf_ibkr_pct": 71,
+    "leaf_etoro_pct": 29,
+    "ai_tech_chips_pct": 57.0,
+    "semis_pct": 15.3,
+    "single_name_cap": 15,
+    "sector_cap": 25,
+    "group_cap": 35,
+    "names": [
+      { "ticker": "AAPL", "pct": 15.5 }, { "ticker": "GOOGL", "pct": 9.0 }, { "ticker": "AMZN", "pct": 8.4 },
+      { "ticker": "NVDA", "pct": 7.5 }, { "ticker": "MSFT", "pct": 7.2 }, { "ticker": "MU", "pct": 3.2 }, { "ticker": "TSM", "pct": 2.8 }
+    ],
+    "sectors": [
+      { "sector": "Technology", "pct": 23.5 }, { "sector": "Semis", "pct": 15.3 }, { "sector": "Comm services", "pct": 9.6 },
+      { "sector": "Cons cyclical", "pct": 8.8 }, { "sector": "Defensives", "pct": 7.8 }
+    ],
+    "source": "seed"
+  }
+}
