@@ -189,6 +189,10 @@ curl -s "http://localhost:8081/api/options/gex/SPY" -H "Authorization: Bearer $T
 
 curl -s "http://localhost:8081/api/household/overview" -H "Authorization: Bearer $TOKEN" \
   | python3 -c "import sys,json; d=json.load(sys.stdin); print('household:', {k: d.get(k) for k in ('household_eur','leaf_ibkr_pct','leaf_etoro_pct','source')})"
+curl -s "http://localhost:8081/api/household/uncap_stages" -H "Authorization: Bearer $TOKEN" \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print('uncap_stages:', {'regime': d.get('regime'), 'cash_ok': d.get('cash_ok'), 'names': [r.get('ticker') for r in d.get('rows',[])], 'source': d.get('source')})"
+curl -s "http://localhost:8081/api/household/tail_hedge" -H "Authorization: Bearer $TOKEN" \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print('tail_hedge:', {k: d.get(k) for k in ('quarterly_budget_usd','tail_put_count','nearest_roll_dte','source')})"
 
 echo ""
 echo "Done. During RTH with gateway up, expect source: ibkr (liquidity/skew/iv_source)."

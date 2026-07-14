@@ -203,3 +203,227 @@ def get_household_concentration():
         "group_cap": h.get("group_cap"),
         "source": h.get("source"),
     }
+
+
+# ---------------------------------------------------------------------------
+# v4.0 Phase 3 (O-13) — staged-uncap tracker + tail-hedge monitor. Read-only.
+# Mirrors the client UncapTracker.tsx but derives the ACTUAL stage from live
+# coverage (short calls / long LEAP calls per name) instead of a store, and adds
+# the tail-hedge monitor that replaces the B-2 widget for the household view.
+# ---------------------------------------------------------------------------
+
+_SINGLE_NAME_CAP = 15.0
+_UNCAP_EXCLUDE = {"SPY", "OST"}
+
+
+def _dte(expiry: str | None) -> int | None:
+    """Days-to-expiry from an 'YYYYMMDD' or 'YYYY-MM-DD' string."""
+    if not expiry:
+        return None
+    s = str(expiry).replace("-", "")
+    try:
+        exp = datetime.strptime(s[:8], "%Y%m%d").date()
+        return (exp - datetime.now(timezone.utc).date()).days
+    except (ValueError, TypeError):
+        return None
+
+
+def _stage_from_coverage(coverage: float | None) -> int | None:
+    """v4.0 §3.1 ladder: 100%→S0, 50%→S1, 25%→S2, uncapped→S3.
+    Derived from live short-call:long-LEAP coverage ratio (midpoint bands)."""
+    if coverage is None:
+        return None
+    if coverage >= 0.75:
+        return 0
+    if coverage >= 0.375:
+        return 1
+    if coverage >= 0.125:
+        return 2
+    return 3
+
+
+def _briefing_context() -> dict:
+    """Regime + cash-floor gate from the canonical briefing (lazy import to
+    avoid a route↔route circular). Degrades to None gates if unavailable."""
+    try:
+        from app.routes import briefing  # lazy
+        b = briefing.get_briefing()
+        regime = ((b.get("macro_regime") or {}).get("regime") or "").lower()
+        thr = (b.get("account") or {}).get("thresholds") or {}
+        cash_ok = bool(thr.get("available_funds_ok") and thr.get("excess_liq_ok"))
+        return {
+            "regime": regime or None,
+            "regime_ok": (regime != "bearish") if regime else None,
+            "cash_ok": cash_ok,
+            "net_liq": (b.get("account") or {}).get("net_liq"),
+            "avail_floor": thr.get("available_funds_floor_usd"),
+            "excess_floor": thr.get("excess_liq_floor_usd"),
+        }
+    except Exception:
+        return {"regime": None, "regime_ok": None, "cash_ok": None, "net_liq": None}
+
+
+def _trend_above_200w(ticker: str) -> bool | None:
+    """v3.11 §8 weekly-200-SMA gate, reused as the v4.0 trend gate (lazy import)."""
+    try:
+        from app.routes.options_analytics import weekly_trend_state  # lazy
+        return weekly_trend_state(ticker).get("above_200w")
+    except Exception:
+        return None
+
+
+@router.get("/household/uncap_stages")
+def get_uncap_stages():
+    """Panel 3 — per Leaf-B LEAP: current stage (0–3, from live coverage) + the
+    four v4.0 §3.1 gates (name<15% household · cash floors · regime not bearish ·
+    >weekly-200-SMA) + a verdict (advance/hold/de-stage). Read-only."""
+    ctx = _briefing_context()
+    hh = _compute_household()
+    hh_pct = {n["ticker"]: n["pct"] for n in (hh.get("names") or [])}
+
+    try:
+        positions = state.get_active_positions()
+        legs = positions.get("positions", []) or []
+    except Exception:
+        return {"as_of": datetime.now(timezone.utc).date().isoformat(),
+                "rows": [], "regime": ctx.get("regime"), "cash_ok": ctx.get("cash_ok"),
+                "source": "unavailable"}
+
+    # Per-name long-LEAP-call and short-call contract counts.
+    longs: dict[str, float] = {}
+    shorts: dict[str, float] = {}
+    for p in legs:
+        t = (p.get("ticker") or "").upper()
+        if t in _UNCAP_EXCLUDE or not t:
+            continue
+        if (p.get("right") or "").upper() != "C":
+            continue
+        q = p.get("qty") or 0
+        if q > 0:
+            longs[t] = longs.get(t, 0.0) + q
+        elif q < 0:
+            shorts[t] = shorts.get(t, 0.0) + abs(q)
+
+    rows = []
+    for t, long_ct in longs.items():
+        if long_ct <= 0:
+            continue  # not a LEAP holder
+        short_ct = shorts.get(t, 0.0)
+        coverage = short_ct / long_ct if long_ct else None
+        stage = _stage_from_coverage(coverage)
+        conc_pct = hh_pct.get(t)
+        gate_conc = (conc_pct < _SINGLE_NAME_CAP) if conc_pct is not None else None
+        gate_cash = ctx.get("cash_ok")
+        gate_regime = ctx.get("regime_ok")
+        gate_trend = _trend_above_200w(t)
+
+        gates = {"name_lt_15": gate_conc, "cash_floor": gate_cash,
+                 "regime_ok": gate_regime, "above_200w": gate_trend}
+        # Verdict: de-stage overrides (regime bearish or below trend); else all-green
+        # advances one stage; else hold.
+        if gate_regime is False or gate_trend is False:
+            verdict = "de-stage / add cover"
+        elif stage is not None and stage >= 3:
+            verdict = "uncapped (Stage 3)"
+        elif all(g is True for g in (gate_conc, gate_cash, gate_regime, gate_trend)):
+            verdict = "eligible to uncap +1"
+        else:
+            verdict = "hold"
+
+        rows.append({
+            "ticker": t,
+            "stage": stage,
+            "coverage_ratio": round(coverage, 3) if coverage is not None else None,
+            "long_leap_calls": int(long_ct),
+            "short_calls": int(short_ct),
+            "household_pct": round(conc_pct, 2) if conc_pct is not None else None,
+            "gates": gates,
+            "verdict": verdict,
+        })
+    rows.sort(key=lambda r: (r["household_pct"] or 0), reverse=True)
+
+    return {
+        "as_of": datetime.now(timezone.utc).date().isoformat(),
+        "regime": ctx.get("regime"),
+        "cash_ok": ctx.get("cash_ok"),
+        "single_name_cap": _SINGLE_NAME_CAP,
+        "ladder": "100% → 50% → 25% → uncapped (S0→S3); all 4 gates green = advance +1; regime bearish or <200-SMA = de-stage",
+        "rows": rows,
+        "source": hh.get("source"),
+    }
+
+
+@router.get("/household/tail_hedge")
+def get_tail_hedge():
+    """Panel 4 — v4.0 §5 tail-hedge monitor (replaces the B-2 widget for the
+    household view). Far-OTM SPY/SPX crash puts (~15–25% OTM, 3–6mo, rolled
+    quarterly); quarterly budget ≈ 0.75% of net liq. Read-only."""
+    ctx = _briefing_context()
+    try:
+        positions = state.get_active_positions()
+        legs = positions.get("positions", []) or []
+        nlv = ctx.get("net_liq") or positions.get("net_liq")
+    except Exception:
+        return {"as_of": datetime.now(timezone.utc).date().isoformat(),
+                "tail_puts": [], "source": "unavailable"}
+
+    # SPY spot from any SPY leg's BS input.
+    spot = None
+    for p in legs:
+        if (p.get("ticker") or "").upper() == "SPY":
+            sp = (p.get("bs_inputs") or {}).get("spot")
+            if sp:
+                spot = float(sp)
+                break
+
+    tail_puts = []
+    total_est_cost = 0.0
+    have_cost = False
+    for p in legs:
+        if (p.get("ticker") or "").upper() != "SPY" or (p.get("right") or "").upper() != "P":
+            continue
+        q = p.get("qty") or 0
+        if q <= 0:  # long puts only = the crash hedge (skip the short leg of any spread)
+            continue
+        strike = float(p.get("strike") or 0)
+        otm_pct = round((spot - strike) / spot * 100, 1) if spot and strike else None
+        # Tail = deep OTM (≥15%); shallower long puts are B-2 spread legs, not tail.
+        if otm_pct is None or otm_pct < 15:
+            continue
+        mv = p.get("market_value")
+        if mv is not None:
+            try:
+                total_est_cost += abs(float(mv))
+                have_cost = True
+            except (TypeError, ValueError):
+                pass
+        tail_puts.append({
+            "strike": strike, "qty": int(q), "expiry": p.get("expiry"),
+            "dte": _dte(p.get("expiry")), "otm_pct": otm_pct,
+            "market_value": round(float(mv), 2) if mv is not None else None,
+        })
+    tail_puts.sort(key=lambda r: (r["dte"] is None, r["dte"]))
+
+    q_budget = round(0.0075 * float(nlv), 0) if nlv else None
+    dtes = [r["dte"] for r in tail_puts if r["dte"] is not None]
+    nearest_dte = min(dtes) if dtes else None
+    util = (round(total_est_cost / q_budget * 100, 1)
+            if (have_cost and q_budget) else None)
+
+    return {
+        "as_of": datetime.now(timezone.utc).date().isoformat(),
+        "net_liq": round(float(nlv), 0) if nlv else None,
+        "spy_spot": spot,
+        "quarterly_budget_usd": q_budget,
+        "budget_basis": "0.75% of net liq / quarter (v4.0 §5)",
+        "tail_put_count": len(tail_puts),
+        "tail_puts": tail_puts,
+        "current_hedge_cost_est": round(total_est_cost, 0) if have_cost else None,
+        "budget_utilization_pct": util,
+        "nearest_roll_dte": nearest_dte,
+        "roll_flag": (nearest_dte is not None and nearest_dte < 90),
+        "note": "Tail-hedge-only for Leaf B — this RETIRES the v3.11 B-2 spread overlay. "
+                "Roll quarterly; target 15–25% OTM, 3–6mo. Shallow (<15% OTM) SPY puts "
+                "are treated as B-2 spread legs and excluded here.",
+        "source": ctx.get("regime") is not None and "live" or "partial",
+    }
