@@ -155,6 +155,22 @@ docker logs cp-gateway --tail 30   # check iBeam errors
 docker restart cp-gateway          # manual restart
 ```
 
+**Gateway watchdog (systemd, Sprint 25.1 · pause switch added 2026-07-15):**
+`fortress-gateway-watchdog.service` runs `/home/ubuntu/gateway_watchdog.sh` — polls iBeam's own "running and authenticated" log line every 60s and, after 3 consecutive failures (guarded by a 10-min cooldown), issues `docker restart cp-gateway` so the backend stops falling back to `bs_yfinance`. Dev/edit copy: `2606Fortress/gateway_watchdog.sh` (NOT in `sync_check.sh`'s MAP — it lives at `/home/ubuntu/`, outside the fortress repos).
+
+- **Trade-session PAUSE switch (2026-07-15):** while the flag file `/home/ubuntu/.fortress-watchdog-pause` exists, the watchdog skips ALL probing and restarts (logs `PAUSED` once) and resets its failure counter, so logging into IBKR Desktop can never trigger a mid-trade `docker restart cp-gateway`. This is the canonical way to run a trade session — see WORKFLOW.md §Trade Session Procedure Phase 2/3.
+  ```bash
+  touch /home/ubuntu/.fortress-watchdog-pause   # pause — BEFORE logging into IBKR Desktop
+  rm -f /home/ubuntu/.fortress-watchdog-pause   # resume — AFTER logging out / reconnecting
+  ```
+- **Deploy the script after editing the OneDrive copy** (takes effect only after copy + service restart):
+  ```bash
+  sudo cp /mnt/c/Users/cityc.000/OneDrive/_Stocks26/2606Fortress/gateway_watchdog.sh /home/ubuntu/gateway_watchdog.sh
+  sudo systemctl restart fortress-gateway-watchdog
+  sudo systemctl status  fortress-gateway-watchdog --no-pager   # verify active
+  ```
+- Tunables (env vars, overridable in the unit): `WATCHDOG_POLL_SECONDS=60`, `WATCHDOG_FAIL_THRESHOLD=3`, `WATCHDOG_COOLDOWN_SECONDS=600`, `WATCHDOG_SETTLE_SECONDS=90`, `WATCHDOG_PAUSE_FLAG`. Log: `/var/log/fortress-gateway-watchdog.log`.
+
 **Auth modes:**
 - `web_api` (active) — iBeam headless via CP Gateway, auto-authenticates
 - `oauth` — OAuth 1.0a, consumer key SHARMILAH. Stage 1 ✅ 2026-06-04. Stage 2 ❌ pending IBKR activation (re-tested 2026-06-15 via `test_ibkr_oauth.py`, still 401 "Invalid signature" at `ssodh/init`). ⚠ Do NOT trust `get_ibkr_status.oauth` (reports authenticated:true while the real handshake fails) — only the script confirms Stage 2.

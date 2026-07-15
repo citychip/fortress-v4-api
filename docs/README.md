@@ -1,5 +1,5 @@
 # Fortress — Documentation Index
-**Status:** LIVING · **Last updated:** 2026-07-09 · **Owner-of-truth:** the map of what every doc is for and **where it lives**.
+**Status:** LIVING · **Last updated:** 2026-07-15 · **Owner-of-truth:** the map of what every doc is for and **where it lives**.
 
 Start any session at **`HANDOFF.md`** (root). This index is the map: every doc, its path, its purpose, and whether it's **LIVING** (kept current) or a **SNAPSHOT** (immutable, point-in-time). Any new doc must be added here or it doesn't exist.
 
@@ -40,7 +40,7 @@ Start any session at **`HANDOFF.md`** (root). This index is the map: every doc, 
 | `shared/DATA_SOURCES.md` | Data-source reliability ledger + source-of-truth per attribute. | LIVING |
 | `shared/SYSTEM.md` | Architecture, services, IBKR auth, deploy commands, repos, key paths, token-rotation runbook. | LIVING |
 | `shared/PARAPET.md` | Frontend reference / component map (dashboard). | LIVING |
-| `shared/BACKLOG_SPRINT_PLAN.md` | Active backlog only. Sprints 0–27 archived/shipped; open smalls O-1…O-10. | LIVING |
+| `shared/BACKLOG_SPRINT_PLAN.md` | Active backlog only. Sprints 0–28 archived/shipped; v4.0 Phases 2–3 (O-10/O-13) shipped; Phase 4 open. | LIVING |
 | `shared/JOURNAL_FEEDBACK_LOOP.md` | Trade-outcomes store + `journal_analytics.py` design (expectancy/win-rate by IVR/DTE/delta). | Reference |
 
 ## 🕮 History & archive
@@ -50,6 +50,8 @@ Start any session at **`HANDOFF.md`** (root). This index is the map: every doc, 
 | `archive/` | Superseded/shipped docs — recoverable, out of the active set. | Immutable |
 
 **Archived 2026-07-09 (this reorg):** the external-review loop — `STRATEGY_v3_11_UPDATE_2026-07-07.md`, `AI_REVIEW_BRIEF_2026-07-07.md`, `REVIEW_REQUEST_2026-07-08.md`, `LEAP_SALVAGE_MSFT_CROSSCHECK_2026-07-07.md` (the v3.11 rules they reviewed now live in `v3/01_Portfolio_Strategy_v3_11.md`; retained as the review record) — and `REVISED_RECOVERY_STRATEGY_2026-06-26.md` (recovery-by-engine thesis superseded by the v4.0 growth mandate).
+
+**Archived 2026-07-15:** `archive/Fortress_Forward_Prognosis_2026-07-02.docx` (point-in-time forward-P&L snapshot, superseded by the live briefing + v4.0 growth mandate; was flagged in HANDOFF Priority #8c).
 
 **Earlier archives:** `archive/PORTFOLIO.md`, `archive/Sprint21_ChangeList.md`, `archive/PARAPET_SPRINT.md` (07-04); `archive/DOC_CONSOLIDATION_PROPOSAL.md`, `archive/ENHANCEMENT_PROPOSAL_v1.md`, `archive/IMPROVEMENT_RESEARCH_2026-06-22.md`, `archive/STRATEGY_AMENDMENT_TWO_BUCKET_2026-07-07.md`, `archive/01_Portfolio_Strategy_v3_9.md`, `archive/STRATEGY_ENHANCEMENTS_v3_10.md`, `archive/BACKLOG_COMPLETED.md` (07-08).
 
