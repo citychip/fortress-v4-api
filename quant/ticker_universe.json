@@ -42,7 +42,15 @@
     "PG",
     "WMT",
     "COST",
-    "TROW"
+    "TROW",
+    "HIMS",
+    "ANET",
+    "ADP",
+    "ABBV",
+    "KO",
+    "CP",
+    "WYNN",
+    "UBER"
   ],
   "macro": [
     "SPX",
@@ -73,5 +81,5 @@
       "note": "Strategy §3.3 — ignored entirely. Display in book, never recommend."
     }
   ],
-  "_last_updated": "2026-07-07"
+  "_last_updated": "2026-07-17"
 }

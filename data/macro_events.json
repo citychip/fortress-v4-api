@@ -1,43 +1,85 @@
 {
   "events": [
     {
-      "label": "NFP (Jun)",
-      "date": "2026-07-02",
+      "label": "FOMC",
+      "date": "2026-07-29",
       "impact": "high",
-      "note": "Jobs report pulled to Thu ahead of July 4 holiday"
+      "note": "Jul 28-29 meeting; decision + presser 7/29. No SEP."
     },
     {
-      "label": "FOMC Minutes (Jun mtg)",
-      "date": "2026-07-08",
+      "label": "PCE (June)",
+      "date": "2026-07-30",
+      "impact": "high",
+      "note": "BEA Personal Income & Outlays, 8:30 ET"
+    },
+    {
+      "label": "GDP Q2 (Advance)",
+      "date": "2026-07-30",
       "impact": "medium",
-      "note": "Minutes from June meeting; not a decision"
+      "note": "BEA advance estimate, same morning as PCE"
     },
     {
-      "label": "CPI (Jun)",
-      "date": "2026-07-14",
-      "impact": "high"
+      "label": "Trade Balance (June)",
+      "date": "2026-08-04",
+      "impact": "low"
     },
     {
-      "label": "PPI (Jun)",
-      "date": "2026-07-15",
+      "label": "NFP (July)",
+      "date": "2026-08-07",
+      "impact": "high",
+      "note": "BLS Employment Situation, 8:30 ET"
+    },
+    {
+      "label": "CPI (July)",
+      "date": "2026-08-12",
+      "impact": "high",
+      "note": "BLS, 8:30 ET"
+    },
+    {
+      "label": "PPI (July)",
+      "date": "2026-08-13",
+      "impact": "medium",
+      "note": "BLS, 8:30 ET"
+    },
+    {
+      "label": "PCE (July)",
+      "date": "2026-08-26",
+      "impact": "high",
+      "note": "BEA Personal Income & Outlays"
+    },
+    {
+      "label": "GDP Q2 (Second Estimate)",
+      "date": "2026-08-26",
+      "impact": "medium",
+      "note": "BEA, with corporate profits"
+    },
+    {
+      "label": "Trade Balance (July)",
+      "date": "2026-09-03",
+      "impact": "low"
+    },
+    {
+      "label": "NFP (August)",
+      "date": "2026-09-04",
+      "impact": "high",
+      "note": "BLS Employment Situation"
+    },
+    {
+      "label": "PPI (August)",
+      "date": "2026-09-10",
       "impact": "medium"
     },
     {
-      "label": "FOMC Decision",
-      "date": "2026-07-29",
+      "label": "CPI (August)",
+      "date": "2026-09-11",
+      "impact": "high"
+    },
+    {
+      "label": "FOMC",
+      "date": "2026-09-16",
       "impact": "high",
-      "note": "Rate decision; two-day meeting Jul 28-29"
-    },
-    {
-      "label": "Core PCE (Jun)",
-      "date": "2026-07-30",
-      "impact": "high"
-    },
-    {
-      "label": "NFP (Jul)",
-      "date": "2026-08-07",
-      "impact": "high"
+      "note": "Sep 15-16 meeting; SEP/dot plot release"
     }
   ],
-  "updated_at": "2026-06-29T15:16:52.898718Z"
+  "updated_at": "2026-07-20T17:49:43.113627Z"
 }
