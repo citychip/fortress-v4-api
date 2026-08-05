@@ -1,42 +1,4 @@
 {
-  "alerts": [
-    {
-      "id": "baa3bc98",
-      "ticker": "MSFT",
-      "alert_type": "close_above",
-      "threshold": 395.0,
-      "message": "MSFT daily close ≥ $395 — bounced into the 395-410 LEAP-trim zone (50SMA $409 / WMA62 $403 resistance retest). Trim a Jan'28 LEAP toward the 20% concentration target.",
-      "urgency": "watch",
-      "position_id": null,
-      "action_mode": "close",
-      "triggered": true,
-      "triggered_at": "2026-07-15T21:15:00.209588+00:00",
-      "snoozed": true,
-      "snoozed_at": "2026-07-21T17:45:29.079456+00:00",
-      "created_at": "2026-06-30T14:06:18.880881+00:00",
-      "last_close": 395.63,
-      "last_close_date": "2026-07-15",
-      "triggered_close": 395.63,
-      "triggered_close_date": "2026-07-15",
-      "updated_at": "2026-07-21T17:45:29.079469+00:00"
-    },
-    {
-      "id": "e0669078",
-      "ticker": "MSFT",
-      "alert_type": "weekly_close_below",
-      "threshold": 383.0,
-      "message": "MSFT weekly (Friday) close < $383 — v3.11 weekly-close de-risk: cut the Jan'28 310/450 vertical 50% on Monday. Fires on the Friday bar only (immune to intraday wicks); supersedes the deleted daily 382/375 rules.",
-      "urgency": "watch",
-      "position_id": null,
-      "action_mode": "close",
-      "triggered": false,
-      "triggered_at": null,
-      "snoozed": false,
-      "snoozed_at": null,
-      "created_at": "2026-07-12T09:54:18.686643+00:00",
-      "last_close": 492.81,
-      "last_close_date": "2026-08-04"
-    }
-  ],
-  "_last_updated": "2026-08-05T14:30:00.004158+00:00"
+  "alerts": [],
+  "_last_updated": "2026-08-05T14:35:00.003158+00:00"
 }

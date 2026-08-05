@@ -97,7 +97,7 @@
 - **SPY hedge trim — DO POST-NFP (Aug 7).** B-2 verdict OVER (max-payout ~$63.5k ≈ 115–118% of engine $-delta vs 25–33% band); the rally already dragged β-Δ to −24 (near-neutral) so it's self-correcting, but the hedge still bleeds theta (−$46/day book) and drags on risk-on days. Trim a leg (Sep 745/700 stack) AFTER Friday's payrolls+tariffs binary, not before.
 - **Second pacing slot OPEN (1/2 used).** Energy-crush redeploy #2 candidate — but **⚠ MPC/OXY/PSX had NOT actually crushed as of 08-05**: MPC IV-rank 90.7 at the 52w high = earnings still PENDING (yfinance feed shows a gap: last May 5, next Nov 3, no Aug date — the elevated IV is the decisive tell). **DVN rejected (options untradeable, 27/32 strikes wide); ADP/PNC rejected (OTM puts 12–25% wide, §4 block).** Re-check MPC/OXY/PSX IV *after* they genuinely report, then price an XOM-style bull put. Don't sell into unconfirmed earnings.
 - **Watch AMZN** — short Jan'28 280C now ~$5 ITM (AMZN ~$285); the "next MSFT-lite." Vertical-exempt so no stop flag; act only if it keeps running toward the same capped-short problem.
-- **Clean the 2 stale MSFT conditional alerts** (`baa3bc98`, `e0669078`) — both moot now that MSFT is closed (see Active Conditional Alerts).
+- ✅ **DONE 08-05 — deleted the 2 stale MSFT conditional alerts** (`baa3bc98`, `e0669078`); no conditional alerts remain.
 
 1. **VWCE seed 1 — DEFERRED (unfunded).** The ~€5.5k that was earmarked for the seed was **withdrawn to checking for the holiday (07-16)** — EUR cash is now €0.4k. Re-funding is fresh from USD→EUR whenever the seed is revisited (Bucket A target 20% NLV); not an active item.
 2. ✅ **DONE 07-12 — MSFT `weekly_close_below 383` alert created (`e0669078`)**, retires the manual Friday check. `baa3bc98` (≥395 trim) kept.
@@ -121,8 +121,8 @@
 ## Active Conditional Alerts
 | ID | Ticker | Trigger | Status | Note |
 |---|---|---|---|---|
-| `baa3bc98` | MSFT | close_above 395 | **MOOT — DELETE (MSFT closed 08-03)** | Position no longer exists; the trim rationale is void. Clear it next session. |
-| `e0669078` | MSFT | weekly_close_below 383 | **MOOT — DELETE (MSFT closed 08-03)** | The 310/450 vertical it guarded is gone (PMCC closed). Clear it next session. |
+| ~~`baa3bc98`~~ | MSFT | close_above 395 | **DELETED 08-05** | MSFT closed 08-03; trim rationale void. Removed. |
+| ~~`e0669078`~~ | MSFT | weekly_close_below 383 | **DELETED 08-05** | Guarded the now-closed 310/450 vertical. Removed. (No conditional alerts remain.) |
 | ~~`f9be085a`~~ | MSFT | close_below 382 | **DELETED 07-08** | Daily-close rule superseded by the ONE weekly rule. |
 | ~~`de612a78`~~ | MSFT | close_below 375 | **DELETED 07-08** | Same — superseded by the weekly rule. |
 
