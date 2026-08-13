@@ -1,85 +1,53 @@
 {
   "events": [
     {
-      "label": "FOMC",
-      "date": "2026-07-29",
-      "impact": "high",
-      "note": "Jul 28-29 meeting; decision + presser 7/29. No SEP."
-    },
-    {
-      "label": "PCE (June)",
-      "date": "2026-07-30",
-      "impact": "high",
-      "note": "BEA Personal Income & Outlays, 8:30 ET"
-    },
-    {
-      "label": "GDP Q2 (Advance)",
-      "date": "2026-07-30",
-      "impact": "medium",
-      "note": "BEA advance estimate, same morning as PCE"
-    },
-    {
-      "label": "Trade Balance (June)",
-      "date": "2026-08-04",
-      "impact": "low"
-    },
-    {
-      "label": "NFP (July)",
-      "date": "2026-08-07",
-      "impact": "high",
-      "note": "BLS Employment Situation, 8:30 ET"
-    },
-    {
       "label": "CPI (July)",
       "date": "2026-08-12",
       "impact": "high",
-      "note": "BLS, 8:30 ET"
+      "note": "BLS 8:30 ET; July CPI"
     },
     {
       "label": "PPI (July)",
       "date": "2026-08-13",
       "impact": "medium",
-      "note": "BLS, 8:30 ET"
+      "note": "BLS 8:30 ET; July PPI"
     },
     {
-      "label": "PCE (July)",
+      "label": "PCE / Personal Income & Outlays (July)",
       "date": "2026-08-26",
       "impact": "high",
-      "note": "BEA Personal Income & Outlays"
+      "note": "BEA 8:30 ET; Fed's preferred inflation gauge"
     },
     {
-      "label": "GDP Q2 (Second Estimate)",
-      "date": "2026-08-26",
+      "label": "JOLTS (July)",
+      "date": "2026-09-01",
       "impact": "medium",
-      "note": "BEA, with corporate profits"
+      "note": "BLS 10:00 ET; job openings"
     },
     {
-      "label": "Trade Balance (July)",
-      "date": "2026-09-03",
-      "impact": "low"
-    },
-    {
-      "label": "NFP (August)",
+      "label": "NFP / Employment Situation (August)",
       "date": "2026-09-04",
       "impact": "high",
-      "note": "BLS Employment Situation"
+      "note": "BLS 8:30 ET; jobs report"
     },
     {
       "label": "PPI (August)",
       "date": "2026-09-10",
-      "impact": "medium"
+      "impact": "medium",
+      "note": "BLS 8:30 ET; August PPI"
     },
     {
       "label": "CPI (August)",
       "date": "2026-09-11",
-      "impact": "high"
+      "impact": "high",
+      "note": "BLS 8:30 ET; August CPI"
     },
     {
-      "label": "FOMC",
+      "label": "FOMC decision",
       "date": "2026-09-16",
       "impact": "high",
-      "note": "Sep 15-16 meeting; SEP/dot plot release"
+      "note": "2-day meeting Sep 15-16; decision + SEP/dot plot 2:00 ET"
     }
   ],
-  "updated_at": "2026-07-20T17:49:43.113627Z"
+  "updated_at": "2026-08-10T10:42:27.375164Z"
 }

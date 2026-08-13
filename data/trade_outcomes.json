@@ -105,7 +105,19 @@
       "exit_reason": "de_gamma_pre_cpi",
       "notes": "AMD Jul31'26 450/430 bull put credit spread, x1 (NOT x7 \u2014 prior handoff size was a mislog; TWS confirmed 1 combo). Opened at 4.579 credit; closed BTC 450P/STC 430P at 4.74 debit (filled better than 4.95 limit). Deep-OTM (spot ~512) but IV ~100%+ from pre-CPI vol bid prevented theta decay, so exited ~flat-to-small-loss to strip gamma/vega before Jul 14 CPI. Roll not permitted \u2014 Jul31 expiry would span AMD's early-Aug earnings.",
       "logged_at": "2026-07-08T18:41:39.144957Z"
+    },
+    {
+      "ticker": "SPY",
+      "strategy": "hedge_trim_bear_put",
+      "closed": "2026-08-13",
+      "realized_pnl": -1144.13,
+      "exit_reason": "hedge_trim_bleed_reduction",
+      "notes": "Closed 2 of 6 Sep18 745/700 SPY hedge spreads to cut theta bleed (\u221248.8\u2192\u221229.2/day) and pull B-2 toward band (87%\u219272.9%). Fill 2.59 credit (~$518 gross); realized loss is accounting vs ~$16 cost basis on the long 745Ps. Hedge/risk-management close, not an income round-trip.",
+      "logged_at": "2026-08-13T15:23:32.323932Z",
+      "dte_at_entry": 38,
+      "entry_conditions_source": "auto_captured",
+      "opened": "2026-08-11"
     }
   ],
-  "updated_at": "2026-07-08T18:41:39.146389Z"
+  "updated_at": "2026-08-13T15:23:32.327172Z"
 }
